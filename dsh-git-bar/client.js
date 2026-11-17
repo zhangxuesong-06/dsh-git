@@ -51,6 +51,7 @@ window.__ModuleLoader__.load({
     var GRAPH_LANE_INSET = 8
     var GRAPH_STAGGER_MS = 10
     var GRAPH_STAGGER_CAP = 12
+    var GRAPH_PAGE_ROWS = 6
     var LANE_COUNT = 8
     var POLL_COLLAPSED = 20000
     var POLL_EXPANDED = 5000
@@ -113,6 +114,7 @@ window.__ModuleLoader__.load({
       commitChip: '提交',
       graphTitle: '图谱',
       openGraph: '打开图谱',
+      reviewOpened: '已在右侧栏打开审查',
       switchTo: '切换到',
       detachedHead: '游离 HEAD',
       headDetached: '游离 HEAD',
@@ -173,6 +175,7 @@ window.__ModuleLoader__.load({
       commitChip: 'Commit',
       graphTitle: 'Graph',
       openGraph: 'Open graph',
+      reviewOpened: 'Opened in the review tab',
       switchTo: 'Switch to',
       detachedHead: 'Detached HEAD',
       headDetached: 'Detached HEAD',
@@ -924,7 +927,7 @@ window.__ModuleLoader__.load({
       '.gitbar-picker-error{display:flex;align-items:flex-start;gap:6px;margin:4px 8px 6px;padding:6px 8px;border:1px solid var(--dsw-alias-state-error-primary);border-radius:8px;color:var(--dsw-alias-state-error-primary);font-size:11.5px}',
       '.gitbar-picker-errmsg{flex:1 1 auto;min-width:0;white-space:pre-wrap}',
       '.gitbar-switch-detail{flex:1 1 auto;min-width:0;margin:0;max-height:96px;overflow:auto;font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:11px;color:var(--dsw-alias-label-secondary);white-space:pre-wrap}',
-      '.gitbar-commit-detail{display:flex;flex-direction:column;gap:6px;padding:6px 8px 8px;animation:gitbar-detail-in 180ms cubic-bezier(0.2,0,0,1) both}',
+      '.gitbar-commit-detail{display:flex;flex-direction:column;gap:6px;padding:6px 8px 8px;min-height:0;animation:gitbar-detail-in 180ms cubic-bezier(0.2,0,0,1) both}',
       '@keyframes gitbar-detail-in{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}',
       '.gitbar-commit-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap}',
       '.gitbar-commit-hash{font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
@@ -975,7 +978,13 @@ window.__ModuleLoader__.load({
       '.gitbar-graph-status-error{color:var(--dsw-alias-state-error-primary)}',
       '.gitbar-graph-status-text{flex:1 1 auto;min-width:0;white-space:pre-wrap}',
       '.gitbar-graph-status-detail{margin:2px 0 0;max-height:82px;overflow:auto;font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:10.5px;line-height:1.4;white-space:pre-wrap;color:var(--dsw-alias-label-secondary)}',
-      '.gitbar-graph-body{position:relative;flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}',
+      '.gitbar-body-graph{overflow:hidden}',
+      '.gitbar-graph-body{position:relative;flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l2) transparent}',
+      '.gitbar-graph-body:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-graph-body::-webkit-scrollbar{width:8px;height:8px}',
+      '.gitbar-graph-body::-webkit-scrollbar-track{background:transparent}',
+      '.gitbar-graph-body::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l2);border-radius:4px}',
+      '.gitbar-graph-body::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-label-secondary)}',
       '.gitbar-graph-canvas{position:absolute;top:0;left:8px;pointer-events:none}',
       '.gitbar-graph-rows{position:relative;z-index:1}',
       '.gitbar-graph-item{display:flex;flex-direction:column;border-bottom:1px solid var(--dsw-alias-border-l1)}',
@@ -1370,9 +1379,6 @@ window.__ModuleLoader__.load({
       var payloadHook = useState(null)
       var payload = payloadHook[0]
       var setPayload = payloadHook[1]
-      var scrollHook = useState(null)
-      var scroll = scrollHook[0]
-      var setScroll = scrollHook[1]
       var copiedHook = useState(false)
       var copied = copiedHook[0]
       var setCopied = copiedHook[1]
@@ -1422,12 +1428,14 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * A commit file row: hand off to the Sidebar review for that file in that
-       * commit; when the Sidebar is unavailable, scroll the patch to the file.
+       * A commit file row: hand the target to the capsule, which opens the
+       * Sidebar review (or the in-panel review when it is unavailable) and
+       * keeps the popover open.
        */
       function pickFile(targetFile, fullHash, shortHash) {
         var file = targetFile && typeof targetFile === 'object' ? targetFile : {}
         var path = toText(file.path)
+        if (!path) return
         var target = {
           mode: 'commit',
           path: path,
@@ -1435,16 +1443,11 @@ window.__ModuleLoader__.load({
           hashShort: toText(shortHash) || (toText(fullHash) || hash).slice(0, 7),
           sessionId: sessionId
         }
-        if (path && openSidebarReview(target)) {
-          try {
-            if (typeof props.onHandoff === 'function') props.onHandoff()
-          } catch (error) {
-            /* ignore */
-          }
-          return
+        try {
+          if (typeof props.onHandoff === 'function') props.onHandoff(target)
+        } catch (error) {
+          /* ignore */
         }
-        var tick = scroll && toNumber(scroll.tick) ? toNumber(scroll.tick) : 0
-        setScroll({ path: path, tick: tick + 1 })
       }
 
       function goBack() {
@@ -1563,70 +1566,30 @@ window.__ModuleLoader__.load({
           bodyText ? h('div', { className: 'gitbar-commit-body', title: bodyText }, bodyText) : null,
           files.length > 0
             ? h('div', { className: 'gitbar-files' }, h('div', { className: 'gitbar-files-title' }, t('files') + ' · ' + files.length), fileNodes)
-            : null,
-          h(DiffBody, {
-            t: t,
-            path: '',
-            diff: { ok: true, text: toText(data.diff), truncated: data.truncated === true },
-            scrollTo: scroll
-          })
+            : null
         )
       } catch (error) {
         return h('div', { className: 'gitbar-commit-detail' }, h('div', { className: 'gitbar-empty' }, t('error')))
       }
     }
 
-    /** The unified diff body: per-file segments, line numbers, tints, scroll-to-file. */
+    /** The unified diff body: per-file segments, line numbers, tints. */
     function DiffBody(props) {
       var t = props.t || translate
       var diff = props.diff
-      var scrollTo = props.scrollTo
-      var containerRef = useRef(null)
-      var pathsRef = useRef([])
-      var tick = scrollTo && typeof scrollTo === 'object' ? toNumber(scrollTo.tick) : null
-      var targetPath = scrollTo && typeof scrollTo === 'object' ? toText(scrollTo.path) : ''
-
-      useEffect(function () {
-        if (!scrollTo || !tick) return
-        var root = containerRef.current
-        if (!root || typeof root.querySelector !== 'function') return
-        var paths = pathsRef.current || []
-        var index = -1
-        for (var at = 0; at < paths.length; at += 1) {
-          if (paths[at] === targetPath) {
-            index = at
-            break
-          }
-        }
-        if (index < 0) index = 0
-        var node = null
-        try {
-          node = root.querySelector('[data-gitbar-file="' + index + '"]')
-        } catch (error) {
-          node = null
-        }
-        if (node && typeof node.scrollIntoView === 'function') {
-          try {
-            node.scrollIntoView({ block: 'start' })
-          } catch (error) {
-            /* ignore */
-          }
-        }
-      }, [tick, targetPath])
 
       try {
         if (!diff || diff.loading === true) return h('div', { className: 'gitbar-empty' }, t('loading'))
         if (diff.ok !== true) return h('div', { className: 'gitbar-empty' }, t('error'))
         var parsed = parseUnifiedDiff(diff.text)
         var filePaths = parsed.filePaths || []
-        pathsRef.current = filePaths
         var rows = parsed.rows
         if (rows.length === 0) return h('div', { className: 'gitbar-empty' }, t('noDiff'))
 
         var capped = rows.length > MAX_DIFF_ROWS
         var visible = capped ? rows.slice(0, MAX_DIFF_ROWS) : rows
 
-        // Group rows into per-file segments so a file row can scroll to its patch.
+        // Group rows into per-file segments so multi-file patches get headings.
         var segments = []
         for (var index = 0; index < visible.length; index += 1) {
           var row = visible[index]
@@ -1665,7 +1628,7 @@ window.__ModuleLoader__.load({
           segmentNodes.push(
             h(
               'div',
-              { className: 'gitbar-diff-file', key: 'segment-' + segmentIndex, 'data-gitbar-file': String(segmentIndex) },
+              { className: 'gitbar-diff-file', key: 'segment-' + segmentIndex },
               multiFile && segmentPath ? h('div', { className: 'gitbar-diff-filehead' }, segmentPath) : null,
               h('div', { className: 'gitbar-difflines' }, segmentRows)
             )
@@ -1675,7 +1638,7 @@ window.__ModuleLoader__.load({
         var summary = multiFile ? '' : diffSummaryText(parsed.summary, props.path)
         return h(
           'div',
-          { className: 'gitbar-diff', ref: containerRef },
+          { className: 'gitbar-diff' },
           summary ? h('div', { className: 'gitbar-diffhead', key: 'diffhead' }, summary) : null,
           h('div', { className: 'gitbar-diff-files', key: 'files' }, segmentNodes),
           capped || diff.truncated === true ? h('div', { className: 'gitbar-foot', key: 'difffoot' }, t('truncated')) : null
@@ -1693,6 +1656,8 @@ window.__ModuleLoader__.load({
       var untracked = props.untracked === true
       var sessionId = toText(props.sessionId)
       var refreshToken = toNumber(props.token) || 0
+      var hash = toText(props.hash)
+      var hashShort = toText(props.hashShort)
 
       var diffHook = useState(null)
       var diff = diffHook[0]
@@ -1722,22 +1687,30 @@ window.__ModuleLoader__.load({
           setDiff({ ok: false })
           return function () {}
         }
-        return requestJson(
-          withQuery(DIFF_URL, [
+        var url = hash
+          ? withQuery(COMMIT_DIFF_URL, [
+            { key: 'session', value: sessionId },
+            { key: 'path', value: path },
+            { key: 'hash', value: hash }
+          ])
+          : withQuery(DIFF_URL, [
             { key: 'session', value: sessionId },
             { key: 'path', value: path },
             { key: 'staged', value: staged ? '1' : '0' }
-          ]),
-          null,
-          function (payload) {
-            if (payload.ok === true && typeof payload.diff === 'string') {
-              setDiff({ ok: true, text: payload.diff, truncated: payload.truncated === true, untracked: payload.untracked === true })
-            } else {
-              setDiff({ ok: false })
-            }
+          ])
+        return requestJson(url, null, function (payload) {
+          if (payload.ok === true && typeof payload.diff === 'string') {
+            setDiff({
+              ok: true,
+              text: payload.diff,
+              truncated: payload.truncated === true,
+              untracked: hash ? false : payload.untracked === true
+            })
+          } else {
+            setDiff({ ok: false })
           }
-        )
-      }, [path, staged, sessionId, refreshToken])
+        })
+      }, [path, staged, sessionId, refreshToken, hash])
 
       function onCopy() {
         try {
@@ -1785,6 +1758,7 @@ window.__ModuleLoader__.load({
             h('span', { className: 'gitbar-path', title: path }, path),
             staged ? h('span', { className: 'gitbar-chip' }, t('staged')) : null,
             untracked ? h('span', { className: 'gitbar-chip' }, t('untracked')) : null,
+            hash ? h('span', { className: 'gitbar-chip', title: hash }, hashShort || hash.slice(0, 7)) : null,
             h(
               'button',
               {
@@ -2312,6 +2286,62 @@ window.__ModuleLoader__.load({
       var status = props.status
       var confirmRow = toText(props.confirmRow)
       var confirmKind = toText(props.confirmKind)
+
+      // Keep the scroller keyboard-navigable: PageUp/PageDown/Home/End only.
+      function onBodyKeyDown(event) {
+        try {
+          if (!event) return
+          var target = event.target
+          if (target && typeof target.closest === 'function' && target.closest('button,input,select,textarea,a')) return
+          var node = props.listRef && props.listRef.current
+          if (!node || typeof node.scrollTop !== 'number') return
+          var key = event.key
+          var code = event.keyCode
+          var page = GRAPH_ROW_HEIGHT * GRAPH_PAGE_ROWS
+          var top = toNumber(node.scrollTop) || 0
+          if (key === 'PageDown' || code === 34) node.scrollTop = top + page
+          else if (key === 'PageUp' || code === 33) node.scrollTop = Math.max(0, top - page)
+          else if (key === 'Home' || code === 36) node.scrollTop = 0
+          else if (key === 'End' || code === 35) node.scrollTop = toNumber(node.scrollHeight) || 0
+          else return
+          if (typeof event.preventDefault === 'function') event.preventDefault()
+        } catch (error) {
+          /* ignore */
+        }
+      }
+
+      function scroller(children) {
+        return h(
+          'div',
+          { className: 'gitbar-graph-body', ref: props.listRef, tabIndex: 0, onKeyDown: onBodyKeyDown },
+          children
+        )
+      }
+
+      // A long history opens at HEAD instead of at the top of the list.
+      useEffect(function () {
+        if (props.autoScroll !== true) return
+        var node = props.listRef && props.listRef.current
+        if (!node || typeof node.scrollTop !== 'number') return
+        var headIndex = -1
+        for (var at = 0; at < commits.length; at += 1) {
+          var refs = commits[at] && commits[at].refs
+          if (!refs || typeof refs.length !== 'number') continue
+          for (var refAt = 0; refAt < refs.length; refAt += 1) {
+            if (refs[refAt] && refs[refAt].kind === 'head') {
+              headIndex = at
+              break
+            }
+          }
+          if (headIndex >= 0) break
+        }
+        try {
+          node.scrollTop = headIndex > 0 ? Math.max(0, headIndex * GRAPH_ROW_HEIGHT - GRAPH_ROW_HEIGHT) : 0
+        } catch (error) {
+          /* ignore */
+        }
+      }, [props.payload, props.autoScroll])
+
       try {
         var currentChip = !data
           ? h('span', { className: 'gitbar-chip gitbar-graph-current' }, t('loading'))
@@ -2440,11 +2470,9 @@ window.__ModuleLoader__.load({
               h('div', { className: 'gitbar-graph-skeleton', key: 'skeleton-' + skeleton }, h('span', null), h('span', null), h('span', null))
             )
           }
-          body = h('div', { className: 'gitbar-graph-body', ref: props.listRef }, h('div', { className: 'gitbar-graph-empty' }, t('loading')), skeletons)
+          body = scroller([h('div', { className: 'gitbar-graph-empty', key: 'loading' }, t('loading'))].concat(skeletons))
         } else if (!data) {
-          body = h(
-            'div',
-            { className: 'gitbar-graph-body', ref: props.listRef },
+          body = scroller(
             h(
               'div',
               { className: 'gitbar-graph-empty' },
@@ -2467,7 +2495,7 @@ window.__ModuleLoader__.load({
             )
           )
         } else if (data.empty === true || commits.length === 0) {
-          body = h('div', { className: 'gitbar-graph-body', ref: props.listRef }, h('div', { className: 'gitbar-graph-empty' }, t('emptyGraph')))
+          body = scroller(h('div', { className: 'gitbar-graph-empty' }, t('emptyGraph')))
         } else {
           var items = []
           for (var at = 0; at < commits.length; at += 1) {
@@ -2644,12 +2672,10 @@ window.__ModuleLoader__.load({
               )
             )
           }
-          body = h(
-            'div',
-            { className: 'gitbar-graph-body', ref: props.listRef },
-            h(GraphCanvas, { commits: commits, columns: columns, geometry: geometry }),
-            h('div', { className: 'gitbar-graph-rows' }, items)
-          )
+          body = scroller([
+            h(GraphCanvas, { key: 'canvas', commits: commits, columns: columns, geometry: geometry }),
+            h('div', { className: 'gitbar-graph-rows', key: 'rows' }, items)
+          ])
         }
 
         return h('div', { className: 'gitbar-graph-table' }, toolbar, statusNode, body)
@@ -2697,6 +2723,7 @@ window.__ModuleLoader__.load({
       var listRef = useRef(null)
       var scrollRef = useRef(null)
       var switchAbort = useRef(null)
+      var headScrolled = useRef(false)
       var hostPrevious = ''
 
       // Seed the remembered branch from the capsule's own state.
@@ -2747,6 +2774,13 @@ window.__ModuleLoader__.load({
           }
         }
         scrollRef.current = null
+      }, [payload])
+
+      // Only the first successful load auto-scrolls to HEAD; later refreshes keep the offset.
+      useEffect(function () {
+        if (!payload || payload.ok !== true) return
+        if (headScrolled.current) return
+        headScrolled.current = true
       }, [payload])
 
       // Stop everything this mode started when it unmounts.
@@ -2923,6 +2957,7 @@ window.__ModuleLoader__.load({
             pending: pending,
             status: status,
             escapeTarget: escapeTarget,
+            autoScroll: headScrolled.current !== true,
             listRef: listRef,
             onRefresh: function () {
               rememberScroll()
@@ -3249,12 +3284,14 @@ window.__ModuleLoader__.load({
             sessionId: props.sessionId,
             hash: view.hash,
             onBack: props.onCommitBack,
-            onHandoff: props.onHandoff
+            onHandoff: props.onCommitFile
           })
         } else if (mode === 'review') {
           body = h(DiffReview, {
             t: t,
             path: view.path,
+            hash: toText(view.hash),
+            hashShort: toText(view.hashShort),
             staged: view.staged === true,
             untracked: view.untracked === true,
             sessionId: props.sessionId,
@@ -3288,7 +3325,7 @@ window.__ModuleLoader__.load({
         var bodyNode = h(
           'div',
           {
-            className: 'gitbar-body' + (props.bodyAnim ? ' ' + props.bodyAnim : ''),
+            className: 'gitbar-body' + (mode === 'graph' ? ' gitbar-body-graph' : '') + (props.bodyAnim ? ' ' + props.bodyAnim : ''),
             key: 'body-' + (toNumber(props.bodyKey) || 0),
             onAnimationEnd: function (event) {
               try {
@@ -3369,6 +3406,7 @@ window.__ModuleLoader__.load({
       var mountedRef = useRef(true)
       var closeTimerRef = useRef(null)
       var flashTimerRef = useRef(null)
+      var settleRef = useRef(null)
       var previousCountRef = useRef(-1)
 
       var dataHook = useState(null)
@@ -3589,6 +3627,50 @@ window.__ModuleLoader__.load({
         function onScroll() {
           update(false)
         }
+        // Track the column while the right Sidebar opens/closes: the pill moves
+        // left, so a single measurement would leave the panel covering it.
+        var settleFrames = []
+        var settleTimers = []
+        function settleAnchor() {
+          update(true)
+          try {
+            if (typeof requestAnimationFrame === 'function') {
+              for (var frameAt = 0; frameAt < 10; frameAt += 1) {
+                settleFrames.push(
+                  requestAnimationFrame(function () {
+                    update(true)
+                  })
+                )
+              }
+            }
+          } catch (error) {
+            /* frames are best-effort */
+          }
+          try {
+            settleTimers.push(setTimeout(function () {
+              update(true)
+            }, 180))
+            settleTimers.push(setTimeout(function () {
+              update(true)
+            }, 360))
+          } catch (error) {
+            /* timers are best-effort */
+          }
+        }
+        settleRef.current = settleAnchor
+        var observer = null
+        try {
+          var pill = triggerRef.current
+          var host = pill && pill.parentElement ? pill.parentElement : pill
+          if (host && typeof ResizeObserver === 'function') {
+            observer = new ResizeObserver(function () {
+              update(true)
+            })
+            observer.observe(host)
+          }
+        } catch (error) {
+          observer = null
+        }
         update(true)
         try {
           window.addEventListener('resize', onResize)
@@ -3597,6 +3679,29 @@ window.__ModuleLoader__.load({
           /* ignore */
         }
         return function () {
+          settleRef.current = null
+          for (var frameIndex = 0; frameIndex < settleFrames.length; frameIndex += 1) {
+            try {
+              if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(settleFrames[frameIndex])
+            } catch (error) {
+              /* ignore */
+            }
+          }
+          settleFrames.length = 0
+          for (var timerIndex = 0; timerIndex < settleTimers.length; timerIndex += 1) {
+            try {
+              clearTimeout(settleTimers[timerIndex])
+            } catch (error) {
+              /* ignore */
+            }
+          }
+          settleTimers.length = 0
+          try {
+            if (observer) observer.disconnect()
+          } catch (error) {
+            /* ignore */
+          }
+          observer = null
           try {
             window.removeEventListener('resize', onResize)
             window.removeEventListener('scroll', onScroll, true)
@@ -3691,10 +3796,6 @@ window.__ModuleLoader__.load({
         }, PANEL_EXIT_MS)
       }
 
-      function closePanelInstant() {
-        finishClose()
-      }
-
       function onToggle() {
         try {
           if (closing) {
@@ -3770,11 +3871,7 @@ window.__ModuleLoader__.load({
           setBranchesToken(function (value) { return value + 1 })
           setView(LIST_VIEW)
           loadRef.current()
-          setFlash(t('switched') + ' ' + toText(branchName))
-          clearFlashTimer()
-          flashTimerRef.current = setTimeout(function () {
-            if (mountedRef.current) setFlash('')
-          }, FLASH_MS)
+          flashMessage(t('switched') + ' ' + toText(branchName))
         } catch (error) {
           /* the switch itself already happened */
         }
@@ -3806,21 +3903,78 @@ window.__ModuleLoader__.load({
       function onOpenFile(file, groupKey) {
         try {
           var target = file && typeof file === 'object' ? file : {}
-          var review = {
+          var path = toText(target.path)
+          if (!path) return
+          handToReview({
             mode: 'worktree',
-            path: toText(target.path),
+            path: path,
             staged: groupKey === 'staged',
             untracked: groupKey === 'untracked' || target.untracked === true,
             sessionId: sessionRef.current
-          }
-          if (openSidebarReview(review)) {
-            closePanelInstant()
-            return
-          }
-          setView({ mode: 'review', path: review.path, staged: review.staged, untracked: review.untracked })
-          setToken(function (value) { return value + 1 })
+          })
         } catch (error) {
           /* stay on the list */
+        }
+      }
+
+      function onCommitFile(target) {
+        try {
+          var safe = target && typeof target === 'object' ? target : {}
+          var path = toText(safe.path)
+          if (!path) return
+          handToReview({
+            mode: 'commit',
+            path: path,
+            hash: toText(safe.hash),
+            hashShort: toText(safe.hashShort),
+            sessionId: sessionRef.current
+          })
+        } catch (error) {
+          /* ignore */
+        }
+      }
+
+      /**
+       * One hand-off path for both review kinds: open the Sidebar tab (or the
+       * in-panel review when it is unavailable) and keep the popover open, so
+       * the next file is one click away; the flash confirms where it went.
+       */
+      function handToReview(review) {
+        var handed = false
+        try {
+          handed = openSidebarReview(review)
+        } catch (error) {
+          handed = false
+        }
+        if (handed) {
+          flashMessage(t('reviewOpened'))
+          try {
+            if (settleRef.current) settleRef.current()
+          } catch (error) {
+            /* ignore */
+          }
+          return
+        }
+        setView({
+          mode: 'review',
+          path: review.path,
+          hash: review.hash,
+          hashShort: review.hashShort,
+          staged: review.staged === true,
+          untracked: review.untracked === true
+        })
+        setToken(function (value) { return value + 1 })
+      }
+
+      function flashMessage(text) {
+        try {
+          setFlash(toText(text))
+          clearFlashTimer()
+          flashTimerRef.current = setTimeout(function () {
+            if (mountedRef.current) setFlash('')
+          }, FLASH_MS)
+        } catch (error) {
+          /* ignore */
         }
       }
 
@@ -3905,7 +4059,7 @@ window.__ModuleLoader__.load({
             onOpenFile: onOpenFile,
             onOpenCommit: onOpenCommit,
             onCommitBack: onCommitBack,
-            onHandoff: closePanelInstant,
+            onCommitFile: onCommitFile,
             onTogglePicker: onTogglePicker,
             onOpenGraph: onOpenGraph,
             onOpenPicker: onTogglePicker,
