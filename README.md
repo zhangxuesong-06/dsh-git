@@ -123,4 +123,9 @@ plugin_manager  action=remove_bundle  target=@local/dsh-git-bar
 
 ## 许可
 
-本仓库尚未附许可文件；如果要公开发布，请补充 `LICENSE`（例如 MIT）后再推送。
+[MIT](LICENSE) © 2026 dsh-git-bar contributors
+
+你可以自由使用、修改、分发（包括商用），只需在所有副本或实质部分中保留上面的版权与许可声明；软件按「现状」
+提供，不带任何担保。想换成个人或公司名义，只改 `LICENSE` 第一行的版权持有人即可（已发布的 MIT 授权不可撤回，
+但版权署名可以在后续提交里更正）。
+

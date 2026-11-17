@@ -2,6 +2,7 @@
   "name": "@local/dsh-git-bar",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Session-header git capsule: live branch and working-tree changes, expandable, with per-file diff review.",
   "type": "module",
   "exports": {
