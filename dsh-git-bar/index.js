@@ -10,11 +10,14 @@
  */
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
-import { writeFile } from 'node:fs/promises'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 
-/** Every route this plugin owns. Prefix matching keeps one registration. */
-const PREFIX = '/dsh-git-bar/'
+/**
+ * Every route this plugin owns. The route table matches a prefix either
+ * exactly or followed by `/`, so the registered prefix must carry no trailing
+ * slash — `/dsh-git-bar/` would match nothing but itself.
+ */
+const PREFIX = '/dsh-git-bar'
 /** Cap on one diff body; the browser renders text, not megabytes. */
 const MAX_DIFF_CHARS = 400_000
 /** Cap on a synthetic diff built for an untracked file. */
@@ -22,29 +25,70 @@ const MAX_UNTRACKED_CHARS = 60_000
 /** Recent commits listed under the changes. */
 const COMMIT_LIMIT = 12
 
+/** Candidate executables, in order; the app process may not inherit the shell PATH. */
+const GIT_CANDIDATES = [
+  process.env.DSH_GIT_BAR_GIT,
+  'git',
+  'C:\\Program Files\\Git\\cmd\\git.exe',
+  'C:\\Program Files (x86)\\Git\\cmd\\git.exe',
+  '/usr/bin/git',
+  '/usr/local/bin/git',
+].filter((value) => typeof value === 'string' && value.length > 0)
+
+let gitExecutable = null
+
+/** Probe one candidate for a usable git, resolving to its path or null. */
+function usableGit(candidate) {
+  return new Promise((done) => {
+    execFile(candidate, ['--version'], { timeout: 5000, windowsHide: true, encoding: 'utf8' }, (error) => {
+      done(error ? null : candidate)
+    })
+  })
+}
+
+/** Resolve the git executable once, then reuse it for every call. */
+async function resolveGit() {
+  if (gitExecutable !== null) return gitExecutable
+  for (const candidate of GIT_CANDIDATES) {
+    const usable = await usableGit(candidate)
+    if (usable !== null) {
+      gitExecutable = usable
+      return usable
+    }
+  }
+  gitExecutable = 'git'
+  return gitExecutable
+}
+
 /** Run git without a shell and always resolve with a stable shape. */
 function git(cwd, args, timeoutMs = 20_000) {
   return new Promise((done) => {
-    execFile(
-      'git',
-      args,
-      {
-        cwd,
-        encoding: 'utf8',
-        timeout: timeoutMs,
-        windowsHide: true,
-        maxBuffer: 32 * 1024 * 1024,
-      },
-      (error, stdout, stderr) => {
-        const code = error ? (typeof error.code === 'number' ? error.code : 1) : 0
-        done({
-          code,
-          failed: code !== 0,
-          out: typeof stdout === 'string' ? stdout : '',
-          err: typeof stderr === 'string' ? stderr : '',
-        })
-      },
-    )
+    resolveGit()
+      .then((executable) => {
+        execFile(
+          executable,
+          args,
+          {
+            cwd,
+            encoding: 'utf8',
+            timeout: timeoutMs,
+            windowsHide: true,
+            maxBuffer: 32 * 1024 * 1024,
+          },
+          (error, stdout, stderr) => {
+            const code = error ? (typeof error.code === 'number' ? error.code : 1) : 0
+            done({
+              code,
+              failed: code !== 0,
+              out: typeof stdout === 'string' ? stdout : '',
+              err: typeof stderr === 'string' ? stderr : '',
+            })
+          },
+        )
+      })
+      .catch((error) => {
+        done({ code: 1, failed: true, out: '', err: String(error && error.message ? error.message : error) })
+      })
   })
 }
 
@@ -130,21 +174,21 @@ function resolveCwd(ctx, url) {
   return process.cwd()
 }
 
+/** One comparable spelling: forward slashes, no trailing separator. */
+function comparablePath(value) {
+  return value.replace(/\\/g, '/').replace(/\/+$/, '')
+}
+
 /** Reject any path that is absolute or escapes the repository root. */
 function relativePath(requested, root) {
   if (typeof requested !== 'string' || requested.length === 0) return null
   const normalized = requested.replace(/\\/g, '/')
   if (isAbsolute(requested) || /^[a-zA-Z]:/.test(requested)) return null
   if (normalized.split('/').some((segment) => segment === '..')) return null
-  const absolute = resolvePath(root, normalized)
-  const rootWithSep = root.endsWith('/') || root.endsWith('\\') ? root : `${root}${separatorOf(root)}`
-  if (absolute !== root && !absolute.startsWith(rootWithSep)) return null
+  const absolute = comparablePath(resolvePath(comparablePath(root), normalized))
+  const boundary = comparablePath(root)
+  if (absolute !== boundary && !absolute.toLowerCase().startsWith(`${boundary.toLowerCase()}/`)) return null
   return normalized
-}
-
-/** The platform path separator of `root`, inferred from its own spelling. */
-function separatorOf(root) {
-  return root.includes('\\') ? '\\' : '/'
 }
 
 /** Read the complete state the capsule shows in one round trip. */
@@ -287,39 +331,15 @@ async function handle(ctx, req, res) {
   }
 
   const url = new URL(req.url ?? '/', 'http://localhost')
-  if (!url.pathname.startsWith(PREFIX)) {
+  if (url.pathname !== PREFIX && !url.pathname.startsWith(`${PREFIX}/`)) {
     send(404, { ok: false, reason: 'not-found' })
     return
   }
-  const action = url.pathname.slice(PREFIX.length).replace(/\/+$/, '')
+  const action = url.pathname.slice(PREFIX.length).replace(/^\/+/, '').replace(/\/+$/, '')
 
   try {
     if (action === '' || action === 'health') {
       send(200, { ok: true, name: '@local/dsh-git-bar' })
-      return
-    }
-
-    if (action === 'probe') {
-      // Diagnostics: the browser half reports the props it receives once per mount.
-      const chunks = []
-      let size = 0
-      await new Promise((done) => {
-        req.on('data', (chunk) => {
-          size += chunk.length
-          if (size <= 200_000) chunks.push(chunk)
-        })
-        req.on('end', done)
-        req.on('error', done)
-      })
-      const text = Buffer.concat(chunks).toString('utf8')
-      const cwd = resolveCwd(ctx, url)
-      const target = resolvePath(cwd, '.dsh-git-bar-probe.json')
-      try {
-        await writeFile(target, JSON.stringify({ at: new Date().toISOString(), cwd, text }, null, 2), 'utf8')
-        send(200, { ok: true, written: target })
-      } catch (error) {
-        send(200, { ok: false, detail: String(error && error.message ? error.message : error) })
-      }
       return
     }
 
@@ -346,6 +366,13 @@ async function handle(ctx, req, res) {
     send(500, { ok: false, reason: 'internal-error', detail: String(error && error.message ? error.message : error) })
   }
 }
+
+/**
+ * Wait for the HTTP carrier before applying: a plugin that only reads
+ * `ctx.get('webServer')` can run before that service is mounted and then
+ * silently own no route.
+ */
+export const inject = ['webServer']
 
 /** Register the route family; without a Web carrier the plugin stays UI-only. */
 export function apply(ctx) {
