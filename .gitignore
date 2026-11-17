@@ -1,2 +1,37 @@
+# ── 本插件的历史调试产物（已不再生成，保留规则防止误提交） ─────────────
 .acl-reports/
 .scratch/
+.dsh-git-bar-*.json
+.dsh-git-bar-host.log
+
+# ── 日志与临时文件 ─────────────────────────────────────────────────────
+*.log
+*.tmp
+*.bak
+notes.txt
+*.local.md
+
+# ── 依赖与构建产物 ─────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+out/
+*.tsbuildinfo
+.cache/
+
+# ── 环境与凭据：任何时候都不要提交 ─────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials.json
+
+# ── 编辑器与系统 ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
