@@ -610,6 +610,13 @@ async function collectGraph(root, requestedLimit) {
   }
   const columns = assignLanes(rows)
   const shortHead = shortHeadResult.failed ? '' : shortHeadResult.out.trim()
+  const headFullResult = await git(root, ['rev-parse', 'HEAD'])
+  const headFull = headFullResult.failed ? '' : headFullResult.out.trim()
+  for (const row of rows) {
+    // `head` marks the commit the work tree is on, detached or not, so the
+    // browser can highlight it and refuse to "check out" the same commit.
+    row.isHead = headFull !== '' && row.full === headFull
+  }
 
   // A detached HEAD has no branch of its own, so offer the one the user came
   // from: the last reflog entry names it ("checkout: moving from main to …").
@@ -632,6 +639,7 @@ async function collectGraph(root, requestedLimit) {
     current,
     detached: current === '',
     head: shortHead || (rows.length > 0 ? rows[0].hash : ''),
+    headFull,
     previousBranch,
     columns,
     commits: rows,

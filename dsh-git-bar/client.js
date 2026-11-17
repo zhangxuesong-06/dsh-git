@@ -3191,27 +3191,27 @@ window.__ModuleLoader__.load({
           headBits.push(h('span', { className: 'gitbar-upstream', key: 'upstream', title: toText(state.upstream) }, toText(state.upstream)))
         }
 
-        var branchControl = state
-          ? h(
-            'button',
-            {
-              type: 'button',
-              className: 'gitbar-branchbtn',
-              title: mode === 'graph' ? t('backToList') : t('openGraph'),
-              'aria-expanded': mode === 'graph' || mode === 'branches' ? 'true' : 'false',
-              'aria-haspopup': 'dialog',
-              onClick: function () {
-                try {
-                  if (typeof props.onOpenGraph === 'function') props.onOpenGraph()
-                } catch (error) {
-                  /* ignore */
-                }
+        // Always a control, in every state: in graph mode it toggles the body
+        // back to the list even when HEAD is detached or state is unavailable.
+        var branchControl = h(
+          'button',
+          {
+            type: 'button',
+            className: 'gitbar-branchbtn',
+            title: mode === 'graph' ? t('backToList') : t('openGraph'),
+            'aria-expanded': mode === 'graph' || mode === 'branches' ? 'true' : 'false',
+            'aria-haspopup': 'dialog',
+            onClick: function () {
+              try {
+                if (typeof props.onOpenGraph === 'function') props.onOpenGraph()
+              } catch (error) {
+                /* ignore */
               }
-            },
-            h('span', { className: 'gitbar-branchbtn-label' }, branchLabel),
-            caretGlyph(mode === 'branches')
-          )
-          : h('span', { className: 'gitbar-headbranch', title: branchLabel }, branchLabel)
+            }
+          },
+          h('span', { className: 'gitbar-branchbtn-label' }, branchLabel),
+          caretGlyph(mode === 'branches')
+        )
 
         var headRow = h(
           'div',
