@@ -3,7 +3,7 @@
 在会话标题栏右上角的工具区放一枚**可展开的胶囊**，实时显示当前工作区的 **git 分支**与**工作区改动**；展开后可
 分组查看改动文件、最近提交，点分支名打开 **git 图谱**（可切分支 / 切版本），点文件在**右侧栏**看差异审查。
 
-已安装到当前 `desktop` profile（bundle `@local/dsh-git-bar`），随 DSH 启动自动生效。
+已安装到当前 `desktop` profile（bundle `dsh-git-bar`），随 DSH 启动自动生效。
 
 ---
 
@@ -77,7 +77,7 @@
 
 ## 右侧栏标签页（只有审查）
 
-右侧栏只保留**一个**标签类型：**Git 审查**（`@local/dsh-git-bar/review`，`kind: git-review`，地址
+右侧栏只保留**一个**标签类型：**Git 审查**（`dsh-git-bar/review`，`kind: git-review`，地址
 `dsh-resource://git-review/current`）。点文件时用 `ctx.sidebarRight.openResource(address, { params })` 打开并展开
 右栏；`params` 区分 `{ mode:'worktree', path, staged, untracked }` 与 `{ mode:'commit', path, hash, hashShort }`。
 标签内容是同一个 `DiffBody`，只是更宽。该类型还注册了 guide 卡片，所以右侧栏「开始」页有「代码审查」入口；
@@ -92,15 +92,20 @@
 
 ## 文件结构
 
+仓库根目录就是包本体（npm 包名 `dsh-git-bar`）：
+
 ```
-dsh-git-bar/
+dsh-git-bar/            # ← 仓库根 = npm 包
 ├── package.json        # bundle 补丁 + dsh.client 声明（platform: web, inject: ui-conversation）
 ├── cordis.patch.yml    # 插入 id: dsh-git-bar 的 Host 行
 ├── index.js            # Host 半边：会话目录解析 + git 读取/图谱/切换 + 路由
 ├── client.js           # 浏览器半边：胶囊 / 面板 / 图谱 / 差异审查（纯 JS，仅 require('react')）
 ├── locale/en.json      # 插件管理页显示名与描述（英文）
 ├── locale/zh.json      # 插件管理页显示名与描述（中文）
-└── icon.svg            # 插件图标（原始绘制）
+├── icon.svg            # 插件图标（原始绘制）
+├── README.md           # 仓库/npm 主页说明
+├── LICENSE             # MIT
+└── docs/PLUGIN.md      # 本文件
 ```
 
 ## 实现要点
@@ -116,7 +121,7 @@ dsh-git-bar/
 `client.js` 顶部常量：`POLL_COLLAPSED`（收起轮询 20s）、`POLL_EXPANDED`（展开轮询 5s）、`MAX_DIFF_ROWS`（渲染行上限 4000）、
 图谱行高 34px / 泳道宽 14px、图谱宽度 720px（窄屏自动收缩并隐藏作者列）。
 Host 侧位于 `index.js` 顶部：`MAX_DIFF_CHARS`、`COMMIT_LIMIT`、`GRAPH_LIMIT`（默认 120 条）、`MAX_GRAPH_COLUMNS`（默认 8 列），
-以及 git 可执行文件探测顺序 `GIT_CANDIDATES`（可用环境变量 `DSH_GIT_BAR_GIT` 指定，应用进程的 PATH 与终端可能不同）。
+以及 git 可执行文件探测顺序 `GIT_CANDIDATES`（可用环境变量 `DSH_GIT_BIN` 指定，应用进程的 PATH 与终端可能不同）。
 
 ## 已知限制
 
@@ -130,4 +135,4 @@ Host 侧位于 `index.js` 顶部：`MAX_DIFF_CHARS`、`COMMIT_LIMIT`、`GRAPH_LI
 
 ## 卸载
 
-在「设置 → 插件」中停用 `Git 胶囊`，或在本仓库外执行 `plugin_manager` 的 `remove_bundle`（目标 `@local/dsh-git-bar`）。
+在「设置 → 插件」中停用 `Git 胶囊`，或在本仓库外执行 `plugin_manager` 的 `remove_bundle`（目标 `dsh-git-bar`）。

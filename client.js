@@ -13,7 +13,7 @@
  * Hand-written ModuleLoader bundle — no build step, no JSX, only `react`.
  */
 window.__ModuleLoader__.load({
-  id: '@local/dsh-git-bar',
+  id: 'dsh-git-bar',
   factory(require) {
     var React = null
     try {
@@ -64,7 +64,7 @@ window.__ModuleLoader__.load({
     var ROW_STAGGER_MS = 12
     var ROW_STAGGER_CAP = 8
     var FLASH_MS = 1600
-    var REVIEW_TYPE_ID = '@local/dsh-git-bar/review'
+    var REVIEW_TYPE_ID = 'dsh-git-bar/review'
     var REVIEW_KIND = 'git-review'
     var REVIEW_ADDRESS = 'dsh-resource://git-review/current'
     var REVIEW_ADDRESS_PREFIX = 'dsh-resource://git-review/'

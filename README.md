@@ -24,19 +24,31 @@
 
 ## 安装
 
-插件以 **bundle**（保留补丁 + Host 行 + 浏览器半边）的形式安装到当前 DSH profile：
+在 DSH 的 **设置 → 插件 → 添加**（或 `plugin_manager` 工具）里，任选一种：
+
+| 方式 | 输入 |
+| --- | --- |
+| npm 包 | `dsh-git-bar`（或锁定版本 `dsh-git-bar@1.0.0`） |
+| GitHub 仓库 | `git+https://github.com/<你>/<仓库>.git`（或 `github:<你>/<仓库>`） |
+| 本地目录（开发） | `link:<仓库绝对路径>` |
+| 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.0.0.tgz` |
+
+对应的工具调用：
 
 ```text
-plugin_manager  action=install_bundle  target=<本仓库的绝对路径>/dsh-git-bar
+plugin_manager  action=install_bundle  target=dsh-git-bar
+plugin_manager  action=install_bundle  target=git+https://github.com/<你>/<仓库>.git
+plugin_manager  action=install_bundle  target=link:<仓库绝对路径>
 ```
 
-安装后无需重启：bundle 通过 DSH 的 HMR 生效；之后改了代码，对 `include:dsh-git-bar` 做一次「停用 → 启用」即可热重载两半。
+安装后无需重启：bundle 通过 DSH 的 HMR 生效；之后改了代码，对 `include:dsh-git-bar` 做一次「停用 → 启用」即可热重载两半
+（registry / git 安装的是打包副本，改动需要重新发版或重新安装）。
 
 要求：
 
 - DSH **0.2.1-rc.5** 或兼容版本（用到了 `webServer`、`sessions`、`workingDirectory`、`sidebarRightTabs`、`sidebarRight` 这些扩展点）；
 - 有 Web 载体（`ctx.webServer`）——桌面版与 `dsh web` 都有；Headless 组合下插件会自动降级为不注册路由；
-- 本机 `git` 2.x（应用进程 PATH 里找不到时会再试常见安装路径，也可用环境变量 `DSH_GIT_BAR_GIT` 指定）。
+- 本机 `git` 2.x（应用进程 PATH 里找不到时会再试常见安装路径，也可用环境变量 `DSH_GIT_BIN` 指定）。
 
 ## 工作原理
 
@@ -48,7 +60,7 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 面板 / 图谱 / 提交详情               → 本机 git（无 shell 的固定 argv）
 右侧栏「Git 审查」标签体             → 私有 HTTP 路由（同源 JSON）
         │                                        ▲
-        └──────────── fetch /dsh-git-bar/* ──────┘
+        └──────────── fetch /dsh-git-bar/* ──────────┘
 ```
 
 | 路由 | 作用 |
@@ -68,28 +80,41 @@ git 调用都只读，写操作只有「切分支」「检出为游离 HEAD」�
 
 ## 仓库结构
 
+仓库根目录就是 **npm 包本体**（这样 `npm publish` 与 `git+https://…` 两种安装都能直接工作）：
+
 ```
 .
-├── README.md                 # 本文件
+├── package.json          # 包清单：dsh.bundle 补丁 + dsh.client（platform: web）
+├── cordis.patch.yml      # 插入 id: dsh-git-bar 的 Host 行
+├── index.js              # Host 半边：会话目录 → git → HTTP 路由
+├── client.js             # 浏览器半边：胶囊 / 面板 / 图谱 / 审查（纯 JS，仅 require('react')）
+├── locale/en.json        # 插件管理页显示名与描述
+├── locale/zh.json
+├── icon.svg              # 插件图标（原始绘制）
+├── README.md             # 本文件（npm 页也会展示）
+├── LICENSE
 ├── .gitignore
-└── dsh-git-bar/              # 插件包（bundle）
-    ├── package.json          # bundle 补丁 + dsh.client 声明（platform: web）
-    ├── cordis.patch.yml      # 插入 id: dsh-git-bar 的 Host 行
-    ├── index.js              # Host 半边：会话目录 → git → HTTP 路由
-    ├── client.js             # 浏览器半边：胶囊 / 面板 / 图谱 / 审查（纯 JS，仅 require('react')）
-    ├── locale/en.json        # 插件管理页显示名与描述
-    ├── locale/zh.json
-    ├── icon.svg              # 插件图标（原始绘制）
-    └── README.md             # 插件级文档：交互、路由、实现要点、限制
+└── docs/PLUGIN.md        # 插件级深文档：交互细节、实现要点、可调参数
 ```
 
 ## 开发与调试
 
-- 语法检查：`node --check dsh-git-bar/index.js` 与 `node --check dsh-git-bar/client.js`。
-- 热重载：`plugin_manager action=set_plugin target=include:dsh-git-bar enabled=false` 再 `enabled=true`，Host 与浏览器两半都会换成磁盘上的最新文件。
-- 浏览器半边的约束：`window.__ModuleLoader__.load({ id, factory })` 形式、只用 `require('react')`、无 JSX/`import`、
-  样式只用主题 token（`--dsw-alias-*`）、`<style>` 渲染在组件自身子树内、所有 effect 成对清理。
+- 语法检查：`node --check index.js` 与 `node --check client.js`。
+- 打包预览：`npm pack --dry-run`（应只包含运行需要的文件）。
+- 热重载：`plugin_manager action=set_plugin target=include:dsh-git-bar enabled=false` 再 `enabled=true`，Host 与浏览器两半都会换成磁盘上的最新文件（仅 `link:` 安装时跟随磁盘）。
+- 浏览器半边的约束：`window.__ModuleLoader__.load({ id, factory })` 形式（`id` 必须等于包名 `dsh-git-bar`）、只用
+  `require('react')`、无 JSX/`import`、样式只用主题 token（`--dsw-alias-*`）、`<style>` 渲染在组件自身子树内、所有 effect 成对清理。
 - 审查标签体拿不到 `useTabInfo()`，所以审查目标放在模块内可订阅 store 里；右侧栏不可用时自动回退到面板内审查。
+
+## 发布
+
+```bash
+npm publish          # scoped 包需 --access public；本包为无 scope 名，public 是默认
+```
+
+- `package.json` 已声明 `engines.dsh`（`>=0.2.1-rc.5 <0.3.0`）：DSH 安装前会按它做兼容性门禁，超出范围会被拒绝；
+- 版本号遵循 semver，DSH 的 registry 安装锁定精确版本；
+- 名字 `dsh-git-bar` 目前在 npm 上已有一个 `0.0.1` 占位包，发布前需确认你对它有所有权。
 
 ## 演示数据（可删）
 
@@ -108,7 +133,7 @@ git tag -d v0.1.0
 ## 卸载
 
 ```text
-plugin_manager  action=remove_bundle  target=@local/dsh-git-bar
+plugin_manager  action=remove_bundle  target=dsh-git-bar
 ```
 
 或在「设置 → 插件」里停用 `Git 胶囊`。

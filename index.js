@@ -27,7 +27,7 @@ const COMMIT_LIMIT = 12
 
 /** Candidate executables, in order; the app process may not inherit the shell PATH. */
 const GIT_CANDIDATES = [
-  process.env.DSH_GIT_BAR_GIT,
+  process.env.DSH_GIT_BIN,
   'git',
   'C:\\Program Files\\Git\\cmd\\git.exe',
   'C:\\Program Files (x86)\\Git\\cmd\\git.exe',
@@ -712,7 +712,7 @@ async function handle(ctx, req, res) {
 
   try {
     if (action === '' || action === 'health') {
-      send(200, { ok: true, name: '@local/dsh-git-bar' })
+      send(200, { ok: true, name: 'dsh-git-bar' })
       return
     }
 
