@@ -844,7 +844,6 @@ window.__ModuleLoader__.load({
       '@keyframes gitbar-panel-out{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(-4px) scale(.98)}}',
       '.gitbar-panelhead{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:7px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
       '.gitbar-headglyph{display:inline-flex;flex:0 0 auto;align-items:center;color:var(--dsw-alias-label-secondary)}',
-      '.gitbar-headbranch{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:12.5px}',
       '.gitbar-branchbtn{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;padding:1px 4px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-weight:600;font-size:12.5px;cursor:pointer;transition:background-color 120ms ease,color 120ms ease}',
       '.gitbar-branchbtn:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.gitbar-branchbtn:active{transform:scale(.99)}',
@@ -962,7 +961,7 @@ window.__ModuleLoader__.load({
       '.gitbar-foot{flex:0 0 auto;padding:4px 9px;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:11px}',
       '.gitbar-sidebar{display:flex;flex-direction:column;min-height:0;height:100%;box-sizing:border-box;color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.45;text-align:left}',
       '.gitbar-sidebar-body{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}',
-      '.gitbar-graph{display:flex;flex-direction:column;min-height:0;height:100%;box-sizing:border-box;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.45;text-align:left;--gitbar-lane-w:22px;--gitbar-lane-0:var(--dsw-alias-brand-primary);--gitbar-lane-1:var(--dsw-alias-state-success-primary);--gitbar-lane-2:var(--dsw-alias-state-warn-primary);--gitbar-lane-3:var(--dsw-alias-state-error-primary);--gitbar-lane-4:var(--dsw-alias-state-idle-primary);--gitbar-lane-5:#7f9fbf;--gitbar-lane-6:#b08cb8;--gitbar-lane-7:#9aa08a;animation:gitbar-graph-in 180ms cubic-bezier(0.2,0,0,1) both}',
+      '.gitbar-graph{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;box-sizing:border-box;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.45;text-align:left;--gitbar-lane-w:22px;--gitbar-lane-0:var(--dsw-alias-brand-primary);--gitbar-lane-1:var(--dsw-alias-state-success-primary);--gitbar-lane-2:var(--dsw-alias-state-warn-primary);--gitbar-lane-3:var(--dsw-alias-state-error-primary);--gitbar-lane-4:var(--dsw-alias-state-idle-primary);--gitbar-lane-5:#7f9fbf;--gitbar-lane-6:#b08cb8;--gitbar-lane-7:#9aa08a;animation:gitbar-graph-in 180ms cubic-bezier(0.2,0,0,1) both}',
       '@keyframes gitbar-graph-in{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}',
       '.gitbar-graph-table{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}',
       '.gitbar-graph-toolbar{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
@@ -992,7 +991,9 @@ window.__ModuleLoader__.load({
       '.gitbar-graph-row:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.gitbar-graph-row:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--dsw-alias-brand-primary)}',
       '.gitbar-graph-row-head{box-shadow:inset 2px 0 0 0 var(--dsw-alias-brand-primary)}',
-      '.gitbar-graph-row-current{box-shadow:inset 2px 0 0 0 var(--dsw-alias-state-success-primary)}',
+      '.gitbar-graph-row-current{box-shadow:inset 3px 0 0 0 var(--dsw-alias-brand-primary);background:color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent)}',
+      '.gitbar-graph-row-current:hover{background:color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent)}',
+      '.gitbar-graph-now{flex:0 0 auto;margin-left:2px;padding:0 4px;border-radius:4px;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-overlay);font-size:9.5px;line-height:14px;font-weight:600}',
       '.gitbar-graph-lane{display:block;height:34px}',
       '.gitbar-graph-desc{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden}',
       '.gitbar-graph-subject{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -2282,6 +2283,7 @@ window.__ModuleLoader__.load({
       var current = data ? toText(data.current) : ''
       var detached = Boolean(data && data.detached)
       var head = data ? toText(data.head) : ''
+      var headFull = data ? toText(data.headFull) : ''
       var geometry = graphGeometry(commits)
       var status = props.status
       var confirmRow = toText(props.confirmRow)
@@ -2321,19 +2323,21 @@ window.__ModuleLoader__.load({
       // A long history opens at HEAD instead of at the top of the list.
       useEffect(function () {
         if (props.autoScroll !== true) return
+        var effectHeadFull = props.payload && props.payload.ok === true && props.payload.data && typeof props.payload.data === 'object' ? toText(props.payload.data.headFull) : ''
         var node = props.listRef && props.listRef.current
         if (!node || typeof node.scrollTop !== 'number') return
         var headIndex = -1
         for (var at = 0; at < commits.length; at += 1) {
-          var refs = commits[at] && commits[at].refs
-          if (!refs || typeof refs.length !== 'number') continue
-          for (var refAt = 0; refAt < refs.length; refAt += 1) {
-            if (refs[refAt] && refs[refAt].kind === 'head') {
-              headIndex = at
-              break
-            }
+          var commit = commits[at] && typeof commits[at] === 'object' ? commits[at] : {}
+          var refs = commit.refs && typeof commit.refs.length === 'number' ? commit.refs : []
+          var rowIsHead = commit.isHead === true || (effectHeadFull !== '' && toText(commit.full) === effectHeadFull)
+          for (var refAt = 0; !rowIsHead && refAt < refs.length; refAt += 1) {
+            if (refs[refAt] && refs[refAt].kind === 'head') rowIsHead = true
           }
-          if (headIndex >= 0) break
+          if (rowIsHead) {
+            headIndex = at
+            break
+          }
         }
         try {
           node.scrollTop = headIndex > 0 ? Math.max(0, headIndex * GRAPH_ROW_HEIGHT - GRAPH_ROW_HEIGHT) : 0
@@ -2560,17 +2564,28 @@ window.__ModuleLoader__.load({
               )
             }
 
-            var hasHead = false
+            var isHead = commit.isHead === true || (headFull !== '' && full === headFull)
+            var headRefPresent = false
             for (var headAt = 0; headAt < refs.length; headAt += 1) {
-              if (refs[headAt] && refs[headAt].kind === 'head') hasHead = true
+              if (refs[headAt] && refs[headAt].kind === 'head') headRefPresent = true
             }
-            var hasCurrent = false
-            for (var currentAt = 0; currentAt < refs.length; currentAt += 1) {
-              if (refs[currentAt] && refs[currentAt].kind === 'branch' && refs[currentAt].current === true) hasCurrent = true
+            if (headRefPresent) isHead = true
+            // The local branch this row is the tip of, if any (the current one wins).
+            var branchTip = null
+            for (var branchAt = 0; branchAt < refs.length; branchAt += 1) {
+              var candidateBranch = refs[branchAt]
+              if (!candidateBranch || candidateBranch.kind !== 'branch') continue
+              if (!branchTip || candidateBranch.current === true) branchTip = candidateBranch
+              if (candidateBranch.current === true) break
             }
             var rowClass = 'gitbar-graph-row'
-            if (hasHead) rowClass += ' gitbar-graph-row-head'
-            if (hasCurrent) rowClass += ' gitbar-graph-row-current'
+            if (headRefPresent) rowClass += ' gitbar-graph-row-head'
+            if (isHead) rowClass += ' gitbar-graph-row-current'
+
+            // Row click order: current row -> no-op, branch tip -> switch, else detach.
+            var rowAction = isHead ? 'current' : branchTip ? 'branch' : 'detach'
+            var rowBranchName = branchTip ? toText(branchTip.name) : ''
+            var rowBranchCurrent = Boolean(branchTip && branchTip.current === true)
 
             items.push(
               h(
@@ -2583,11 +2598,15 @@ window.__ModuleLoader__.load({
                     role: 'button',
                     tabIndex: 0,
                     style: { animationDelay: Math.min(at, GRAPH_STAGGER_CAP) * GRAPH_STAGGER_MS + 'ms' },
-                    onClick: function (boundFull, boundIsHead) {
+                    onClick: function (boundFull, boundAction, boundBranch, boundBranchCurrent) {
                       return function () {
                         try {
-                          if (boundIsHead) {
+                          if (boundAction === 'current') {
                             if (typeof props.onCurrent === 'function') props.onCurrent()
+                            return
+                          }
+                          if (boundAction === 'branch') {
+                            if (typeof props.onBranchRow === 'function') props.onBranchRow(boundBranch, boundBranchCurrent)
                             return
                           }
                           if (typeof props.onRowClick === 'function') props.onRowClick(boundFull)
@@ -2595,30 +2614,34 @@ window.__ModuleLoader__.load({
                           /* ignore */
                         }
                       }
-                    }(full, hasHead),
-                    onKeyDown: function (boundFull, boundIsHead) {
+                    }(full, rowAction, rowBranchName, rowBranchCurrent),
+                    onKeyDown: function (boundFull, boundAction, boundBranch, boundBranchCurrent) {
                       return function (event) {
                         try {
                           if (!event) return
-                          if (event.key === 'Enter' || event.key === ' ' || event.keyCode === 13 || event.keyCode === 32) {
-                            if (typeof event.preventDefault === 'function') event.preventDefault()
-                            if (boundIsHead) {
-                              if (typeof props.onCurrent === 'function') props.onCurrent()
-                              return
-                            }
-                            if (typeof props.onRowClick === 'function') props.onRowClick(boundFull)
+                          if (event.key !== 'Enter' && event.key !== ' ' && event.keyCode !== 13 && event.keyCode !== 32) return
+                          if (typeof event.preventDefault === 'function') event.preventDefault()
+                          if (boundAction === 'current') {
+                            if (typeof props.onCurrent === 'function') props.onCurrent()
+                            return
                           }
+                          if (boundAction === 'branch') {
+                            if (typeof props.onBranchRow === 'function') props.onBranchRow(boundBranch, boundBranchCurrent)
+                            return
+                          }
+                          if (typeof props.onRowClick === 'function') props.onRowClick(boundFull)
                         } catch (error) {
                           /* ignore */
                         }
                       }
-                    }(full, hasHead)
+                    }(full, rowAction, rowBranchName, rowBranchCurrent)
                   },
                   h('span', { className: 'gitbar-graph-lane', 'aria-hidden': 'true' }),
                   h(
                     'span',
                     { className: 'gitbar-graph-desc' },
                     chips.length > 0 ? chips : null,
+                    isHead ? h('span', { className: 'gitbar-graph-now', title: t('current') }, t('current')) : null,
                     h('span', { className: 'gitbar-graph-subject', title: toText(commit.subject) }, toText(commit.subject))
                   ),
                   h('span', { className: 'gitbar-graph-date', title: toText(commit.iso) }, toText(commit.iso)),
@@ -2991,6 +3014,14 @@ window.__ModuleLoader__.load({
               noteOk(t('current'))
             },
             onRowClick: onRowClick,
+            onBranchRow: function (name, isCurrent) {
+              if (!name) return
+              if (isCurrent) {
+                noteOk(t('current'))
+                return
+              }
+              postSwitch({ branch: name }, 'branch:' + name)
+            },
             onChipClick: onChipClick,
             onConfirm: onConfirm,
             onCancel: function () {
