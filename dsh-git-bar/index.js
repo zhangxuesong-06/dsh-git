@@ -146,10 +146,34 @@ function parseLog(raw) {
   for (const line of raw.split('\n')) {
     if (!line) continue
     const cells = line.split('\u001f')
-    if (cells.length < 4) continue
-    commits.push({ hash: cells[0], author: cells[1], when: cells[2], subject: cells.slice(3).join('\u001f') })
+    if (cells.length < 5) continue
+    commits.push({
+      full: cells[0],
+      hash: cells[1],
+      author: cells[2],
+      when: cells[3],
+      subject: cells.slice(4).join('\u001f'),
+    })
   }
   return commits
+}
+
+/** Parse `for-each-ref` output for local branches. */
+function parseBranches(raw) {
+  const branches = []
+  for (const line of raw.split('\n')) {
+    if (!line) continue
+    const cells = line.split('\u001f')
+    if (cells.length < 5) continue
+    branches.push({
+      name: cells[0],
+      head: cells[1],
+      when: cells[2],
+      upstream: cells[3],
+      subject: cells.slice(4).join('\u001f'),
+    })
+  }
+  return branches
 }
 
 /** Resolve the directory whose git facts this request asks about. */
@@ -230,7 +254,7 @@ async function collectState(cwd) {
     git(root, ['status', '--porcelain=v1', '-z', '-uall']),
     git(root, ['diff', '--numstat']),
     git(root, ['diff', '--cached', '--numstat']),
-    git(root, ['log', '-n', String(COMMIT_LIMIT), '--pretty=format:%h\u001f%an\u001f%ar\u001f%s']),
+    git(root, ['log', '-n', String(COMMIT_LIMIT), '--pretty=format:%H\u001f%h\u001f%an\u001f%ar\u001f%s']),
   ])
 
   const files = parseStatus(statusResult.out)
@@ -320,6 +344,327 @@ async function collectDiff(root, requestedPath, staged) {
   return { ok: true, path: relative, staged, untracked: false, diff, truncated }
 }
 
+/** Read the repository root of `cwd`, or null when it is not a work tree. */
+async function repositoryRoot(cwd) {
+  const inside = await git(cwd, ['rev-parse', '--is-inside-work-tree'])
+  if (inside.failed || inside.out.trim() !== 'true') return null
+  const top = await git(cwd, ['rev-parse', '--show-toplevel'])
+  return top.failed ? null : top.out.trim() || cwd
+}
+
+/** Local branches, newest commit first, with the current one flagged. */
+async function collectBranches(root) {
+  const [currentResult, listResult] = await Promise.all([
+    git(root, ['symbolic-ref', '--short', '-q', 'HEAD']),
+    git(root, [
+      'for-each-ref',
+      'refs/heads',
+      '--sort=-committerdate',
+      '--count',
+      '60',
+      '--format=%(refname:short)\u001f%(objectname:short)\u001f%(committerdate:relative)\u001f%(upstream:short)\u001f%(contents:subject)',
+    ]),
+  ])
+  const current = currentResult.failed ? '' : currentResult.out.trim()
+  const branches = parseBranches(listResult.out).map((branch) => ({
+    ...branch,
+    current: branch.name === current,
+  }))
+  return { ok: true, root, current, detached: current === '', branches }
+}
+
+/** Switch the work tree to a local branch; every refusal carries its reason. */
+async function switchBranch(root, requested) {
+  if (typeof requested !== 'string' || requested.length === 0) return { ok: false, reason: 'missing-branch' }
+  if (requested.startsWith('-')) return { ok: false, reason: 'invalid-branch' }
+
+  const listing = await collectBranches(root)
+  const known = listing.branches.some((branch) => branch.name === requested)
+  if (!known) return { ok: false, reason: 'unknown-branch' }
+  if (listing.branches.some((branch) => branch.current && branch.name === requested)) {
+    return { ok: true, branch: requested, unchanged: true }
+  }
+
+  const status = await git(root, ['status', '--porcelain=v1', '-z', '-uall'])
+  if (parseStatus(status.out).some((file) => file.conflicted)) {
+    return { ok: false, reason: 'conflicts' }
+  }
+
+  const switched = await git(root, ['switch', requested], 60_000)
+  if (switched.failed) {
+    const detail = `${switched.err}\n${switched.out}`.trim().split('\n').filter(Boolean).slice(0, 6).join('\n')
+    return { ok: false, reason: 'switch-failed', detail }
+  }
+  return { ok: true, branch: requested }
+}
+
+/** One commit: metadata, per-file stats, and its patch. */
+async function collectCommit(root, requested) {
+  const hash = typeof requested === 'string' ? requested.trim() : ''
+  if (!/^[0-9a-fA-F]{4,64}$/.test(hash)) return { ok: false, reason: 'invalid-hash' }
+  const verify = await git(root, ['rev-parse', '--verify', '--quiet', `${hash}^{commit}`])
+  if (verify.failed) return { ok: false, reason: 'unknown-commit' }
+
+  const [metaResult, numstatResult, patchResult] = await Promise.all([
+    git(root, ['show', '-s', '--format=%H\u001f%h\u001f%an\u001f%ae\u001f%aI\u001f%ar\u001f%s\u001f%b', `${hash}^{commit}`]),
+    git(root, ['show', '--numstat', '--format=', `${hash}^{commit}`]),
+    git(root, ['show', '--format=', '--patch', '--no-color', '--unified=3', `${hash}^{commit}`], 30_000),
+  ])
+  if (metaResult.failed) return { ok: false, reason: 'unknown-commit' }
+
+  const cells = metaResult.out.split('\u001f')
+  const stats = parseNumstat(numstatResult.out)
+  const files = [...stats.entries()].map(([path, stat]) => ({
+    path,
+    additions: stat.additions,
+    deletions: stat.deletions,
+  }))
+
+  let diff = patchResult.out
+  let truncated = false
+  if (diff.length > MAX_DIFF_CHARS) {
+    diff = diff.slice(0, MAX_DIFF_CHARS)
+    truncated = true
+  }
+
+  return {
+    ok: true,
+    commit: {
+      full: cells[0] || '',
+      hash: cells[1] || '',
+      author: cells[2] || '',
+      email: cells[3] || '',
+      iso: cells[4] || '',
+      when: cells[5] || '',
+      subject: cells[6] || '',
+      body: (cells[7] || '').trim(),
+    },
+    files,
+    additions: files.reduce((sum, file) => sum + (file.additions ?? 0), 0),
+    deletions: files.reduce((sum, file) => sum + (file.deletions ?? 0), 0),
+    diff,
+    truncated,
+  }
+}
+
+/** One file's patch inside one commit. */
+async function collectCommitDiff(root, requestedHash, requestedPath) {
+  const hash = typeof requestedHash === 'string' ? requestedHash.trim() : ''
+  if (!/^[0-9a-fA-F]{4,64}$/.test(hash)) return { ok: false, reason: 'invalid-hash' }
+  const relative = relativePath(requestedPath, root)
+  if (relative === null) return { ok: false, reason: 'invalid-path' }
+
+  const verify = await git(root, ['rev-parse', '--verify', '--quiet', `${hash}^{commit}`])
+  if (verify.failed) return { ok: false, reason: 'unknown-commit' }
+
+  const [patchResult, numstatResult] = await Promise.all([
+    git(root, ['show', '--format=', '--patch', '--no-color', '--unified=3', `${hash}^{commit}`, '--', relative], 30_000),
+    git(root, ['show', '--numstat', '--format=', `${hash}^{commit}`, '--', relative]),
+  ])
+  const stat = parseNumstat(numstatResult.out).get(relative)
+  let diff = patchResult.out
+  let truncated = false
+  if (diff.length > MAX_DIFF_CHARS) {
+    diff = diff.slice(0, MAX_DIFF_CHARS)
+    truncated = true
+  }
+  return {
+    ok: true,
+    path: relative,
+    hash,
+    additions: stat ? stat.additions : null,
+    deletions: stat ? stat.deletions : null,
+    diff,
+    truncated,
+  }
+}
+
+/** Commits drawn by one graph request. */
+const GRAPH_LIMIT = 120
+/** Lanes beyond this are folded so a wide history cannot squeeze the rows. */
+const MAX_GRAPH_COLUMNS = 8
+
+/**
+ * Assign a lane to every commit in display order: a commit lands on the lane
+ * already waiting for it, otherwise on the first free lane, and its parents
+ * then claim lanes of their own (the first parent keeps the child's lane).
+ */
+function assignLanes(rows) {
+  const lanes = []
+  for (const row of rows) {
+    const waiting = lanes.indexOf(row.full)
+    let lane
+    if (waiting === -1) {
+      const free = lanes.indexOf(null)
+      if (free === -1) {
+        lane = lanes.length
+        lanes.push(null)
+      } else {
+        lane = free
+      }
+    } else {
+      lane = waiting
+    }
+    // The commit leaves its lane before its parents claim one, so a linear
+    // history keeps every commit on the same lane.
+    lanes[lane] = null
+    row.lane = lane
+    for (let at = 0; at < row.parents.length; at += 1) {
+      const parent = row.parents[at]
+      if (lanes.indexOf(parent) !== -1) continue
+      if (at === 0 && lanes[lane] === null) {
+        lanes[lane] = parent
+        continue
+      }
+      const free = lanes.indexOf(null)
+      if (free === -1) lanes.push(parent)
+      else lanes[free] = parent
+    }
+  }
+  let columns = 1
+  for (const row of rows) columns = Math.max(columns, row.lane + 1)
+  return Math.min(columns, MAX_GRAPH_COLUMNS)
+}
+
+/** Parse `for-each-ref` rows into commit keyed decorations. */
+function parseRefs(raw) {
+  const byCommit = new Map()
+  for (const line of raw.split('\n')) {
+    if (!line) continue
+    const cells = line.split('\u001f')
+    const refname = cells[0] ?? ''
+    const objectname = cells[1] ?? ''
+    const short = cells[2] ?? ''
+    const peeled = cells[3] ?? ''
+    const refHead = cells[4] ?? ''
+    if (!refname || !short) continue
+    let kind = ''
+    if (refname.startsWith('refs/heads/')) kind = 'branch'
+    else if (refname.startsWith('refs/remotes/')) kind = 'remote'
+    else if (refname.startsWith('refs/tags/')) kind = 'tag'
+    else continue
+    if (kind === 'remote' && short.endsWith('/HEAD')) continue
+    const target = peeled || objectname
+    if (!target) continue
+    const list = byCommit.get(target) ?? []
+    list.push({ name: short, kind, current: refHead === '*' })
+    byCommit.set(target, list)
+  }
+  return byCommit
+}
+
+/** The commit graph the Sidebar's graph tab draws. */
+async function collectGraph(root, requestedLimit) {
+  const limit = Math.min(Math.max(Number(requestedLimit) || GRAPH_LIMIT, 10), 300)
+  const [logResult, refsResult, headResult] = await Promise.all([
+    git(root, [
+      'log',
+      '--topo-order',
+      '-n',
+      String(limit),
+      '--date=format:%m/%d %H:%M',
+      '--pretty=format:%H\u001f%h\u001f%P\u001f%an\u001f%ad\u001f%ar\u001f%s',
+    ]),
+    git(root, [
+      'for-each-ref',
+      'refs/heads',
+      'refs/remotes',
+      'refs/tags',
+      '--format=%(refname)\u001f%(objectname)\u001f%(refname:short)\u001f%(*objectname)\u001f%(HEAD)',
+    ]),
+    git(root, ['symbolic-ref', '--short', '-q', 'HEAD']),
+  ])
+
+  if (logResult.failed && logResult.out.trim() === '') {
+    return { ok: true, root, current: '', detached: true, head: '', columns: 1, commits: [], empty: true }
+  }
+
+  const current = headResult.failed ? '' : headResult.out.trim()
+  const refsByCommit = parseRefs(refsResult.out)
+  const rows = []
+  for (const line of logResult.out.split('\n')) {
+    if (!line) continue
+    const cells = line.split('\u001f')
+    if (cells.length < 7) continue
+    const full = cells[0]
+    rows.push({
+      full,
+      hash: cells[1],
+      parents: (cells[2] ?? '').trim() ? cells[2].trim().split(' ') : [],
+      author: cells[3],
+      iso: cells[4],
+      when: cells[5],
+      subject: cells.slice(6).join('\u001f'),
+      lane: 0,
+      refs: [],
+    })
+  }
+  for (const row of rows) {
+    const refs = refsByCommit.get(row.full) ?? []
+    const decorated = refs.slice(0, 6)
+    const isCurrent = decorated.some((ref) => ref.kind === 'branch' && ref.current)
+    if (isCurrent) decorated.unshift({ name: 'HEAD', kind: 'head', current: true })
+    row.refs = decorated
+  }
+  const columns = assignLanes(rows)
+  return {
+    ok: true,
+    root,
+    current,
+    detached: current === '',
+    head: rows.length > 0 ? rows[0].hash : '',
+    columns,
+    commits: rows,
+  }
+}
+
+/** Check out one commit or ref, detached; the working tree is protected first. */
+async function detachTo(root, requested) {
+  const target = typeof requested === 'string' ? requested.trim() : ''
+  if (target.startsWith('-')) return { ok: false, reason: 'invalid-target' }
+  if (!/^([0-9a-fA-F]{4,64}|[A-Za-z0-9._/-]{1,200})$/.test(target)) return { ok: false, reason: 'invalid-target' }
+
+  let rev = target
+  if (!/^[0-9a-fA-F]{4,64}$/.test(target)) {
+    const refs = await git(root, ['for-each-ref', 'refs/tags', 'refs/remotes', '--format=%(refname:short)\u001f%(objectname)\u001f%(*objectname)'])
+    const line = refs.out.split('\n').find((entry) => entry.startsWith(`${target}\u001f`))
+    if (!line) return { ok: false, reason: 'unknown-target' }
+    const cells = line.split('\u001f')
+    rev = cells[2] || cells[1] || ''
+    if (!rev) return { ok: false, reason: 'unknown-target' }
+  }
+
+  const verify = await git(root, ['rev-parse', '--verify', '--quiet', `${rev}^{commit}`])
+  if (verify.failed) return { ok: false, reason: 'unknown-target' }
+  const full = verify.out.trim()
+
+  const status = await git(root, ['status', '--porcelain=v1', '-z', '-uall'])
+  if (parseStatus(status.out).some((file) => file.conflicted)) {
+    return { ok: false, reason: 'conflicts' }
+  }
+
+  const detached = await git(root, ['switch', '--detach', full], 60_000)
+  if (detached.failed) {
+    const detail = `${detached.err}\n${detached.out}`.trim().split('\n').filter(Boolean).slice(0, 6).join('\n')
+    return { ok: false, reason: 'switch-failed', detail }
+  }
+  return { ok: true, detach: full, hash: full.slice(0, 7) }
+}
+
+/** Collect one request body as UTF-8 text, bounded. */
+function readBody(req, limit = 64 * 1024) {
+  return new Promise((done) => {
+    const chunks = []
+    let size = 0
+    req.on('data', (chunk) => {
+      size += chunk.length
+      if (size <= limit) chunks.push(chunk)
+    })
+    req.on('end', () => done(Buffer.concat(chunks).toString('utf8')))
+    req.on('error', () => done(''))
+  })
+}
+
 /** Answer one HTTP request from this plugin's route family. */
 async function handle(ctx, req, res) {
   const send = (status, body) => {
@@ -358,6 +703,77 @@ async function handle(ctx, req, res) {
       }
       const staged = url.searchParams.get('staged') === '1'
       send(200, await collectDiff(state.root, url.searchParams.get('path') ?? '', staged))
+      return
+    }
+
+    if (action === 'branches') {
+      const root = await repositoryRoot(resolveCwd(ctx, url))
+      if (!root) {
+        send(200, { ok: false, reason: 'not-a-repository' })
+        return
+      }
+      send(200, await collectBranches(root))
+      return
+    }
+
+    if (action === 'switch') {
+      if (req.method !== 'POST') {
+        send(405, { ok: false, reason: 'method-not-allowed' })
+        return
+      }
+      const root = await repositoryRoot(resolveCwd(ctx, url))
+      if (!root) {
+        send(200, { ok: false, reason: 'not-a-repository' })
+        return
+      }
+      let payload = null
+      try {
+        payload = JSON.parse(await readBody(req))
+      } catch {
+        payload = null
+      }
+      if (!payload || (typeof payload.branch !== 'string' && typeof payload.detach !== 'string')) {
+        send(200, { ok: false, reason: 'missing-target' })
+        return
+      }
+      if (typeof payload.branch === 'string' && payload.branch.length > 0) {
+        send(200, await switchBranch(root, payload.branch))
+        return
+      }
+      send(200, await detachTo(root, payload.detach))
+      return
+    }
+
+    if (action === 'graph') {
+      const root = await repositoryRoot(resolveCwd(ctx, url))
+      if (!root) {
+        send(200, { ok: false, reason: 'not-a-repository' })
+        return
+      }
+      send(200, await collectGraph(root, url.searchParams.get('limit') ?? ''))
+      return
+    }
+
+    if (action === 'commit') {
+      const root = await repositoryRoot(resolveCwd(ctx, url))
+      if (!root) {
+        send(200, { ok: false, reason: 'not-a-repository' })
+        return
+      }
+      send(200, await collectCommit(root, url.searchParams.get('hash') ?? ''))
+      return
+    }
+
+    if (action === 'commit-diff') {
+      const root = await repositoryRoot(resolveCwd(ctx, url))
+      if (!root) {
+        send(200, { ok: false, reason: 'not-a-repository' })
+        return
+      }
+      send(
+        200,
+        await collectCommitDiff(root, url.searchParams.get('hash') ?? '', url.searchParams.get('path') ?? ''),
+      )
       return
     }
 
