@@ -966,6 +966,7 @@ window.__ModuleLoader__.load({
       '.gitbar-graph-current{flex:0 0 auto;border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:transparent;font-weight:600}',
       '.gitbar-graph-current-detached{border-color:var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-state-warn-primary);cursor:pointer}',
       '.gitbar-graph-current-detached:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.gitbar-graph-back{flex:0 0 auto;padding:1px 8px;margin-right:2px}',
       '.gitbar-graph-escape{flex:0 0 auto;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 8px;border-color:var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-state-warn-primary);font-weight:600}',
       '.gitbar-graph-escape:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-warn-primary)}',
       '.gitbar-spacer{flex:1 1 auto}',
@@ -2340,6 +2341,23 @@ window.__ModuleLoader__.load({
         var toolbar = h(
           'div',
           { className: 'gitbar-graph-toolbar' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'gitbar-btn gitbar-graph-back',
+              title: t('backToList'),
+              'aria-label': t('backToList'),
+              onClick: function () {
+                try {
+                  if (typeof props.onBack === 'function') props.onBack()
+                } catch (error) {
+                  /* ignore */
+                }
+              }
+            },
+            '←' + t('backToList')
+          ),
           currentChip,
           detached && props.escapeTarget
             ? h(
@@ -2537,28 +2555,36 @@ window.__ModuleLoader__.load({
                     role: 'button',
                     tabIndex: 0,
                     style: { animationDelay: Math.min(at, GRAPH_STAGGER_CAP) * GRAPH_STAGGER_MS + 'ms' },
-                    onClick: function (boundFull) {
+                    onClick: function (boundFull, boundIsHead) {
                       return function () {
                         try {
+                          if (boundIsHead) {
+                            if (typeof props.onCurrent === 'function') props.onCurrent()
+                            return
+                          }
                           if (typeof props.onRowClick === 'function') props.onRowClick(boundFull)
                         } catch (error) {
                           /* ignore */
                         }
                       }
-                    }(full),
-                    onKeyDown: function (boundFull) {
+                    }(full, hasHead),
+                    onKeyDown: function (boundFull, boundIsHead) {
                       return function (event) {
                         try {
                           if (!event) return
                           if (event.key === 'Enter' || event.key === ' ' || event.keyCode === 13 || event.keyCode === 32) {
                             if (typeof event.preventDefault === 'function') event.preventDefault()
+                            if (boundIsHead) {
+                              if (typeof props.onCurrent === 'function') props.onCurrent()
+                              return
+                            }
                             if (typeof props.onRowClick === 'function') props.onRowClick(boundFull)
                           }
                         } catch (error) {
                           /* ignore */
                         }
                       }
-                    }(full)
+                    }(full, hasHead)
                   },
                   h('span', { className: 'gitbar-graph-lane', 'aria-hidden': 'true' }),
                   h(
@@ -2919,6 +2945,16 @@ window.__ModuleLoader__.load({
                 /* ignore */
               }
             },
+            onBack: function () {
+              try {
+                if (typeof props.onBack === 'function') props.onBack()
+              } catch (error) {
+                /* ignore */
+              }
+            },
+            onCurrent: function () {
+              noteOk(t('current'))
+            },
             onRowClick: onRowClick,
             onChipClick: onChipClick,
             onConfirm: onConfirm,
@@ -3126,8 +3162,8 @@ window.__ModuleLoader__.load({
             {
               type: 'button',
               className: 'gitbar-branchbtn',
-              title: t('openGraph'),
-              'aria-expanded': mode === 'branches' ? 'true' : 'false',
+              title: mode === 'graph' ? t('backToList') : t('openGraph'),
+              'aria-expanded': mode === 'graph' || mode === 'branches' ? 'true' : 'false',
               'aria-haspopup': 'dialog',
               onClick: function () {
                 try {
@@ -3233,7 +3269,8 @@ window.__ModuleLoader__.load({
             stateBranch: state && state.detached !== true ? toText(state.branch) : '',
             stateDetached: Boolean(state && state.detached),
             onSwitched: props.onGraphSwitched,
-            onOpenPicker: props.onOpenPicker
+            onOpenPicker: props.onOpenPicker,
+            onBack: props.onBack
           })
         } else if (notRepo) {
           body = h(
@@ -3368,6 +3405,7 @@ window.__ModuleLoader__.load({
       var graphToken = graphTokenHook[0]
       var setGraphToken = graphTokenHook[1]
       var wideMode = Boolean(view && view.mode === 'graph')
+      var viewMode = view && typeof view.mode === 'string' ? view.mode : 'list'
       var flashHook = useState('')
       var flash = flashHook[0]
       var setFlash = flashHook[1]
@@ -3586,6 +3624,11 @@ window.__ModuleLoader__.load({
             if (!event) return
             var key = event.key
             if (key === 'Escape' || key === 'Esc' || event.keyCode === 27) {
+              if (popLevel()) {
+                if (typeof event.preventDefault === 'function') event.preventDefault()
+                if (typeof event.stopPropagation === 'function') event.stopPropagation()
+                return
+              }
               closePanel()
               if (triggerRef.current && typeof triggerRef.current.focus === 'function') triggerRef.current.focus()
             }
@@ -3607,7 +3650,7 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
         }
-      }, [open, closing])
+      }, [open, closing, viewMode])
 
       // 7. Pulse the pill's count when the number changes.
       useEffect(function () {
@@ -3695,10 +3738,23 @@ window.__ModuleLoader__.load({
 
       function onOpenGraph() {
         try {
-          setView({ mode: 'graph' })
+          setView(view && view.mode === 'graph' ? LIST_VIEW : { mode: 'graph' })
         } catch (error) {
           setView(LIST_VIEW)
         }
+      }
+
+      /** Escape pops one level: any sub-body returns to the list first. */
+      function popLevel() {
+        try {
+          if (viewMode !== 'list') {
+            setView(LIST_VIEW)
+            return true
+          }
+        } catch (error) {
+          return false
+        }
+        return false
       }
 
       function onGraphSwitched() {
