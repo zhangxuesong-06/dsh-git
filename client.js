@@ -3458,6 +3458,10 @@ window.__ModuleLoader__.load({
       var flashTimerRef = useRef(null)
       var settleRef = useRef(null)
       var previousCountRef = useRef(-1)
+      // Set once a file was handed to the Sidebar review; while it holds, clicks
+      // elsewhere (inside the review column, or its tab's own close control)
+      // must not dismiss this panel.
+      var reviewHandedOffRef = useRef(false)
 
       var dataHook = useState(null)
       var data = dataHook[0]
@@ -3547,6 +3551,7 @@ window.__ModuleLoader__.load({
 
       function finishClose() {
         clearCloseTimer()
+        reviewHandedOffRef.current = false
         setOpen(false)
         setClosing(false)
         setEntered(false)
@@ -3771,6 +3776,7 @@ window.__ModuleLoader__.load({
             if (root && target && typeof root.contains === 'function' && root.contains(target)) return
             // The review lives in the right Sidebar; clicking there — closing
             // the review tab included — must leave this panel open.
+            if (reviewHandedOffRef.current) return
             if (reviewTabInForce()) return
             closePanel()
           } catch (error) {
@@ -4000,6 +4006,7 @@ window.__ModuleLoader__.load({
           handed = false
         }
         if (handed) {
+          reviewHandedOffRef.current = true
           flashMessage(t('reviewOpened'))
           try {
             if (settleRef.current) settleRef.current()
