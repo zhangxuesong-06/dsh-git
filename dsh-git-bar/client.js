@@ -42,13 +42,8 @@ window.__ModuleLoader__.load({
     var COMMIT_DIFF_URL = '/dsh-git-bar/commit-diff'
     var REVIEW_PAGE_ADDRESS = 'sidebar://git-review'
     var GRAPH_URL = '/dsh-git-bar/graph'
-    var GRAPH_TYPE_ID = '@local/dsh-git-bar/graph'
-    var GRAPH_KIND = 'git-graph'
-    var GRAPH_ADDRESS = 'dsh-resource://git-graph/current'
-    var GRAPH_ADDRESS_PREFIX = 'dsh-resource://git-graph/'
-    var GRAPH_PATTERN = 'dsh-resource://git-graph/**'
-    var GRAPH_PAGE_ADDRESS = 'sidebar://git-graph'
     var GRAPH_LIMIT = 120
+    var GRAPH_PANEL_WIDTH = 720
     var GRAPH_ROW_HEIGHT = 34
     var GRAPH_LANE_WIDTH = 14
     var GRAPH_DOT_Y = 17
@@ -120,6 +115,10 @@ window.__ModuleLoader__.load({
       openGraph: '打开图谱',
       switchTo: '切换到',
       detachedHead: '游离 HEAD',
+      headDetached: '游离 HEAD',
+      backToBranch: '回到分支',
+      detachedCheckout: '检出该提交（游离 HEAD）',
+      checkoutRemote: '检出远端提交（游离 HEAD）',
       confirmDetach: '切换到该版本（游离 HEAD）',
       confirm: '确认',
       cancel: '取消',
@@ -176,6 +175,10 @@ window.__ModuleLoader__.load({
       openGraph: 'Open graph',
       switchTo: 'Switch to',
       detachedHead: 'Detached HEAD',
+      headDetached: 'Detached HEAD',
+      backToBranch: 'Back to branch',
+      detachedCheckout: 'Check out this commit (detached HEAD)',
+      checkoutRemote: 'Check out the remote commit (detached HEAD)',
       confirmDetach: 'Check out this version (detached HEAD)',
       confirm: 'Confirm',
       cancel: 'Cancel',
@@ -485,7 +488,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Anchor the popover to the pill's own rect (never to another plugin's DOM). */
-    function computeAnchor(element, containingBlock) {
+    function computeAnchor(element, containingBlock, wide) {
       var viewportWidth = 1024
       var viewportHeight = 768
       try {
@@ -516,7 +519,7 @@ window.__ModuleLoader__.load({
       var availableWidth = Math.max(160, origin.right - origin.left)
       var availableHeight = Math.max(160, origin.bottom - origin.top)
 
-      var width = Math.max(220, Math.min(460, availableWidth - 24))
+      var width = Math.max(220, Math.min(wide === true ? GRAPH_PANEL_WIDTH : 460, availableWidth - 24))
       var top = rect ? Math.round(rect.bottom + 6 - origin.top) : 56
       var right = rect ? Math.round(origin.right - rect.right) : 12
       var maxRight = Math.round(availableWidth - 8 - width)
@@ -956,48 +959,57 @@ window.__ModuleLoader__.load({
       '.gitbar-foot{flex:0 0 auto;padding:4px 9px;border-top:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:11px}',
       '.gitbar-sidebar{display:flex;flex-direction:column;min-height:0;height:100%;box-sizing:border-box;color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.45;text-align:left}',
       '.gitbar-sidebar-body{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}',
-      '.gitbar-graph{display:flex;flex-direction:column;min-height:0;height:100%;box-sizing:border-box;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.45;text-align:left;--gitbar-lane-w:22px;--gitbar-lane-0:var(--dsw-alias-brand-primary);--gitbar-lane-1:var(--dsw-alias-state-success-primary);--gitbar-lane-2:var(--dsw-alias-state-warn-primary);--gitbar-lane-3:var(--dsw-alias-state-error-primary);--gitbar-lane-4:var(--dsw-alias-state-idle-primary);--gitbar-lane-5:#7f9fbf;--gitbar-lane-6:#b08cb8;--gitbar-lane-7:#9aa08a}',
-      '.gitbar-graph-toolbar{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);flex-wrap:wrap}',
+      '.gitbar-graph{display:flex;flex-direction:column;min-height:0;height:100%;box-sizing:border-box;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:1.45;text-align:left;--gitbar-lane-w:22px;--gitbar-lane-0:var(--dsw-alias-brand-primary);--gitbar-lane-1:var(--dsw-alias-state-success-primary);--gitbar-lane-2:var(--dsw-alias-state-warn-primary);--gitbar-lane-3:var(--dsw-alias-state-error-primary);--gitbar-lane-4:var(--dsw-alias-state-idle-primary);--gitbar-lane-5:#7f9fbf;--gitbar-lane-6:#b08cb8;--gitbar-lane-7:#9aa08a;animation:gitbar-graph-in 180ms cubic-bezier(0.2,0,0,1) both}',
+      '@keyframes gitbar-graph-in{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}',
+      '.gitbar-graph-table{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}',
+      '.gitbar-graph-toolbar{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
       '.gitbar-graph-current{flex:0 0 auto;border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:transparent;font-weight:600}',
-      '.gitbar-graph-current-detached{border-color:var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-state-warn-primary)}',
-      '.gitbar-graph-hint{flex:1 1 auto;min-width:0;color:var(--dsw-alias-label-secondary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.gitbar-graph-status{display:flex;align-items:flex-start;gap:6px;flex:0 0 auto;padding:5px 9px;font-size:11.5px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
+      '.gitbar-graph-current-detached{border-color:var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-state-warn-primary);cursor:pointer}',
+      '.gitbar-graph-current-detached:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.gitbar-graph-escape{flex:0 0 auto;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 8px;border-color:var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-state-warn-primary);font-weight:600}',
+      '.gitbar-graph-escape:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-warn-primary)}',
+      '.gitbar-spacer{flex:1 1 auto}',
+      '.gitbar-graph-status{display:flex;align-items:flex-start;gap:6px;flex:0 0 auto;padding:5px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:11px;animation:gitbar-graph-row-in 140ms ease both}',
       '.gitbar-graph-status-ok{color:var(--dsw-alias-state-success-primary);animation:gitbar-flash-out 1600ms ease both}',
       '.gitbar-graph-status-error{color:var(--dsw-alias-state-error-primary)}',
       '.gitbar-graph-status-text{flex:1 1 auto;min-width:0;white-space:pre-wrap}',
-      '.gitbar-graph-status-detail{margin:2px 0 0;max-height:82px;overflow:auto;font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:10.5px;color:var(--dsw-alias-label-secondary);white-space:pre-wrap}',
-      '.gitbar-graph-head{display:grid;grid-template-columns:var(--gitbar-lane-w) minmax(0,1fr) 84px 96px 66px;gap:8px;align-items:center;flex:0 0 auto;padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600}',
-      '.gitbar-graph-body{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}',
+      '.gitbar-graph-status-detail{margin:2px 0 0;max-height:82px;overflow:auto;font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:10.5px;line-height:1.4;white-space:pre-wrap;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-graph-body{position:relative;flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}',
+      '.gitbar-graph-canvas{position:absolute;top:0;left:8px;pointer-events:none}',
+      '.gitbar-graph-rows{position:relative;z-index:1}',
       '.gitbar-graph-item{display:flex;flex-direction:column;border-bottom:1px solid var(--dsw-alias-border-l1)}',
-      '.gitbar-graph-row{display:grid;grid-template-columns:var(--gitbar-lane-w) minmax(0,1fr) 84px 96px 66px;gap:8px;align-items:center;height:34px;box-sizing:border-box;padding:0 8px;border:none;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;animation:gitbar-graph-row-in 160ms ease both;transition:background-color 120ms ease}',
+      '.gitbar-graph-row{display:grid;grid-template-columns:var(--gitbar-lane-w) minmax(0,1fr) 68px 96px 56px;gap:8px;align-items:center;height:34px;box-sizing:border-box;padding:0 8px;margin:0;border:none;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;animation:gitbar-graph-row-in 160ms ease both;transition:background-color 120ms ease}',
       '.gitbar-graph-row:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.gitbar-graph-row:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--dsw-alias-brand-primary)}',
       '.gitbar-graph-row-head{box-shadow:inset 2px 0 0 0 var(--dsw-alias-brand-primary)}',
-      '.gitbar-graph-lane{display:flex;align-items:center;justify-content:flex-start;height:34px;overflow:hidden}',
+      '.gitbar-graph-row-current{box-shadow:inset 2px 0 0 0 var(--dsw-alias-state-success-primary)}',
+      '.gitbar-graph-lane{display:block;height:34px}',
       '.gitbar-graph-desc{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden}',
       '.gitbar-graph-subject{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.gitbar-graph-chip{flex:0 0 auto;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:inherit;font-size:10.5px;line-height:1.5;padding:0 6px;border-radius:8px;border:1px solid transparent;background:transparent;cursor:pointer;transition:background-color 120ms ease,color 120ms ease}',
-      '.gitbar-graph-chip-head{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);border-color:transparent}',
-      '.gitbar-graph-chip-current{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}',
-      '.gitbar-graph-chip-branch{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}',
+      '.gitbar-graph-chip{flex:0 0 auto;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;line-height:15px;padding:0 5px;border-radius:4px;border:1px solid transparent;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);cursor:pointer;font-family:inherit}',
+      '.gitbar-graph-chip-head{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-overlay)}',
+      '.gitbar-graph-chip-current{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:transparent}',
+      '.gitbar-graph-chip-branch{border-color:var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary);background:transparent}',
       '.gitbar-graph-chip-remote,.gitbar-graph-chip-tag{border-color:transparent;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}',
       '.gitbar-graph-chip:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.gitbar-graph-chip-head:hover{background:var(--dsw-alias-brand-primary);opacity:.9}',
       '.gitbar-graph-chip:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
-      '.gitbar-graph-date,.gitbar-graph-author{color:var(--dsw-alias-label-secondary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.gitbar-graph-hash{color:var(--dsw-alias-label-secondary);font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:11px}',
-      '.gitbar-graph-skeleton{display:grid;grid-template-columns:var(--gitbar-lane-w) minmax(0,1fr) 84px;gap:8px;align-items:center;height:34px;padding:0 8px;border-bottom:1px solid var(--dsw-alias-border-l1);animation:gitbar-skeleton-pulse 900ms ease-in-out infinite alternate}',
+      '.gitbar-graph-date{color:var(--dsw-alias-label-secondary);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}',
+      '.gitbar-graph-author{color:var(--dsw-alias-label-secondary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.gitbar-graph-hash{color:var(--dsw-alias-label-secondary);font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.gitbar-graph-skeleton{display:grid;grid-template-columns:var(--gitbar-lane-w) minmax(0,1fr) 68px;gap:8px;align-items:center;height:34px;padding:0 8px;border-bottom:1px solid var(--dsw-alias-border-l1);animation:gitbar-skeleton-pulse 900ms ease-in-out infinite alternate}',
       '.gitbar-graph-skeleton span{display:block;height:8px;border-radius:4px;background:var(--dsw-alias-bg-layer-2)}',
-      '@keyframes gitbar-skeleton-pulse{from{opacity:.45}to{opacity:1}}',
+      '@keyframes gitbar-skeleton-pulse{from{opacity:.55}to{opacity:1}}',
       '@keyframes gitbar-graph-row-in{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}',
-      '.gitbar-confirm{display:flex;align-items:center;gap:6px;padding:4px 10px 6px;font-size:11.5px;color:var(--dsw-alias-label-primary);animation:gitbar-confirm-in 140ms cubic-bezier(0.2,0,0,1) both}',
+      '.gitbar-confirm{display:flex;align-items:center;gap:6px;padding:4px 8px 6px;font-size:11px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);animation:gitbar-confirm-in 140ms ease both}',
       '.gitbar-confirm-text{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '@keyframes gitbar-confirm-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}',
       '.gitbar-graph-empty{padding:22px 12px;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary)}',
+      '@media (max-width:620px){.gitbar-graph-row{grid-template-columns:var(--gitbar-lane-w) minmax(0,1fr) 44px 56px}.gitbar-graph-author{display:none}.gitbar-graph-skeleton{grid-template-columns:var(--gitbar-lane-w) minmax(0,1fr) 44px}}',
       '.gitbar-sidebar-list{display:flex;flex-direction:column;min-height:0}',
       '.gitbar-sidebar-hint{padding:8px 10px 4px;font-size:11.5px;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l1)}',
       '.gitbar-chip-commit{flex:0 0 auto;font-family:ui-monospace,"Cascadia Code",Consolas,monospace}',
-      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph-row,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip{animation:none !important;transition:none !important}}'
+      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
     // ── components ────────────────────────────────────────────────────────
@@ -2116,7 +2128,10 @@ window.__ModuleLoader__.load({
       return h(SidebarReview, merged)
     }
 
-    // ── graph geometry ────────────────────────────────────────────────────
+    // ── graph geometry: one SVG for the whole list ────────────────────────
+    /** Module-level memory of the branch a detached checkout left behind. */
+    var graphMemory = { previousBranch: '' }
+
     /** Muted lane palette: five theme-token lanes, three artwork lanes. */
     function laneColor(lane) {
       var index = toNumber(lane)
@@ -2134,93 +2149,155 @@ window.__ModuleLoader__.load({
       return map
     }
 
-    /** Edges between visible rows, plus stubs for parents outside the window. */
-    function graphEdges(commits, index) {
+    /**
+     * One geometry pass for the whole list: a cubic per visible parent edge, a
+     * downward stub for parents outside the window, and the in-flight vertical
+     * threads that keep every lane continuous between rows.
+     */
+    function graphGeometry(commits) {
+      var rows = commits.length
+      var height = rows * GRAPH_ROW_HEIGHT
+      var index = graphIndex(commits)
       var edges = []
       var stubs = []
-      for (var at = 0; at < commits.length; at += 1) {
+      var threads = []
+      for (var band = 0; band < rows; band += 1) threads.push(typeof Set === 'function' ? new Set() : null)
+
+      function dotOf(commit, row) {
+        var lane = toNumber(commit && commit.lane)
+        if (lane === null || lane < 0) lane = 0
+        return { x: lane * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH / 2, y: row * GRAPH_ROW_HEIGHT + GRAPH_DOT_Y, lane: lane }
+      }
+
+      for (var at = 0; at < rows; at += 1) {
         var commit = commits[at]
         if (!commit) continue
-        var lane = toNumber(commit.lane) || 0
-        var x1 = lane * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH / 2
+        var from = dotOf(commit, at)
         var parents = commit.parents && typeof commit.parents.length === 'number' ? commit.parents : []
         for (var parentAt = 0; parentAt < parents.length; parentAt += 1) {
           var to = index[parents[parentAt]]
           if (typeof to !== 'number' || to === at) {
-            stubs.push({ from: at, x: x1, lane: lane })
+            stubs.push({ x: from.x, y1: from.y, y2: Math.min(height, from.y + GRAPH_ROW_HEIGHT), lane: from.lane })
             continue
           }
-          var parentLane = toNumber(commits[to] && commits[to].lane) || 0
-          edges.push({
-            from: at,
-            to: to,
-            x1: x1,
-            x2: parentLane * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH / 2,
-            y1: at * GRAPH_ROW_HEIGHT + GRAPH_DOT_Y,
-            y2: to * GRAPH_ROW_HEIGHT + GRAPH_DOT_Y,
-            lane: lane
-          })
+          var target = dotOf(commits[to], to)
+          edges.push({ x1: from.x, y1: from.y, x2: target.x, y2: target.y, lane: from.lane })
+          // The parent's lane stays in flight across every band until its row.
+          for (var through = at; through < to; through += 1) {
+            if (threads[through] && typeof threads[through].add === 'function') threads[through].add(target.lane)
+          }
         }
       }
-      return { edges: edges, stubs: stubs }
+
+      var lines = []
+      for (var bandAt = 0; bandAt < rows - 1; bandAt += 1) {
+        var set = threads[bandAt]
+        if (!set || typeof set.forEach !== 'function') continue
+        set.forEach(function (lane) {
+          lines.push({
+            x: lane * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH / 2,
+            y1: bandAt * GRAPH_ROW_HEIGHT + GRAPH_DOT_Y,
+            y2: (bandAt + 1) * GRAPH_ROW_HEIGHT + GRAPH_DOT_Y,
+            lane: lane
+          })
+        })
+      }
+      return { edges: edges, stubs: stubs, lines: lines, rows: rows, height: height }
     }
 
     function edgePath(edge) {
+      var span = edge.y2 - edge.y1
       return 'M ' + edge.x1 + ' ' + edge.y1 +
-        ' C ' + edge.x1 + ' ' + (edge.y1 + 16) +
-        ', ' + edge.x2 + ' ' + (edge.y2 - 16) +
+        ' C ' + edge.x1 + ' ' + (edge.y1 + span * 0.45) +
+        ', ' + edge.x2 + ' ' + (edge.y2 - span * 0.45) +
         ', ' + edge.x2 + ' ' + edge.y2
     }
 
-    /** One row's inline lane SVG: its own dot, its stubs, and clipped edges. */
-    function GraphLane(props) {
-      var t = props.t || translate
+    /** The whole lane picture: threads, edges, stubs, then dotted commits. */
+    function GraphCanvas(props) {
       try {
-        var uid = props.uid
-        var index = props.index
-        var commit = props.commit || {}
+        var commits = props.commits || []
+        var geometry = props.geometry
         var columns = Math.max(1, Math.min(LANE_COUNT, toNumber(props.columns) || 1))
-        var lane = toNumber(commit.lane) || 0
-        var x = lane * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH / 2
         var width = columns * GRAPH_LANE_WIDTH
-        var clipId = 'gitbar-lane-' + uid + '-' + index
-        var paths = []
-        for (var at = 0; at < props.edges.length; at += 1) {
-          var edge = props.edges[at]
-          if (edge.from <= index && index < edge.to) {
-            paths.push(h('path', {
-              key: 'edge-' + edge.from + '-' + edge.to,
+        var nodes = []
+        for (var lineAt = 0; lineAt < geometry.lines.length; lineAt += 1) {
+          var line = geometry.lines[lineAt]
+          nodes.push(
+            h('line', {
+              key: 'thread-' + lineAt,
+              x1: line.x,
+              y1: line.y1,
+              x2: line.x,
+              y2: line.y2,
+              stroke: laneColor(line.lane),
+              strokeWidth: 1.5,
+              strokeLinecap: 'round'
+            })
+          )
+        }
+        for (var edgeAt = 0; edgeAt < geometry.edges.length; edgeAt += 1) {
+          var edge = geometry.edges[edgeAt]
+          nodes.push(
+            h('path', {
+              key: 'edge-' + edgeAt,
               d: edgePath(edge),
               stroke: laneColor(edge.lane),
               strokeWidth: 1.5,
-              fill: 'none'
-            }))
-          }
+              fill: 'none',
+              strokeLinecap: 'round'
+            })
+          )
         }
-        for (var stubAt = 0; stubAt < props.stubs.length; stubAt += 1) {
-          var stub = props.stubs[stubAt]
-          if (stub.from !== index) continue
-          paths.push(h('path', {
-            key: 'stub-' + stubAt,
-            d: 'M ' + stub.x + ' ' + GRAPH_DOT_Y + ' L ' + stub.x + ' ' + GRAPH_ROW_HEIGHT,
-            stroke: laneColor(stub.lane),
-            strokeWidth: 1.5,
-            fill: 'none'
-          }))
+        for (var stubAt = 0; stubAt < geometry.stubs.length; stubAt += 1) {
+          var stub = geometry.stubs[stubAt]
+          nodes.push(
+            h('line', {
+              key: 'stub-' + stubAt,
+              x1: stub.x,
+              y1: stub.y1,
+              x2: stub.x,
+              y2: stub.y2,
+              stroke: laneColor(stub.lane),
+              strokeWidth: 1.5,
+              strokeLinecap: 'round'
+            })
+          )
+        }
+        for (var commitAt = 0; commitAt < commits.length; commitAt += 1) {
+          var commit = commits[commitAt] || {}
+          var lane = toNumber(commit.lane)
+          if (lane === null || lane < 0) lane = 0
+          nodes.push(
+            h('circle', {
+              key: 'dot-' + commitAt,
+              cx: lane * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH / 2,
+              cy: commitAt * GRAPH_ROW_HEIGHT + GRAPH_DOT_Y,
+              r: GRAPH_DOT_R,
+              fill: laneColor(lane),
+              stroke: 'var(--dsw-alias-bg-overlay)',
+              strokeWidth: 1.5
+            })
+          )
         }
         return h(
           'svg',
-          { width: width, height: GRAPH_ROW_HEIGHT, className: 'gitbar-graph-svg', 'aria-hidden': 'true', focusable: 'false' },
-          h('defs', null, h('clipPath', { id: clipId }, h('rect', { x: 0, y: 0, width: width, height: GRAPH_ROW_HEIGHT }))),
-          h('g', { clipPath: 'url(#' + clipId + ')' }, paths),
-          h('circle', { cx: x, cy: GRAPH_DOT_Y, r: GRAPH_DOT_R, fill: laneColor(lane) })
+          {
+            className: 'gitbar-graph-canvas',
+            width: width,
+            height: geometry.height,
+            viewBox: '0 0 ' + width + ' ' + geometry.height,
+            'aria-hidden': 'true',
+            focusable: 'false'
+          },
+          nodes
         )
       } catch (error) {
         return null
       }
     }
 
-    /** The graph table: toolbar, status, column labels, commit rows, confirms. */
+    /** The graph table: toolbar (current ref, escape, refresh), status, rows, confirms. */
     function GraphTable(props) {
       var t = props.t || translate
       var payload = props.payload
@@ -2230,22 +2307,59 @@ window.__ModuleLoader__.load({
       var current = data ? toText(data.current) : ''
       var detached = Boolean(data && data.detached)
       var head = data ? toText(data.head) : ''
-      var index = graphIndex(commits)
-      var geometry = graphEdges(commits, index)
+      var geometry = graphGeometry(commits)
       var status = props.status
+      var confirmRow = toText(props.confirmRow)
+      var confirmKind = toText(props.confirmKind)
       try {
+        var currentChip = !data
+          ? h('span', { className: 'gitbar-chip gitbar-graph-current' }, t('loading'))
+          : detached
+            ? h(
+              'button',
+              {
+                type: 'button',
+                className: 'gitbar-chip gitbar-graph-current gitbar-graph-current-detached',
+                title: t('headDetached') + ' ' + head,
+                onClick: function () {
+                  try {
+                    if (typeof props.onOpenPicker === 'function') props.onOpenPicker()
+                  } catch (error) {
+                    /* ignore */
+                  }
+                }
+              },
+              t('headDetached') + ' ' + head
+            )
+            : h(
+              'span',
+              { className: 'gitbar-chip gitbar-graph-current', title: current },
+              current || t('headDetached')
+            )
+
         var toolbar = h(
           'div',
           { className: 'gitbar-graph-toolbar' },
-          h(
-            'span',
-            {
-              className: 'gitbar-chip gitbar-graph-current' + (detached ? ' gitbar-graph-current-detached' : ''),
-              title: detached ? t('detachedHead') + ' ' + head : current
-            },
-            detached ? t('detachedHead') + ' ' + head : current || t('detachedHead')
-          ),
-          h('span', { className: 'gitbar-graph-hint' }, t('graphHint')),
+          currentChip,
+          detached && props.escapeTarget
+            ? h(
+              'button',
+              {
+                type: 'button',
+                className: 'gitbar-btn gitbar-graph-escape',
+                title: t('backToBranch') + ' ' + props.escapeTarget,
+                onClick: function () {
+                  try {
+                    if (typeof props.onEscape === 'function') props.onEscape(props.escapeTarget)
+                  } catch (error) {
+                    /* ignore */
+                  }
+                }
+              },
+              '← ' + t('backToBranch') + ' ' + props.escapeTarget
+            )
+            : null,
+          h('span', { className: 'gitbar-spacer' }),
           h(
             'button',
             {
@@ -2300,16 +2414,6 @@ window.__ModuleLoader__.load({
           )
           : null
 
-        var headNode = h(
-          'div',
-          { className: 'gitbar-graph-head' },
-          h('span', null, t('graphColumnGraph')),
-          h('span', null, t('graphColumnDescription')),
-          h('span', null, t('graphColumnDate')),
-          h('span', null, t('graphColumnAuthor')),
-          h('span', null, t('graphColumnCommit'))
-        )
-
         var body
         if (!payload || payload.loading === true) {
           var skeletons = []
@@ -2318,39 +2422,61 @@ window.__ModuleLoader__.load({
               h('div', { className: 'gitbar-graph-skeleton', key: 'skeleton-' + skeleton }, h('span', null), h('span', null), h('span', null))
             )
           }
-          body = h('div', { className: 'gitbar-graph-empty' }, t('loading'), h('div', null, null), skeletons)
+          body = h('div', { className: 'gitbar-graph-body', ref: props.listRef }, h('div', { className: 'gitbar-graph-empty' }, t('loading')), skeletons)
         } else if (!data) {
           body = h(
             'div',
-            { className: 'gitbar-graph-empty' },
-            h('div', null, payload.reason === 'not-a-repository' ? t('notRepo') : t('error')),
+            { className: 'gitbar-graph-body', ref: props.listRef },
             h(
-              'button',
-              {
-                type: 'button',
-                className: 'gitbar-btn',
-                onClick: function () {
-                  try {
-                    if (typeof props.onRetry === 'function') props.onRetry()
-                  } catch (error) {
-                    /* ignore */
+              'div',
+              { className: 'gitbar-graph-empty' },
+              h('div', null, payload.reason === 'not-a-repository' ? t('notRepo') : t('error')),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gitbar-btn',
+                  onClick: function () {
+                    try {
+                      if (typeof props.onRetry === 'function') props.onRetry()
+                    } catch (error) {
+                      /* ignore */
+                    }
                   }
-                }
-              },
-              t('refresh')
+                },
+                t('refresh')
+              )
             )
           )
         } else if (data.empty === true || commits.length === 0) {
-          body = h('div', { className: 'gitbar-graph-empty' }, t('emptyGraph'))
+          body = h('div', { className: 'gitbar-graph-body', ref: props.listRef }, h('div', { className: 'gitbar-graph-empty' }, t('emptyGraph')))
         } else {
           var items = []
           for (var at = 0; at < commits.length; at += 1) {
             var commit = commits[at] && typeof commits[at] === 'object' ? commits[at] : {}
             var full = toText(commit.full)
             var refs = commit.refs && typeof commit.refs.length === 'number' ? commit.refs : []
+            var ordered = []
+            for (var orderHead = 0; orderHead < refs.length; orderHead += 1) {
+              var headRef = refs[orderHead] && typeof refs[orderHead] === 'object' ? refs[orderHead] : {}
+              if (toText(headRef.kind) === 'head') ordered.push(headRef)
+            }
+            for (var orderBranch = 0; orderBranch < refs.length; orderBranch += 1) {
+              var branchRef = refs[orderBranch] && typeof refs[orderBranch] === 'object' ? refs[orderBranch] : {}
+              if (toText(branchRef.kind) === 'branch') ordered.push(branchRef)
+            }
+            for (var orderRemote = 0; orderRemote < refs.length; orderRemote += 1) {
+              var remoteRef = refs[orderRemote] && typeof refs[orderRemote] === 'object' ? refs[orderRemote] : {}
+              if (toText(remoteRef.kind) === 'remote') ordered.push(remoteRef)
+            }
+            for (var orderTag = 0; orderTag < refs.length; orderTag += 1) {
+              var tagRef = refs[orderTag] && typeof refs[orderTag] === 'object' ? refs[orderTag] : {}
+              if (toText(tagRef.kind) === 'tag') ordered.push(tagRef)
+            }
+
             var chips = []
-            for (var refAt = 0; refAt < refs.length; refAt += 1) {
-              var ref = refs[refAt] && typeof refs[refAt] === 'object' ? refs[refAt] : {}
+            for (var refAt = 0; refAt < ordered.length; refAt += 1) {
+              var ref = ordered[refAt]
               var kind = toText(ref.kind)
               var name = toText(ref.name)
               var tone = kind === 'head'
@@ -2367,7 +2493,7 @@ window.__ModuleLoader__.load({
                     type: 'button',
                     className: 'gitbar-graph-chip ' + tone,
                     key: 'ref-' + kind + '-' + name + '-' + refAt,
-                    title: kind === 'tag' ? 'tag ' + name : name,
+                    title: kind === 'tag' ? 'tag ' + name : (kind === 'remote' ? t('checkoutRemote') : name),
                     onClick: function (boundRef, boundCommit, event) {
                       return function (clickEvent) {
                         try {
@@ -2387,9 +2513,19 @@ window.__ModuleLoader__.load({
                 )
               )
             }
-            var isHead = refs.some(function (candidate) {
-              return candidate && candidate.kind === 'head'
-            })
+
+            var hasHead = false
+            for (var headAt = 0; headAt < refs.length; headAt += 1) {
+              if (refs[headAt] && refs[headAt].kind === 'head') hasHead = true
+            }
+            var hasCurrent = false
+            for (var currentAt = 0; currentAt < refs.length; currentAt += 1) {
+              if (refs[currentAt] && refs[currentAt].kind === 'branch' && refs[currentAt].current === true) hasCurrent = true
+            }
+            var rowClass = 'gitbar-graph-row'
+            if (hasHead) rowClass += ' gitbar-graph-row-head'
+            if (hasCurrent) rowClass += ' gitbar-graph-row-current'
+
             items.push(
               h(
                 'div',
@@ -2397,7 +2533,7 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   {
-                    className: 'gitbar-graph-row' + (isHead ? ' gitbar-graph-row-head' : ''),
+                    className: rowClass,
                     role: 'button',
                     tabIndex: 0,
                     style: { animationDelay: Math.min(at, GRAPH_STAGGER_CAP) * GRAPH_STAGGER_MS + 'ms' },
@@ -2424,34 +2560,26 @@ window.__ModuleLoader__.load({
                       }
                     }(full)
                   },
-                  h(
-                    'span',
-                    { className: 'gitbar-graph-lane', 'aria-hidden': 'true' },
-                    h(GraphLane, {
-                      t: t,
-                      index: at,
-                      uid: props.uid,
-                      commit: commit,
-                      columns: columns,
-                      edges: geometry.edges,
-                      stubs: geometry.stubs
-                    })
-                  ),
+                  h('span', { className: 'gitbar-graph-lane', 'aria-hidden': 'true' }),
                   h(
                     'span',
                     { className: 'gitbar-graph-desc' },
                     chips.length > 0 ? chips : null,
                     h('span', { className: 'gitbar-graph-subject', title: toText(commit.subject) }, toText(commit.subject))
                   ),
-                  h('span', { className: 'gitbar-graph-date' }, toText(commit.iso)),
+                  h('span', { className: 'gitbar-graph-date', title: toText(commit.iso) }, toText(commit.iso)),
                   h('span', { className: 'gitbar-graph-author', title: toText(commit.author) }, toText(commit.author)),
                   h('span', { className: 'gitbar-graph-hash', title: toText(commit.full) }, toText(commit.hash))
                 ),
-                props.confirmRow && props.confirmRow === full
+                confirmRow && confirmRow === full
                   ? h(
                     'div',
                     { className: 'gitbar-confirm' },
-                    h('span', { className: 'gitbar-confirm-text' }, t('confirmDetach') + ' · ' + toText(commit.hash)),
+                    h(
+                      'span',
+                      { className: 'gitbar-confirm-text' },
+                      (confirmKind === 'remote' ? t('checkoutRemote') : t('detachedCheckout')) + ' · ' + toText(commit.hash)
+                    ),
                     h(
                       'button',
                       {
@@ -2490,29 +2618,28 @@ window.__ModuleLoader__.load({
               )
             )
           }
-          body = h('div', { className: 'gitbar-graph-rows' }, items)
+          body = h(
+            'div',
+            { className: 'gitbar-graph-body', ref: props.listRef },
+            h(GraphCanvas, { commits: commits, columns: columns, geometry: geometry }),
+            h('div', { className: 'gitbar-graph-rows' }, items)
+          )
         }
 
-        return h(
-          'div',
-          { className: 'gitbar-graph-table' },
-          toolbar,
-          statusNode,
-          headNode,
-          h('div', { className: 'gitbar-graph-body', ref: props.listRef }, body)
-        )
+        return h('div', { className: 'gitbar-graph-table' }, toolbar, statusNode, body)
       } catch (error) {
         return h('div', { className: 'gitbar-graph-empty' }, t('error'))
       }
     }
 
-    /** The Sidebar's graph tab body: fetches, switches, and hosts the table. */
-    function SidebarGraph(props) {
+    /** The popover's graph mode: fetch, switch, escape, confirm, status. */
+    function GraphView(props) {
       var safe = props && typeof props === 'object' ? props : {}
       var t = typeof safe.t === 'function' ? safe.t : translate
-      var params = sidebarNavigationParams(safe)
-      var sessionId = toText(safe.sessionId) || (params ? toText(params.sessionId) : '') || lastSidebarSessionId
-      if (sessionId) lastSidebarSessionId = sessionId
+      var sessionId = toText(safe.sessionId)
+      var token = toNumber(safe.token) || 0
+      var stateBranch = toText(safe.stateBranch)
+      var stateDetached = safe.stateDetached === true
 
       var payloadHook = useState(null)
       var payload = payloadHook[0]
@@ -2529,16 +2656,32 @@ window.__ModuleLoader__.load({
       var confirmHook = useState('')
       var confirmRow = confirmHook[0]
       var setConfirmRow = confirmHook[1]
-      var uidHook = useRef(0)
-      if (!uidHook.current) uidHook.current = nextGraphUid()
+      var confirmKindHook = useState('commit')
+      var confirmKind = confirmKindHook[0]
+      var setConfirmKind = confirmKindHook[1]
+      var previousHook = useState(graphMemory.previousBranch)
+      var previousBranch = previousHook[0]
+      var setPreviousBranch = previousHook[1]
+      var branchesHook = useState(null)
+      var branchList = branchesHook[0]
+      var setBranchList = branchesHook[1]
+      var branchesAsked = useRef(false)
       var alive = useRef(true)
       var statusTimer = useRef(null)
       var listRef = useRef(null)
       var scrollRef = useRef(null)
       var switchAbort = useRef(null)
-      var stateAbort = useRef(null)
+      var hostPrevious = ''
 
-      // Fetch the graph; a refetch also drops any pending confirm.
+      // Seed the remembered branch from the capsule's own state.
+      useEffect(function () {
+        if (stateDetached || !stateBranch) return
+        if (graphMemory.previousBranch === stateBranch) return
+        graphMemory.previousBranch = stateBranch
+        setPreviousBranch(stateBranch)
+      }, [stateBranch, stateDetached])
+
+      // One graph fetch per open, and on every refresh token.
       useEffect(function () {
         setPayload({ loading: true })
         return requestJson(
@@ -2548,12 +2691,23 @@ window.__ModuleLoader__.load({
           ]),
           null,
           function (data) {
-            if (data && typeof data === 'object' && data.ok === true) setPayload({ ok: true, data: data })
-            else setPayload({ ok: false, reason: toText(data && data.reason) })
+            if (data && typeof data === 'object' && data.ok === true) {
+              setPayload({ ok: true, data: data })
+              var fromHost = toText(data.previousBranch)
+              if (fromHost) {
+                graphMemory.previousBranch = fromHost
+                setPreviousBranch(fromHost)
+              } else if (data.detached !== true && toText(data.current) && graphMemory.previousBranch !== toText(data.current)) {
+                graphMemory.previousBranch = toText(data.current)
+                setPreviousBranch(toText(data.current))
+              }
+            } else {
+              setPayload({ ok: false, reason: toText(data && data.reason) })
+            }
             setConfirmRow('')
           }
         )
-      }, [sessionId, refresh])
+      }, [sessionId, refresh, token])
 
       // Restore the scroll position after a switch-driven refetch.
       useEffect(function () {
@@ -2569,7 +2723,7 @@ window.__ModuleLoader__.load({
         scrollRef.current = null
       }, [payload])
 
-      // Everything this body starts is stopped when the tab unmounts.
+      // Stop everything this mode started when it unmounts.
       useEffect(function () {
         alive.current = true
         return function () {
@@ -2586,14 +2740,47 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
           switchAbort.current = null
-          try {
-            if (stateAbort.current) stateAbort.current()
-          } catch (error) {
-            /* ignore */
-          }
-          stateAbort.current = null
         }
       }, [])
+
+      var data = payload && payload.ok === true && payload.data && typeof payload.data === 'object' ? payload.data : null
+      var detached = Boolean(data && data.detached)
+      hostPrevious = data ? toText(data.previousBranch) : ''
+      var branchNames = []
+      if (branchList && branchList.ok === true && branchList.branches && typeof branchList.branches.length === 'number') {
+        for (var branchAt = 0; branchAt < branchList.branches.length; branchAt += 1) {
+          var branch = branchList.branches[branchAt]
+          var name = toText(branch && branch.name)
+          if (name && branchNames.indexOf(name) < 0) branchNames.push(name)
+        }
+      }
+
+      // The escape needs the local list only when nothing was remembered.
+      useEffect(function () {
+        if (!detached || hostPrevious || previousBranch) return function () {}
+        if (branchesAsked.current) return function () {}
+        branchesAsked.current = true
+        setBranchList({ loading: true })
+        return requestJson(withQuery(BRANCHES_URL, [{ key: 'session', value: sessionId }]), null, function (result) {
+          if (result.ok === true && result.branches && typeof result.branches.length === 'number') {
+            setBranchList({ ok: true, branches: result.branches })
+          } else {
+            setBranchList({ ok: false })
+          }
+        })
+      }, [detached, hostPrevious, previousBranch, sessionId])
+
+      // previousBranch from the Host -> our memory -> main -> master -> first local -> none.
+      var escapeTarget = ''
+      if (detached) {
+        if (hostPrevious) escapeTarget = hostPrevious
+        else if (previousBranch) escapeTarget = previousBranch
+        else if (branchNames.length > 0) {
+          if (branchNames.indexOf('main') >= 0) escapeTarget = 'main'
+          else if (branchNames.indexOf('master') >= 0) escapeTarget = 'master'
+          else escapeTarget = branchNames[0]
+        }
+      }
 
       function noteOk(text) {
         setStatus({ kind: 'ok', text: text })
@@ -2615,14 +2802,13 @@ window.__ModuleLoader__.load({
         }
       }
 
-      function postSwitch(body, token) {
-        var label = token
+      function postSwitch(body, token2) {
         try {
           if (switchAbort.current) switchAbort.current()
         } catch (error) {
           /* ignore */
         }
-        setPending(label)
+        setPending(token2)
         setStatus(null)
         switchAbort.current = requestJson(
           withQuery(SWITCH_URL, [{ key: 'session', value: sessionId }]),
@@ -2632,23 +2818,21 @@ window.__ModuleLoader__.load({
             switchAbort.current = null
             setPending('')
             if (result && result.ok === true) {
-              var name = result.branch
-                ? toText(result.branch)
-                : toText(result.hash) || toText(result.detach).slice(0, 7)
-              noteOk(t('switched') + ' ' + name)
+              var branchName = result.branch ? toText(result.branch) : ''
+              if (branchName) {
+                graphMemory.previousBranch = branchName
+                setPreviousBranch(branchName)
+              }
+              noteOk(t('switched') + ' ' + (branchName || toText(result.hash) || toText(result.detach).slice(0, 7)))
               setConfirmRow('')
               rememberScroll()
               setRefresh(function (value) {
                 return value + 1
               })
-              var listeners = gitbarStateBus.emit()
-              if (listeners === 0) {
-                try {
-                  if (stateAbort.current) stateAbort.current()
-                } catch (error) {
-                  /* ignore */
-                }
-                stateAbort.current = requestJson(withQuery(STATE_URL, [{ key: 'session', value: sessionId }]), null, function () {})
+              try {
+                if (typeof props.onSwitched === 'function') props.onSwitched()
+              } catch (error) {
+                /* ignore */
               }
               return
             }
@@ -2674,11 +2858,23 @@ window.__ModuleLoader__.load({
           else postSwitch({ branch: name }, 'branch:' + name)
           return
         }
-        if (full) setConfirmRow(full)
+        if (kind === 'remote') {
+          if (full) {
+            setConfirmKind('remote')
+            setConfirmRow(full)
+          }
+          return
+        }
+        if (full) {
+          setConfirmKind('commit')
+          setConfirmRow(full)
+        }
       }
 
       function onRowClick(full) {
-        if (full) setConfirmRow(full)
+        if (!full) return
+        setConfirmKind('commit')
+        setConfirmRow(full)
       }
 
       function onConfirm(full) {
@@ -2687,21 +2883,20 @@ window.__ModuleLoader__.load({
       }
 
       try {
-        var data = payload && payload.ok === true ? payload.data : null
         var columns = Math.max(1, Math.min(LANE_COUNT, toNumber(data && data.columns) || 1))
         var laneWidth = columns * GRAPH_LANE_WIDTH + GRAPH_LANE_INSET
         return h(
           'div',
           { className: 'gitbar-graph', style: { '--gitbar-lane-w': laneWidth + 'px' } },
-          h('style', { key: 'gitbar-graph-style' }, CSS),
           h(GraphTable, {
             t: t,
             payload: payload,
             columns: columns,
-            uid: uidHook.current,
             confirmRow: confirmRow,
+            confirmKind: confirmKind,
             pending: pending,
             status: status,
+            escapeTarget: escapeTarget,
             listRef: listRef,
             onRefresh: function () {
               rememberScroll()
@@ -2713,6 +2908,16 @@ window.__ModuleLoader__.load({
               setRefresh(function (value) {
                 return value + 1
               })
+            },
+            onEscape: function (target) {
+              if (target) postSwitch({ branch: toText(target) }, 'escape:' + toText(target))
+            },
+            onOpenPicker: function () {
+              try {
+                if (typeof props.onOpenPicker === 'function') props.onOpenPicker()
+              } catch (error) {
+                /* ignore */
+              }
             },
             onRowClick: onRowClick,
             onChipClick: onChipClick,
@@ -2736,61 +2941,9 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Slot wrapper that always hands the graph body a translator. */
-    function SidebarGraphEntry(slotProps) {
-      var merged = {}
-      try {
-        if (slotProps && typeof slotProps === 'object') {
-          for (var key in slotProps) {
-            if (Object.prototype.hasOwnProperty.call(slotProps, key)) merged[key] = slotProps[key]
-          }
-        }
-      } catch (error) {
-        merged = {}
-      }
-      merged.t = typeof merged.t === 'function' ? merged.t : translate
-      return h(SidebarGraph, merged)
-    }
-
-    // ── sidebar registration (tab types + bodies) ─────────────────────────
+    // ── sidebar registration (tab type + body) ────────────────────────────
     var sidebarRegistered = false
     var lastSidebarSessionId = ''
-    var graphUidSeq = 0
-
-    function nextGraphUid() {
-      graphUidSeq += 1
-      return 'g' + graphUidSeq
-    }
-
-    /** A switch made in the Sidebar also refreshes the header capsule's state. */
-    var gitbarStateBus = (function () {
-      var listeners = typeof Set === 'function' ? new Set() : null
-      function subscribe(listener) {
-        if (!listeners || typeof listener !== 'function') return function () {}
-        listeners.add(listener)
-        return function () {
-          try {
-            listeners.delete(listener)
-          } catch (error) {
-            /* ignore */
-          }
-        }
-      }
-      function emit() {
-        var count = 0
-        if (!listeners) return count
-        listeners.forEach(function (listener) {
-          count += 1
-          try {
-            listener()
-          } catch (error) {
-            /* a broken listener must not break the graph */
-          }
-        })
-        return count
-      }
-      return { subscribe: subscribe, emit: emit }
-    })()
 
     function serviceOf(ctx, name) {
       var service = null
@@ -2807,20 +2960,6 @@ window.__ModuleLoader__.load({
         }
       }
       return service || null
-    }
-
-    /** Navigation params a slot may hand one of our tab bodies. */
-    function sidebarNavigationParams(props) {
-      try {
-        var safe = props && typeof props === 'object' ? props : {}
-        var tabInfo = safe.tab && typeof safe.tab === 'object' ? safe.tab : null
-        var navigation = tabInfo && tabInfo.navigation && typeof tabInfo.navigation === 'object' ? tabInfo.navigation : null
-        if (!navigation && safe.navigation && typeof safe.navigation === 'object') navigation = safe.navigation
-        if (navigation && navigation.params && typeof navigation.params === 'object') return navigation.params
-      } catch (error) {
-        return null
-      }
-      return null
     }
 
     function sidebarTabDefinition() {
@@ -2852,54 +2991,24 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function sidebarGraphTabDefinition() {
-      return {
-        id: GRAPH_TYPE_ID,
-        kind: GRAPH_KIND,
-        patterns: [GRAPH_PATTERN, GRAPH_PAGE_ADDRESS],
-        priority: 'extension',
-        title: function () {
-          return translate('graphTitle')
-        },
-        canOpen: function (address) {
-          return typeof address === 'string' &&
-            (address === GRAPH_PAGE_ADDRESS || address.indexOf(GRAPH_ADDRESS_PREFIX) === 0)
-        },
-        keepMounted: true
-      }
-    }
-
     /**
-     * Register both tab types and both bodies once. Returns false when the
-     * sidebar registries are absent, so the popover fallbacks stay available.
+     * Register the review tab type and its body once. Returns false when the
+     * sidebar registries are absent, so the in-popover review stays the fallback.
      */
     function registerSidebarSurfaces(ctx) {
       if (sidebarRegistered) return true
       if (!ctx || !ctx.slots || typeof ctx.slots.inject !== 'function' || typeof ctx.slots.register !== 'function') return false
       var tabs = serviceOf(ctx, 'sidebarRightTabs')
       if (!tabs || typeof tabs.register !== 'function') return false
-      var registeredTypes = 0
       try {
         var registerReview = function () {
           return tabs.register(sidebarTabDefinition())
         }
         if (typeof ctx.effect === 'function') ctx.effect(registerReview, 'dsh-git-bar: review tab type')
         else registerReview()
-        registeredTypes += 1
       } catch (error) {
-        /* the graph tab may still register */
+        return false
       }
-      try {
-        var registerGraph = function () {
-          return tabs.register(sidebarGraphTabDefinition())
-        }
-        if (typeof ctx.effect === 'function') ctx.effect(registerGraph, 'dsh-git-bar: graph tab type')
-        else registerGraph()
-        registeredTypes += 1
-      } catch (error) {
-        /* the review tab still works */
-      }
-      if (registeredTypes === 0) return false
       sidebarRegistered = true
       try {
         var registerReviewBody = function () {
@@ -2912,17 +3021,6 @@ window.__ModuleLoader__.load({
       } catch (error) {
         /* the in-popover review stays the fallback */
       }
-      try {
-        var registerGraphBody = function () {
-          return ctx.slots.inject('sidebar.right.pane.tab', function () {
-            return ctx.slots.register({ name: 'sidebar.right.pane.tab', key: GRAPH_TYPE_ID }, SidebarGraphEntry)
-          })
-        }
-        if (typeof ctx.effect === 'function') ctx.effect(registerGraphBody, 'dsh-git-bar: graph tab body')
-        else registerGraphBody()
-      } catch (error) {
-        /* ignore */
-      }
       return true
     }
 
@@ -2932,8 +3030,8 @@ window.__ModuleLoader__.load({
 
     /**
      * Options for one resource open: replace an active guide tab, and an active
-     * tab of our own kind, so repeated hand-offs reuse a single review/graph tab.
-     * Never replaces any other plugin's tab.
+     * review tab, so repeated hand-offs reuse a single review tab. Never
+     * replaces any other plugin's tab.
      */
     function sidebarOpenOptions(params, ownKind) {
       var options = { params: params && typeof params === 'object' ? params : {} }
@@ -2978,20 +3076,6 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Hand the graph off to the Sidebar; false means keep the popover picker. */
-    function openSidebarGraph(session) {
-      if (!sidebarRegistered) return false
-      var right = sidebarController()
-      if (!right || typeof right.openResource !== 'function') return false
-      if (typeof session === 'string' && session) lastSidebarSessionId = session
-      try {
-        right.openResource(GRAPH_ADDRESS, sidebarOpenOptions({ sessionId: lastSidebarSessionId }, GRAPH_KIND))
-        return true
-      } catch (error) {
-        return false
-      }
-    }
-
     // ── panel ─────────────────────────────────────────────────────────────
     /** The expanded popover: header, counts, picker/list/commit/review body, commits. */
     function GitPanel(props) {
@@ -2999,7 +3083,7 @@ window.__ModuleLoader__.load({
       var data = props.data
       var view = props.view && typeof props.view === 'object' ? props.view : LIST_VIEW
       var pos = props.pos || { top: 56, right: 12, width: 460, maxHeight: 480 }
-      var mode = view.mode === 'branches' || view.mode === 'commit' || view.mode === 'review' ? view.mode : 'list'
+      var mode = view.mode === 'branches' || view.mode === 'commit' || view.mode === 'review' || view.mode === 'graph' ? view.mode : 'list'
       var state = data && data.ok === true ? data : null
       var notRepo = Boolean(data && data.ok === false)
 
@@ -3141,6 +3225,16 @@ window.__ModuleLoader__.load({
             token: props.token,
             onBack: props.onBack
           })
+        } else if (mode === 'graph') {
+          body = h(GraphView, {
+            t: t,
+            sessionId: props.sessionId,
+            token: props.graphToken,
+            stateBranch: state && state.detached !== true ? toText(state.branch) : '',
+            stateDetached: Boolean(state && state.detached),
+            onSwitched: props.onGraphSwitched,
+            onOpenPicker: props.onOpenPicker
+          })
         } else if (notRepo) {
           body = h(
             'div',
@@ -3270,6 +3364,10 @@ window.__ModuleLoader__.load({
       var branchesTokenHook = useState(0)
       var branchesToken = branchesTokenHook[0]
       var setBranchesToken = branchesTokenHook[1]
+      var graphTokenHook = useState(0)
+      var graphToken = graphTokenHook[0]
+      var setGraphToken = graphTokenHook[1]
+      var wideMode = Boolean(view && view.mode === 'graph')
       var flashHook = useState('')
       var flash = flashHook[0]
       var setFlash = flashHook[1]
@@ -3442,7 +3540,7 @@ window.__ModuleLoader__.load({
             var element = triggerRef.current
             if (!element) return
             if (remeasure === true) containingBlockRef.current = fixedContainingBlock(element)
-            setPos(computeAnchor(element, containingBlockRef.current))
+            setPos(computeAnchor(element, containingBlockRef.current, wideMode))
           } catch (error) {
             /* keep the last position */
           }
@@ -3468,7 +3566,7 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
         }
-      }, [open])
+      }, [open, wideMode])
 
       // 6. Close on outside click or Escape.
       useEffect(function () {
@@ -3511,25 +3609,7 @@ window.__ModuleLoader__.load({
         }
       }, [open, closing])
 
-      // 7. A switch made in the graph tab refreshes this capsule immediately.
-      useEffect(function () {
-        var unsubscribe = gitbarStateBus.subscribe(function () {
-          try {
-            loadRef.current()
-          } catch (error) {
-            /* ignore */
-          }
-        })
-        return function () {
-          try {
-            unsubscribe()
-          } catch (error) {
-            /* ignore */
-          }
-        }
-      }, [])
-
-      // 8. Pulse the pill's count when the number changes.
+      // 7. Pulse the pill's count when the number changes.
       useEffect(function () {
         try {
           var state = data && data.ok === true ? data : null
@@ -3602,6 +3682,7 @@ window.__ModuleLoader__.load({
         loadRef.current()
         if (view && view.mode === 'review') setToken(function (value) { return value + 1 })
         if (view && view.mode === 'branches') setBranchesToken(function (value) { return value + 1 })
+        if (view && view.mode === 'graph') setGraphToken(function (value) { return value + 1 })
       }
 
       function onTogglePicker() {
@@ -3613,20 +3694,18 @@ window.__ModuleLoader__.load({
       }
 
       function onOpenGraph() {
-        var opened = false
         try {
-          opened = openSidebarGraph(sessionRef.current)
-        } catch (error) {
-          opened = false
-        }
-        if (opened) {
-          closePanel()
-          return
-        }
-        try {
-          setView(view && view.mode === 'branches' ? LIST_VIEW : { mode: 'branches' })
+          setView({ mode: 'graph' })
         } catch (error) {
           setView(LIST_VIEW)
+        }
+      }
+
+      function onGraphSwitched() {
+        try {
+          loadRef.current()
+        } catch (error) {
+          /* ignore */
         }
       }
 
@@ -3754,6 +3833,7 @@ window.__ModuleLoader__.load({
             view: view,
             token: token,
             branchesToken: branchesToken,
+            graphToken: graphToken,
             sessionId: sessionId,
             commitsOpen: commitsOpen,
             flash: flash,
@@ -3772,6 +3852,8 @@ window.__ModuleLoader__.load({
             onHandoff: closePanelInstant,
             onTogglePicker: onTogglePicker,
             onOpenGraph: onOpenGraph,
+            onOpenPicker: onTogglePicker,
+            onGraphSwitched: onGraphSwitched,
             onSwitched: onSwitched,
             onBodyAnimEnd: onBodyAnimEnd,
             onPanelEntered: function () {

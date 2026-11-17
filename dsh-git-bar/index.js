@@ -610,12 +610,29 @@ async function collectGraph(root, requestedLimit) {
   }
   const columns = assignLanes(rows)
   const shortHead = shortHeadResult.failed ? '' : shortHeadResult.out.trim()
+
+  // A detached HEAD has no branch of its own, so offer the one the user came
+  // from: the last reflog entry names it ("checkout: moving from main to …").
+  let previousBranch = current
+  if (current === '') {
+    const reflog = await git(root, ['reflog', '-n', '1', '--format=%gs'])
+    const moved = /moving from (\S+) to /.exec(reflog.out.trim())
+    const candidate = moved ? moved[1] : ''
+    const localNames = new Set()
+    for (const line of refsResult.out.split('\n')) {
+      const cells = line.split('\u001f')
+      if ((cells[0] ?? '').startsWith('refs/heads/') && cells[2]) localNames.add(cells[2])
+    }
+    if (localNames.has(candidate)) previousBranch = candidate
+  }
+
   return {
     ok: true,
     root,
     current,
     detached: current === '',
     head: shortHead || (rows.length > 0 ? rows[0].hash : ''),
+    previousBranch,
     columns,
     commits: rows,
   }
