@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Git Capsule",
+    "description": "Shows the workspace's current branch and working-tree changes in the Session header; expand it and click a file to review its diff."
+  }
+}
