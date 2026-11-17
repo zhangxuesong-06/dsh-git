@@ -556,9 +556,10 @@ function parseRefs(raw) {
 /** The commit graph the Sidebar's graph tab draws. */
 async function collectGraph(root, requestedLimit) {
   const limit = Math.min(Math.max(Number(requestedLimit) || GRAPH_LIMIT, 10), 300)
-  const [logResult, refsResult, headResult] = await Promise.all([
+  const [logResult, refsResult, headResult, shortHeadResult] = await Promise.all([
     git(root, [
       'log',
+      '--all',
       '--topo-order',
       '-n',
       String(limit),
@@ -573,6 +574,7 @@ async function collectGraph(root, requestedLimit) {
       '--format=%(refname)\u001f%(objectname)\u001f%(refname:short)\u001f%(*objectname)\u001f%(HEAD)',
     ]),
     git(root, ['symbolic-ref', '--short', '-q', 'HEAD']),
+    git(root, ['rev-parse', '--short', 'HEAD']),
   ])
 
   if (logResult.failed && logResult.out.trim() === '') {
@@ -607,12 +609,13 @@ async function collectGraph(root, requestedLimit) {
     row.refs = decorated
   }
   const columns = assignLanes(rows)
+  const shortHead = shortHeadResult.failed ? '' : shortHeadResult.out.trim()
   return {
     ok: true,
     root,
     current,
     detached: current === '',
-    head: rows.length > 0 ? rows[0].hash : '',
+    head: shortHead || (rows.length > 0 ? rows[0].hash : ''),
     columns,
     commits: rows,
   }
