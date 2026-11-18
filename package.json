@@ -20,6 +20,14 @@
   "publishConfig": {
     "access": "public"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhangxuesong-06/dsh-git.git"
+  },
+  "homepage": "https://github.com/zhangxuesong-06/dsh-git#readme",
+  "bugs": {
+    "url": "https://github.com/zhangxuesong-06/dsh-git/issues"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
