@@ -3131,25 +3131,6 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * True while the right Sidebar's active tab is our review tab. The panel is
-     * the launcher for that tab, so while it is in force a click inside the
-     * Sidebar (including the tab's own close control) must not dismiss it.
-     */
-    function reviewTabInForce() {
-      var right = sidebarController()
-      if (!right || typeof right.active !== 'function') return false
-      try {
-        var active = right.active()
-        if (!active || typeof active !== 'object') return false
-        var kind = toText(active.kind)
-        if (!kind && active.record && typeof active.record === 'object') kind = toText(active.record.kind)
-        return kind === REVIEW_KIND
-      } catch (error) {
-        return false
-      }
-    }
-
-    /**
      * Options for one resource open: replace an active guide tab, and an active
      * review tab, so repeated hand-offs reuse a single review tab. Never
      * replaces any other plugin's tab.
@@ -3769,9 +3750,6 @@ window.__ModuleLoader__.load({
             var root = rootRef.current
             var target = event ? event.target : null
             if (root && target && typeof root.contains === 'function' && root.contains(target)) return
-            // The review lives in the right Sidebar; clicking there — closing
-            // the review tab included — must leave this panel open.
-            if (reviewTabInForce()) return
             closePanel()
           } catch (error) {
             finishClose()
