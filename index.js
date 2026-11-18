@@ -215,6 +215,24 @@ function relativePath(requested, root) {
   return normalized
 }
 
+/** Best-effort upstream for a branch that has no configured tracking ref. */
+async function guessUpstream(root, branch) {
+  const remotes = await git(root, ['remote'])
+  if (remotes.failed) return ''
+  const names = remotes.out
+    .split('\n')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  if (names.length === 0) return ''
+  names.sort((left, right) => (left === 'origin' ? -1 : right === 'origin' ? 1 : 0))
+  for (const remote of names) {
+    const ref = `refs/remotes/${remote}/${branch}`
+    const exists = await git(root, ['rev-parse', '--verify', '--quiet', ref])
+    if (!exists.failed && exists.out.trim() !== '') return `${remote}/${branch}`
+  }
+  return ''
+}
+
 /** Read the complete state the capsule shows in one round trip. */
 async function collectState(cwd) {
   const inside = await git(cwd, ['rev-parse', '--is-inside-work-tree'])
@@ -237,12 +255,18 @@ async function collectState(cwd) {
   const detached = refResult.failed || refResult.out.trim() === ''
   const branch = detached ? '' : refResult.out.trim()
   const head = headResult.out.trim()
-  const upstream = upstreamResult.failed ? '' : upstreamResult.out.trim()
+  let upstream = upstreamResult.failed ? '' : upstreamResult.out.trim()
+  // A branch without a configured upstream often still has a same-named
+  // remote-tracking ref (fresh clones, re-initialised repositories). Showing
+  // that keeps the ahead/behind counters meaningful instead of blank.
+  if (upstream === '' && !detached && branch !== '') {
+    upstream = await guessUpstream(root, branch)
+  }
 
   let ahead = 0
   let behind = 0
-  if (upstream) {
-    const counts = await git(root, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'])
+  if (upstream !== '' && !upstream.startsWith('-') && /^[A-Za-z0-9._/-]+$/.test(upstream)) {
+    const counts = await git(root, ['rev-list', '--left-right', '--count', `HEAD...${upstream}`])
     if (!counts.failed) {
       const [left, right] = counts.out.trim().split(/\s+/)
       ahead = Number(left) || 0
