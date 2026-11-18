@@ -28,8 +28,8 @@
 
 | 方式 | 输入 |
 | --- | --- |
-| npm 包 | `dsh-git-bar`（或锁定版本 `dsh-git-bar@1.0.0`） |
-| GitHub 仓库 | `git+https://github.com/<你>/<仓库>.git`（或 `github:<你>/<仓库>`） |
+| npm 包（已发布） | `dsh-git-bar`（最新 `1.0.0`），或锁定版本 `dsh-git-bar@1.0.0` |
+| GitHub 仓库 | `git+https://github.com/zhangxuesong-06/dsh-git.git` |
 | 本地目录（开发） | `link:<仓库绝对路径>` |
 | 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.0.0.tgz` |
 
@@ -37,12 +37,17 @@
 
 ```text
 plugin_manager  action=install_bundle  target=dsh-git-bar
-plugin_manager  action=install_bundle  target=git+https://github.com/<你>/<仓库>.git
+plugin_manager  action=install_bundle  target=git+https://github.com/zhangxuesong-06/dsh-git.git
 plugin_manager  action=install_bundle  target=link:<仓库绝对路径>
 ```
 
-安装后无需重启：bundle 通过 DSH 的 HMR 生效；之后改了代码，对 `include:dsh-git-bar` 做一次「停用 → 启用」即可热重载两半
-（registry / git 安装的是打包副本，改动需要重新发版或重新安装）。
+安装后 bundle 通过 DSH 的 HMR 生效；**但升级或首次安装后请重启一次 DSH**——浏览器半边是「物化」加载的，
+只刷新页面不会换上新代码（Host 半边则会热替换）。用 `link:` 安装时改代码只需对 `include:dsh-git-bar`
+做一次「停用 → 启用」；registry / git 安装的是打包副本，改动需要重新发版或重新安装。
+
+> 开发提示：不要把 profile 指向仓库目录的 `link:` 安装与 pnpm 的 install/remove 混用——在 Windows 上
+> pnpm 处理这种 junction 时可能连带删除链接目标里的内容（本项目曾因此丢失 `.git` 元数据，靠 refs/对象恢复）。
+> 稳妥做法是 `npm pack` 后装 tarball，或发布 `--tag next` 的预发布版本来联调。
 
 要求：
 
