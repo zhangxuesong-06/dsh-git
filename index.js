@@ -60,8 +60,12 @@ async function resolveGit() {
   return gitExecutable
 }
 
-/** Run git without a shell and always resolve with a stable shape. */
-function git(cwd, args, timeoutMs = 20_000) {
+/**
+ * Run git without a shell and always resolve with a stable shape. `extraEnv`
+ * is merged over the inherited environment; network commands use it to make
+ * git fail fast instead of blocking on a credential prompt.
+ */
+function git(cwd, args, timeoutMs = 20_000, extraEnv = null) {
   return new Promise((done) => {
     resolveGit()
       .then((executable) => {
@@ -74,12 +78,15 @@ function git(cwd, args, timeoutMs = 20_000) {
             timeout: timeoutMs,
             windowsHide: true,
             maxBuffer: 32 * 1024 * 1024,
+            ...(extraEnv ? { env: { ...process.env, ...extraEnv } } : {}),
           },
           (error, stdout, stderr) => {
             const code = error ? (typeof error.code === 'number' ? error.code : 1) : 0
+            const timedOut = Boolean(error && error.killed)
             done({
               code,
               failed: code !== 0,
+              timedOut,
               out: typeof stdout === 'string' ? stdout : '',
               err: typeof stderr === 'string' ? stderr : '',
             })
@@ -87,7 +94,7 @@ function git(cwd, args, timeoutMs = 20_000) {
         )
       })
       .catch((error) => {
-        done({ code: 1, failed: true, out: '', err: String(error && error.message ? error.message : error) })
+        done({ code: 1, failed: true, timedOut: false, out: '', err: String(error && error.message ? error.message : error) })
       })
   })
 }
@@ -774,15 +781,73 @@ async function autoCommit(root, state) {
     git(root, ['rev-parse', '--short', 'HEAD']),
     git(root, ['rev-parse', 'HEAD']),
   ])
+  const branch = typeof state.branch === 'string' ? state.branch.trim() : ''
+  const push = branch === '' ? { pushed: false, pushReason: 'detached', pushDetail: 'HEAD is detached' } : await pushCommitted(root, branch)
   return {
     ok: true,
+    committed: true,
     root,
     short: shortResult.out.trim(),
     hash: fullResult.out.trim(),
     subject,
     message: `${subject}\n\n${body}`,
     files: paths.length,
+    pushed: push.pushed === true,
+    pushReason: push.pushReason ?? '',
+    pushDetail: push.pushDetail ?? '',
+    upstream: push.upstream ?? '',
   }
+}
+
+/** Environment that makes network git fail fast instead of prompting. */
+const NETWORK_ENV = Object.freeze({
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_ASKPASS: 'echo',
+  SSH_ASKPASS: 'echo',
+  GCM_INTERACTIVE: 'never',
+})
+
+/** Where a push would go: the configured upstream, else origin/first remote. */
+async function pushTarget(root, branch) {
+  const upstreamResult = await git(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
+  const configured = upstreamResult.failed ? '' : upstreamResult.out.trim()
+  if (configured !== '' && !configured.startsWith('-')) {
+    return { upstream: configured, remote: '', branch, setTracking: false }
+  }
+  const remotes = await git(root, ['remote'])
+  const names = remotes.failed
+    ? []
+    : remotes.out
+        .split('\n')
+        .map((value) => value.trim())
+        .filter((value) => value !== '' && !value.startsWith('-'))
+  if (names.length === 0) return { upstream: '', remote: '', branch, setTracking: false, reason: 'no-remote' }
+  const remote = names.includes('origin') ? 'origin' : names[0]
+  return { upstream: `${remote}/${branch}`, remote, branch, setTracking: true }
+}
+
+/**
+ * Push the current branch right after a commit. Never force-pushes and never
+ * prompts for credentials: an interactive prompt would block the request.
+ */
+async function pushCommitted(root, branch) {
+  const target = await pushTarget(root, branch)
+  if (target.reason === 'no-remote') {
+    return { pushed: false, pushReason: 'no-remote', pushDetail: 'no git remote is configured' }
+  }
+  const args = target.setTracking ? ['push', '--set-upstream', target.remote, branch] : ['push']
+  const pushed = await git(root, args, 120_000, NETWORK_ENV)
+  if (pushed.failed) {
+    const detail = clipText(pushed.err || pushed.out)
+    const outOfDate = /non-fast-forward|fetch first|rejected|updates were rejected/i.test(detail)
+    return {
+      pushed: false,
+      pushReason: outOfDate ? 'out-of-date' : 'push-failed',
+      pushDetail: detail,
+      upstream: target.upstream,
+    }
+  }
+  return { pushed: true, upstream: target.upstream }
 }
 
 /** Answer one HTTP request from this plugin's route family. */

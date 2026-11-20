@@ -87,6 +87,14 @@ window.__ModuleLoader__.load({
       refresh: '刷新',
       autoCommit: '自动提交',
       committed: '已提交',
+      committedPushed: '已提交并推送',
+      pushIncomplete: '推送未完成',
+      pushReasonSep: '：',
+      pushNoRemote: '未配置 git 远端',
+      pushOutOfDate: '远端有新提交，请先拉取',
+      pushDetached: '分离 HEAD',
+      autoCommitHint: '自动生成提交信息、提交并推送到远端',
+      autoCommitPending: '提交并推送…',
       nothingToCommit: '没有可提交的改动',
       commitConflicts: '存在冲突，请先解决冲突',
       commitDetached: '分离 HEAD 下无法提交',
@@ -154,6 +162,14 @@ window.__ModuleLoader__.load({
       refresh: 'Refresh',
       autoCommit: 'Auto-commit',
       committed: 'Committed',
+      committedPushed: 'Committed & pushed',
+      pushIncomplete: 'Push incomplete',
+      pushReasonSep: ': ',
+      pushNoRemote: 'No git remote configured',
+      pushOutOfDate: 'Remote has newer commits, pull first',
+      pushDetached: 'Detached HEAD',
+      autoCommitHint: 'Generate a commit message, commit and push to the remote',
+      autoCommitPending: 'Committing & pushing…',
       nothingToCommit: 'Nothing to commit',
       commitConflicts: 'Resolve conflicts before committing',
       commitDetached: 'Cannot commit while HEAD is detached',
@@ -1047,6 +1063,7 @@ window.__ModuleLoader__.load({
       '.gitbar-actbtn:disabled{cursor:default;opacity:.55}',
       '.gitbar-actbtn-ready{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-actstatus{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-state-error-primary)}',
+      '.gitbar-actstatus-warn{color:var(--dsw-alias-state-warn-primary)}',
       '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-actbtn,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
@@ -3254,8 +3271,8 @@ window.__ModuleLoader__.load({
       if (total === null) total = 0
       var disabled = pending || total === 0
 
-      function showStatus(text) {
-        setStatus(toText(text))
+      function showStatus(text, tone) {
+        setStatus({ text: toText(text), tone: tone === 'warn' ? 'warn' : 'error' })
         try {
           if (statusTimer.current !== null) clearTimeout(statusTimer.current)
         } catch (error) {
@@ -3266,15 +3283,29 @@ window.__ModuleLoader__.load({
         }, 5000)
       }
 
+      function detailLine(detail) {
+        var line = toText(detail).split('\n')[0]
+        if (line.length > 120) line = line.slice(0, 120) + '…'
+        return line
+      }
+
       function reasonText(reason, detail) {
         var safe = toText(reason)
         if (safe === 'nothing-to-commit') return t('nothingToCommit')
         if (safe === 'conflicted') return t('commitConflicts')
         if (safe === 'detached') return t('commitDetached')
         if (safe === 'not-a-repository') return t('notRepo')
-        var line = toText(detail).split('\n')[0]
-        if (line.length > 120) line = line.slice(0, 120) + '…'
+        var line = detailLine(detail)
         return line ? t('commitFailed') + ' · ' + line : t('commitFailed')
+      }
+
+      function pushReasonText(reason, detail) {
+        var safe = toText(reason)
+        if (safe === 'no-remote') return t('pushNoRemote')
+        if (safe === 'out-of-date') return t('pushOutOfDate')
+        if (safe === 'detached') return t('pushDetached')
+        var line = detailLine(detail)
+        return line || t('pushIncomplete')
       }
 
       function commit() {
@@ -3294,6 +3325,15 @@ window.__ModuleLoader__.load({
             abortRef.current = null
             setPending(false)
             if (result && result.ok === true) {
+              // A push that did not land is a partial success, not a failure:
+              // the commit exists, so refresh the list and explain the push.
+              if (result.pushed !== true) {
+                var short = toText(result.short)
+                showStatus(
+                  t('committed') + (short ? ' ' + short : '') + ' · ' + t('pushIncomplete') + t('pushReasonSep') + pushReasonText(result.pushReason, result.pushDetail),
+                  'warn'
+                )
+              }
               try {
                 if (typeof props.onCommitted === 'function') props.onCommitted(result)
               } catch (error) {
@@ -3310,8 +3350,16 @@ window.__ModuleLoader__.load({
         return h(
           'div',
           { className: 'gitbar-actions' },
-          status
-            ? h('span', { className: 'gitbar-actstatus', role: 'status', title: status }, status)
+          status && status.text
+            ? h(
+              'span',
+              {
+                className: 'gitbar-actstatus' + (status.tone === 'warn' ? ' gitbar-actstatus-warn' : ''),
+                role: 'status',
+                title: status.text
+              },
+              status.text
+            )
             : h('span', { className: 'gitbar-spacer' }),
           h(
             'button',
@@ -3321,11 +3369,11 @@ window.__ModuleLoader__.load({
               disabled: disabled,
               'aria-busy': pending ? 'true' : 'false',
               'aria-disabled': disabled ? 'true' : 'false',
-              title: total === 0 && !pending ? t('clean') : t('autoCommit'),
+              title: pending ? t('autoCommitHint') : total === 0 ? t('clean') : t('autoCommit'),
               onClick: commit
             },
             pending ? h('span', { className: 'gitbar-busy', 'aria-hidden': 'true' }) : null,
-            pending ? t('loading') : t('autoCommit')
+            pending ? t('autoCommitPending') : t('autoCommit')
           )
         )
       } catch (error) {
@@ -4072,7 +4120,11 @@ window.__ModuleLoader__.load({
           var short = toText(safe.short)
           var subject = toText(safe.subject)
           if (subject.length > 48) subject = subject.slice(0, 48) + '…'
-          flashMessage(t('committed') + (short ? ' ' + short : '') + (subject ? ' · ' + subject : ''))
+          // A partial success (committed, not pushed) explains itself in the
+          // action bar's own status line, so it gets no success flash.
+          if (safe.pushed === true) {
+            flashMessage(t('committedPushed') + (short ? ' ' + short : '') + (subject ? ' · ' + subject : ''))
+          }
           loadRef.current()
         } catch (error) {
           /* the commit itself already happened */
