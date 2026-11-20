@@ -41,6 +41,7 @@ window.__ModuleLoader__.load({
     var COMMIT_URL = '/dsh-git-bar/commit'
     var COMMIT_DIFF_URL = '/dsh-git-bar/commit-diff'
     var AUTO_COMMIT_URL = '/dsh-git-bar/auto-commit'
+    var PUSH_URL = '/dsh-git-bar/push'
     var REVIEW_PAGE_ADDRESS = 'sidebar://git-review'
     var GRAPH_URL = '/dsh-git-bar/graph'
     var GRAPH_LIMIT = 120
@@ -86,6 +87,20 @@ window.__ModuleLoader__.load({
       notRepo: '不是 git 仓库',
       refresh: '刷新',
       autoCommit: '自动提交',
+      commitMessage: '提交描述',
+      commitMessagePlaceholder: '留空则自动生成提交信息',
+      commitOnly: '仅提交',
+      commitAndPush: '提交并推送',
+      retryPush: '重试推送',
+      pushed: '已推送',
+      branchLabel: '分支名',
+      detachedBranchHint: '游离 HEAD：提交前会创建这个分支',
+      detachedNeedsBranch: '游离 HEAD，请填写分支名',
+      invalidBranch: '分支名不合法',
+      branchExists: '同名分支已存在',
+      credentialHint: 'GitHub HTTPS 推送需用 Personal Access Token；SSH 推送填私钥口令',
+      credentialUser: '用户名（可选，默认 git）',
+      credentialPassword: '密码/令牌',
       committed: '已提交',
       committedPushed: '已提交并推送',
       pushIncomplete: '推送未完成',
@@ -161,6 +176,20 @@ window.__ModuleLoader__.load({
       notRepo: 'Not a git repository',
       refresh: 'Refresh',
       autoCommit: 'Auto-commit',
+      commitMessage: 'Commit message',
+      commitMessagePlaceholder: 'Leave empty to generate the message automatically',
+      commitOnly: 'Commit only',
+      commitAndPush: 'Commit & push',
+      retryPush: 'Retry push',
+      pushed: 'Pushed',
+      branchLabel: 'Branch name',
+      detachedBranchHint: 'Detached HEAD: this branch is created before committing',
+      detachedNeedsBranch: 'Detached HEAD, please enter a branch name',
+      invalidBranch: 'Invalid branch name',
+      branchExists: 'Branch already exists',
+      credentialHint: 'GitHub HTTPS pushes need a Personal Access Token; SSH pushes need the private-key passphrase',
+      credentialUser: 'Username (optional, defaults to git)',
+      credentialPassword: 'Password / token',
       committed: 'Committed',
       committedPushed: 'Committed & pushed',
       pushIncomplete: 'Push incomplete',
@@ -1055,16 +1084,31 @@ window.__ModuleLoader__.load({
       '.gitbar-sidebar-list{display:flex;flex-direction:column;min-height:0}',
       '.gitbar-sidebar-hint{padding:8px 10px 4px;font-size:11.5px;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l1)}',
       '.gitbar-chip-commit{flex:0 0 auto;font-family:ui-monospace,"Cascadia Code",Consolas,monospace}',
-      '.gitbar-actions{flex:0 0 auto;display:flex;align-items:center;gap:6px;min-width:0;box-sizing:border-box;padding:4px 6px;border-top:1px solid var(--dsw-alias-border-l1)}',
-      '.gitbar-actbtn{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;max-width:100%;box-sizing:border-box;padding:2px 9px;border:1px solid var(--dsw-alias-brand-primary);border-radius:8px;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-overlay);font:inherit;font-size:11.5px;font-weight:600;white-space:nowrap;cursor:pointer;transition:opacity 120ms ease,transform 120ms ease}',
-      '.gitbar-actbtn:hover:not(:disabled){opacity:.92}',
-      '.gitbar-actbtn:active:not(:disabled){transform:scale(.99)}',
-      '.gitbar-actbtn:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
-      '.gitbar-actbtn:disabled{cursor:default;opacity:.55}',
-      '.gitbar-actbtn-ready{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-secondary)}',
-      '.gitbar-actstatus{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-state-error-primary)}',
-      '.gitbar-actstatus-warn{color:var(--dsw-alias-state-warn-primary)}',
-      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-actbtn,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
+      '.gitbar-graph-commitbtn{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:24px;height:24px;box-sizing:border-box;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:1;cursor:pointer;transition:background-color 120ms ease,color 120ms ease,border-color 120ms ease}',
+      '.gitbar-graph-commitbtn:hover{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}',
+      '.gitbar-graph-commitbtn:active{transform:scale(.97)}',
+      '.gitbar-graph-commitbtn:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-graph-commiticon{display:block;transform:translateY(-1px)}',
+      '.gitbar-commitpanel{position:absolute;left:0;right:0;top:0;bottom:0;z-index:2;display:flex;flex-direction:column;gap:7px;box-sizing:border-box;padding:8px 9px 9px;background:var(--dsw-alias-bg-overlay);border-radius:inherit;overflow:auto;animation:gitbar-commitpanel-in 140ms cubic-bezier(0.2,0,0,1) both}',
+      '@keyframes gitbar-commitpanel-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}',
+      '.gitbar-commitpanel-head{display:flex;align-items:center;gap:6px;flex:0 0 auto}',
+      '.gitbar-commitpanel-title{flex:1 1 auto;min-width:0;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.gitbar-commitpanel-field{display:flex;flex-direction:column;gap:3px;min-width:0;flex:0 0 auto}',
+      '.gitbar-commitpanel-label{font-size:10.5px;color:var(--dsw-alias-label-secondary);font-weight:600}',
+      '.gitbar-commitpanel-input{width:100%;box-sizing:border-box;min-width:0;padding:4px 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;resize:none}',
+      'textarea.gitbar-commitpanel-input{min-height:44px}',
+      '.gitbar-commitpanel-input:focus-visible{outline:none;border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-commitpanel-hint{font-size:10.5px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}',
+      '.gitbar-commitpanel-note{font-size:11px;color:var(--dsw-alias-state-success-primary)}',
+      '.gitbar-commitpanel-status{padding:4px 7px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);font-size:11px;overflow-wrap:anywhere}',
+      '.gitbar-commitpanel-status-ok{color:var(--dsw-alias-state-success-primary)}',
+      '.gitbar-commitpanel-status-warn{color:var(--dsw-alias-state-warn-primary)}',
+      '.gitbar-commitpanel-status-error{color:var(--dsw-alias-state-error-primary)}',
+      '.gitbar-commitpanel-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:auto;flex:0 0 auto}',
+      '.gitbar-commitpanel-btn{flex:0 1 auto}',
+      '.gitbar-commitpanel-primary{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-overlay)}',
+      '.gitbar-commitpanel-primary:hover{opacity:.92}',
+      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
     // ── components ────────────────────────────────────────────────────────
@@ -2470,6 +2514,23 @@ window.__ModuleLoader__.load({
             'button',
             {
               type: 'button',
+              className: 'gitbar-graph-commitbtn',
+              title: t('autoCommit'),
+              'aria-label': t('autoCommit'),
+              onClick: function () {
+                try {
+                  if (typeof props.onCommit === 'function') props.onCommit()
+                } catch (error) {
+                  /* ignore */
+                }
+              }
+            },
+            h('span', { className: 'gitbar-graph-commiticon', 'aria-hidden': 'true' }, '↑')
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
               className: 'gitbar-btn',
               title: t('refresh'),
               'aria-label': t('refresh'),
@@ -3064,6 +3125,13 @@ window.__ModuleLoader__.load({
                 /* ignore */
               }
             },
+            onCommit: function () {
+              try {
+                if (typeof props.onCommit === 'function') props.onCommit()
+              } catch (error) {
+                /* ignore */
+              }
+            },
             onCurrent: function () {
               noteOk(t('current'))
             },
@@ -3234,69 +3302,86 @@ window.__ModuleLoader__.load({
 
     // ── panel ─────────────────────────────────────────────────────────────
     /** The expanded popover: header, counts, picker/list/commit/review body, commits. */
-    /** The bottom action bar: auto-commit runs only on an explicit click. */
-    function AutoCommitBar(props) {
+    /** wip/<yyyyMMdd-HHmm>, the default branch offered for a detached HEAD. */
+    function defaultWipBranch() {
+      try {
+        var now = new Date()
+        function pad(value) {
+          return (value < 10 ? '0' : '') + String(value)
+        }
+        return 'wip/' + String(now.getFullYear()) + pad(now.getMonth() + 1) + pad(now.getDate()) + '-' + pad(now.getHours()) + pad(now.getMinutes())
+      } catch (error) {
+        return 'wip'
+      }
+    }
+
+    /**
+     * The auto-commit sheet: a message, an optional detached-HEAD branch, and
+     * one-shot push credentials. User-triggered only; credentials live in this
+     * component's state and die with it (never stored, never reused).
+     */
+    function CommitPanel(props) {
       var t = props.t || translate
       var sessionId = toText(props.sessionId)
-      var pendingHook = useState(false)
-      var pending = pendingHook[0]
-      var setPending = pendingHook[1]
+      var detached = props.detached === true
+
+      var messageHook = useState('')
+      var message = messageHook[0]
+      var setMessage = messageHook[1]
+      var branchHook = useState(defaultWipBranch())
+      var branch = branchHook[0]
+      var setBranch = branchHook[1]
+      var userHook = useState('git')
+      var username = userHook[0]
+      var setUsername = userHook[1]
+      var passwordHook = useState('')
+      var password = passwordHook[0]
+      var setPassword = passwordHook[1]
+      var phaseHook = useState('form')
+      var phase = phaseHook[0]
+      var setPhase = phaseHook[1]
+      var committedHook = useState(null)
+      var committed = committedHook[0]
+      var setCommitted = committedHook[1]
       var statusHook = useState(null)
       var status = statusHook[0]
       var setStatus = statusHook[1]
+      var pendingHook = useState('')
+      var pending = pendingHook[0]
+      var setPending = pendingHook[1]
       var alive = useRef(true)
-      var abortRef = useRef(null)
-      var statusTimer = useRef(null)
+      var commitAbort = useRef(null)
+      var pushAbort = useRef(null)
 
       useEffect(function () {
         alive.current = true
         return function () {
           alive.current = false
           try {
-            if (abortRef.current) abortRef.current()
+            if (commitAbort.current) commitAbort.current()
           } catch (error) {
             /* ignore */
           }
-          abortRef.current = null
+          commitAbort.current = null
           try {
-            if (statusTimer.current !== null) clearTimeout(statusTimer.current)
+            if (pushAbort.current) pushAbort.current()
           } catch (error) {
             /* ignore */
           }
-          statusTimer.current = null
+          pushAbort.current = null
+          // One-shot credentials never outlive the panel.
+          try {
+            setPassword('')
+          } catch (error) {
+            /* ignore */
+          }
         }
       }, [])
-
-      var total = toNumber(props.total)
-      if (total === null) total = 0
-      var disabled = pending || total === 0
-
-      function showStatus(text, tone) {
-        setStatus({ text: toText(text), tone: tone === 'warn' ? 'warn' : 'error' })
-        try {
-          if (statusTimer.current !== null) clearTimeout(statusTimer.current)
-        } catch (error) {
-          /* ignore */
-        }
-        statusTimer.current = setTimeout(function () {
-          if (alive.current) setStatus(null)
-        }, 5000)
-      }
 
       function detailLine(detail) {
         var line = toText(detail).split('\n')[0]
         if (line.length > 120) line = line.slice(0, 120) + '…'
         return line
-      }
-
-      function reasonText(reason, detail) {
-        var safe = toText(reason)
-        if (safe === 'nothing-to-commit') return t('nothingToCommit')
-        if (safe === 'conflicted') return t('commitConflicts')
-        if (safe === 'detached') return t('commitDetached')
-        if (safe === 'not-a-repository') return t('notRepo')
-        var line = detailLine(detail)
-        return line ? t('commitFailed') + ' · ' + line : t('commitFailed')
       }
 
       function pushReasonText(reason, detail) {
@@ -3308,73 +3393,351 @@ window.__ModuleLoader__.load({
         return line || t('pushIncomplete')
       }
 
-      function commit() {
-        if (pending || total === 0) return
-        setPending(true)
-        setStatus(null)
+      function failureText(reason, detail) {
+        var safe = toText(reason)
+        if (safe === 'nothing-to-commit') return t('nothingToCommit')
+        if (safe === 'conflicted') return t('commitConflicts')
+        if (safe === 'invalid-branch') return t('invalidBranch')
+        if (safe === 'branch-exists') return t('branchExists')
+        if (safe === 'not-a-repository') return t('notRepo')
+        if (safe === 'detached') return t('detachedNeedsBranch')
+        var line = detailLine(detail)
+        return line || t('commitFailed')
+      }
+
+      function closePanel() {
         try {
-          if (abortRef.current) abortRef.current()
+          setPassword('')
         } catch (error) {
           /* ignore */
         }
-        abortRef.current = requestJson(
+        try {
+          if (typeof props.onClose === 'function') props.onClose()
+        } catch (error) {
+          /* ignore */
+        }
+      }
+
+      function submit(shouldPush) {
+        if (pending !== '') return
+        setPending('commit')
+        setStatus(null)
+        var body = { message: toText(message).trim(), push: shouldPush === true }
+        if (detached) body.branch = toText(branch).trim()
+        try {
+          if (commitAbort.current) commitAbort.current()
+        } catch (error) {
+          /* ignore */
+        }
+        commitAbort.current = requestJson(
           withQuery(AUTO_COMMIT_URL, [{ key: 'session', value: sessionId }]),
-          { method: 'POST', body: '{}' },
+          { method: 'POST', body: JSON.stringify(body) },
           function (result) {
             if (!alive.current) return
-            abortRef.current = null
-            setPending(false)
+            commitAbort.current = null
+            setPending('')
             if (result && result.ok === true) {
-              // A push that did not land is a partial success, not a failure:
-              // the commit exists, so refresh the list and explain the push.
-              if (result.pushed !== true) {
-                var short = toText(result.short)
-                showStatus(
-                  t('committed') + (short ? ' ' + short : '') + ' · ' + t('pushIncomplete') + t('pushReasonSep') + pushReasonText(result.pushReason, result.pushDetail),
-                  'warn'
-                )
+              var short = toText(result.short)
+              var subject = toText(result.subject)
+              setCommitted({ short: short, subject: subject })
+              if (result.pushed === true) {
+                try {
+                  if (typeof props.onDone === 'function') props.onDone(result, shouldPush === true)
+                } catch (error) {
+                  /* ignore */
+                }
+                return
               }
+              // The commit landed; tell the capsule to refresh once, then deal
+              // with the push in this panel.
               try {
                 if (typeof props.onCommitted === 'function') props.onCommitted(result)
               } catch (error) {
                 /* ignore */
               }
+              if (result.needsCredentials === true) {
+                setPhase('credentials')
+                setStatus(null)
+                return
+              }
+              setPhase('retry')
+              setStatus({
+                tone: 'warn',
+                text:
+                  t('committed') + (short ? ' ' + short : '') + ' · ' + t('pushIncomplete') + t('pushReasonSep') + pushReasonText(result.pushReason, result.pushDetail)
+              })
               return
             }
-            showStatus(reasonText(result && result.reason, result && result.detail))
+            setStatus({ tone: 'error', text: failureText(result && result.reason, result && result.detail) })
+          }
+        )
+      }
+
+      function retryPush() {
+        if (pending !== '') return
+        setPending('push')
+        setStatus(null)
+        var body = {}
+        var user = toText(username).trim()
+        if (user) body.username = user
+        if (toText(password)) body.password = toText(password)
+        try {
+          if (pushAbort.current) pushAbort.current()
+        } catch (error) {
+          /* ignore */
+        }
+        pushAbort.current = requestJson(
+          withQuery(PUSH_URL, [{ key: 'session', value: sessionId }]),
+          { method: 'POST', body: JSON.stringify(body) },
+          function (result) {
+            if (!alive.current) return
+            pushAbort.current = null
+            setPending('')
+            if (result && result.ok === true) {
+              try {
+                if (typeof props.onPushed === 'function') props.onPushed(result, toText(branch))
+              } catch (error) {
+                /* ignore */
+              }
+              return
+            }
+            setStatus({ tone: 'error', text: pushReasonText(result && result.reason, result && result.pushDetail) })
+            if (result && result.needsCredentials === true) setPhase('credentials')
           }
         )
       }
 
       try {
-        return h(
-          'div',
-          { className: 'gitbar-actions' },
-          status && status.text
-            ? h(
-              'span',
+        var busy = pending !== ''
+        var retryMode = phase === 'credentials' || phase === 'retry'
+        var children = []
+
+        children.push(
+          h(
+            'div',
+            { className: 'gitbar-commitpanel-head', key: 'head' },
+            h('span', { className: 'gitbar-commitpanel-title' }, t('autoCommit')),
+            h(
+              'button',
               {
-                className: 'gitbar-actstatus' + (status.tone === 'warn' ? ' gitbar-actstatus-warn' : ''),
+                type: 'button',
+                className: 'gitbar-btn',
+                title: t('close'),
+                'aria-label': t('close'),
+                onClick: closePanel
+              },
+              closeGlyph()
+            )
+          )
+        )
+
+        if (!retryMode) {
+          children.push(
+            h(
+              'label',
+              { className: 'gitbar-commitpanel-field', key: 'message' },
+              h('span', { className: 'gitbar-commitpanel-label' }, t('commitMessage')),
+              h('textarea', {
+                className: 'gitbar-commitpanel-input',
+                rows: 2,
+                maxLength: 300,
+                placeholder: t('commitMessagePlaceholder'),
+                value: message,
+                disabled: busy,
+                onChange: function (event) {
+                  try {
+                    setMessage(event && event.target ? event.target.value : '')
+                  } catch (error) {
+                    /* ignore */
+                  }
+                }
+              })
+            )
+          )
+        }
+
+        if (!retryMode && detached) {
+          children.push(
+            h(
+              'label',
+              { className: 'gitbar-commitpanel-field', key: 'branch' },
+              h('span', { className: 'gitbar-commitpanel-label' }, t('branchLabel')),
+              h('input', {
+                type: 'text',
+                className: 'gitbar-commitpanel-input',
+                value: branch,
+                disabled: busy,
+                placeholder: 'wip/20240101-1200',
+                onChange: function (event) {
+                  try {
+                    setBranch(event && event.target ? event.target.value : '')
+                  } catch (error) {
+                    /* ignore */
+                  }
+                }
+              }),
+              h('span', { className: 'gitbar-commitpanel-hint' }, t('detachedBranchHint'))
+            )
+          )
+        }
+
+        if (retryMode && committed && committed.short) {
+          children.push(
+            h('div', { className: 'gitbar-commitpanel-note', key: 'note' }, t('committed') + ' ' + committed.short)
+          )
+        }
+
+        if (retryMode) {
+          children.push(
+            h(
+              'div',
+              { className: 'gitbar-commitpanel-hint', key: 'credhint' },
+              t('credentialHint')
+            )
+          )
+          children.push(
+            h(
+              'label',
+              { className: 'gitbar-commitpanel-field', key: 'user' },
+              h('span', { className: 'gitbar-commitpanel-label' }, t('credentialUser')),
+              h('input', {
+                type: 'text',
+                className: 'gitbar-commitpanel-input',
+                value: username,
+                disabled: busy,
+                autoComplete: 'off',
+                onChange: function (event) {
+                  try {
+                    setUsername(event && event.target ? event.target.value : '')
+                  } catch (error) {
+                    /* ignore */
+                  }
+                }
+              })
+            )
+          )
+          children.push(
+            h(
+              'label',
+              { className: 'gitbar-commitpanel-field', key: 'password' },
+              h('span', { className: 'gitbar-commitpanel-label' }, t('credentialPassword')),
+              h('input', {
+                type: 'password',
+                className: 'gitbar-commitpanel-input',
+                value: password,
+                disabled: busy,
+                autoComplete: 'off',
+                spellCheck: false,
+                onChange: function (event) {
+                  try {
+                    setPassword(event && event.target ? event.target.value : '')
+                  } catch (error) {
+                    /* ignore */
+                  }
+                }
+              })
+            )
+          )
+        }
+
+        if (status && status.text) {
+          children.push(
+            h(
+              'div',
+              {
+                className: 'gitbar-commitpanel-status gitbar-commitpanel-status-' + (status.tone === 'warn' ? 'warn' : status.tone === 'ok' ? 'ok' : 'error'),
                 role: 'status',
-                title: status.text
+                key: 'status'
               },
               status.text
             )
-            : h('span', { className: 'gitbar-spacer' }),
-          h(
-            'button',
-            {
-              type: 'button',
-              className: 'gitbar-actbtn gitbar-autocommit',
-              disabled: disabled,
-              'aria-busy': pending ? 'true' : 'false',
-              'aria-disabled': disabled ? 'true' : 'false',
-              title: pending ? t('autoCommitHint') : total === 0 ? t('clean') : t('autoCommit'),
-              onClick: commit
-            },
-            pending ? h('span', { className: 'gitbar-busy', 'aria-hidden': 'true' }) : null,
-            pending ? t('autoCommitPending') : t('autoCommit')
           )
+        }
+
+        var actions = []
+        if (!retryMode) {
+          actions.push(
+            h(
+              'button',
+              {
+                type: 'button',
+                key: 'only',
+                className: 'gitbar-btn gitbar-commitpanel-btn',
+                disabled: busy,
+                onClick: function () {
+                  submit(false)
+                }
+              },
+              t('commitOnly')
+            )
+          )
+          actions.push(
+            h(
+              'button',
+              {
+                type: 'button',
+                key: 'push',
+                className: 'gitbar-btn gitbar-commitpanel-btn gitbar-commitpanel-primary',
+                disabled: busy,
+                onClick: function () {
+                  submit(true)
+                }
+              },
+              t('commitAndPush')
+            )
+          )
+          actions.push(
+            h(
+              'button',
+              {
+                type: 'button',
+                key: 'cancel',
+                className: 'gitbar-btn gitbar-commitpanel-btn',
+                disabled: busy,
+                onClick: closePanel
+              },
+              t('cancel')
+            )
+          )
+        } else {
+          actions.push(
+            h(
+              'button',
+              {
+                type: 'button',
+                key: 'retry',
+                className: 'gitbar-btn gitbar-commitpanel-btn gitbar-commitpanel-primary',
+                disabled: busy,
+                onClick: retryPush
+              },
+              t('retryPush')
+            )
+          )
+          actions.push(
+            h(
+              'button',
+              {
+                type: 'button',
+                key: 'close',
+                className: 'gitbar-btn gitbar-commitpanel-btn',
+                disabled: busy,
+                onClick: closePanel
+              },
+              t('close')
+            )
+          )
+        }
+        children.push(h('div', { className: 'gitbar-commitpanel-actions', key: 'actions' }, actions))
+
+        return h(
+          'div',
+          {
+            className: 'gitbar-commitpanel',
+            role: 'dialog',
+            'aria-label': t('autoCommit'),
+            'aria-busy': busy ? 'true' : 'false'
+          },
+          children
         )
       } catch (error) {
         return null
@@ -3539,7 +3902,8 @@ window.__ModuleLoader__.load({
             stateDetached: Boolean(state && state.detached),
             onSwitched: props.onGraphSwitched,
             onOpenPicker: props.onOpenPicker,
-            onBack: props.onBack
+            onBack: props.onBack,
+            onCommit: props.onCommitPanel
           })
         } else if (notRepo) {
           body = h(
@@ -3587,14 +3951,17 @@ window.__ModuleLoader__.load({
             })
           )
         }
-        if (mode === 'list' && !notRepo) {
+        if (props.commitPanelOpen === true) {
           children.push(
-            h(AutoCommitBar, {
-              key: 'actions',
+            h(CommitPanel, {
+              key: 'commitpanel',
               t: t,
               sessionId: props.sessionId,
-              total: toNumber((state && state.counts && state.counts.all) || 0) || 0,
-              onCommitted: props.onAutoCommitted
+              detached: Boolean(state && state.detached),
+              onClose: props.onCloseCommitPanel,
+              onDone: props.onCommitDone,
+              onCommitted: props.onCommitCommitted,
+              onPushed: props.onPushDone
             })
           )
         }
@@ -3699,6 +4066,9 @@ window.__ModuleLoader__.load({
       var bodyKeyHook = useState(0)
       var bodyKey = bodyKeyHook[0]
       var setBodyKey = bodyKeyHook[1]
+      var commitPanelHook = useState(false)
+      var commitPanelOpen = commitPanelHook[0]
+      var setCommitPanelOpen = commitPanelHook[1]
 
       function loadState() {
         try {
@@ -3998,7 +4368,7 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
         }
-      }, [open, closing, viewMode])
+      }, [open, closing, viewMode, commitPanelOpen])
 
       // 7. Pulse the pill's count when the number changes.
       useEffect(function () {
@@ -4027,6 +4397,7 @@ window.__ModuleLoader__.load({
       }, [data])
 
       function closePanel() {
+        setCommitPanelOpen(false)
         if (!open || closing) return
         if (motionMs(PANEL_EXIT_MS) === 0) {
           finishClose()
@@ -4094,6 +4465,10 @@ window.__ModuleLoader__.load({
       /** Escape pops one level: any sub-body returns to the list first. */
       function popLevel() {
         try {
+          if (commitPanelOpen) {
+            setCommitPanelOpen(false)
+            return true
+          }
           if (viewMode !== 'list') {
             setView(LIST_VIEW)
             setBodyAnim(motionMs(DETAIL_MS) === 0 ? '' : 'gitbar-body-back')
@@ -4114,20 +4489,64 @@ window.__ModuleLoader__.load({
         }
       }
 
-      function onAutoCommitted(result) {
+      function onOpenCommitPanel() {
         try {
+          setCommitPanelOpen(true)
+        } catch (error) {
+          /* ignore */
+        }
+      }
+
+      function onCloseCommitPanel() {
+        try {
+          setCommitPanelOpen(false)
+        } catch (error) {
+          /* ignore */
+        }
+      }
+
+      /** Commit accepted by the panel: close it and celebrate. */
+      function onCommitDone(result, pushedIntent) {
+        try {
+          setCommitPanelOpen(false)
           var safe = result && typeof result === 'object' ? result : {}
           var short = toText(safe.short)
           var subject = toText(safe.subject)
           if (subject.length > 48) subject = subject.slice(0, 48) + '…'
-          // A partial success (committed, not pushed) explains itself in the
-          // action bar's own status line, so it gets no success flash.
-          if (safe.pushed === true) {
+          if (pushedIntent === true && safe.pushed === true) {
             flashMessage(t('committedPushed') + (short ? ' ' + short : '') + (subject ? ' · ' + subject : ''))
+          } else {
+            flashMessage(t('committed') + (short ? ' ' + short : ''))
           }
           loadRef.current()
+          setGraphToken(function (value) { return value + 1 })
         } catch (error) {
           /* the commit itself already happened */
+        }
+      }
+
+      /** Partial success: the commit exists, the panel explains the push. */
+      function onCommitCommitted(result) {
+        try {
+          var safe = result && typeof result === 'object' ? result : {}
+          if (toText(safe.createdBranch)) setBranchesToken(function (value) { return value + 1 })
+          loadRef.current()
+        } catch (error) {
+          /* ignore */
+        }
+      }
+
+      /** A retried push landed: close and flash where it went. */
+      function onPushDone(result, branchName) {
+        try {
+          setCommitPanelOpen(false)
+          var safe = result && typeof result === 'object' ? result : {}
+          var where = toText(safe.upstream) || toText(branchName)
+          flashMessage(t('pushed') + (where ? ' · ' + where : ''))
+          loadRef.current()
+          setGraphToken(function (value) { return value + 1 })
+        } catch (error) {
+          /* the push itself already happened */
         }
       }
 
@@ -4328,7 +4747,12 @@ window.__ModuleLoader__.load({
             onCommitFile: onCommitFile,
             onTogglePicker: onTogglePicker,
             onOpenGraph: onOpenGraph,
-            onAutoCommitted: onAutoCommitted,
+            commitPanelOpen: commitPanelOpen,
+            onCommitPanel: onOpenCommitPanel,
+            onCloseCommitPanel: onCloseCommitPanel,
+            onCommitDone: onCommitDone,
+            onCommitCommitted: onCommitCommitted,
+            onPushDone: onPushDone,
             onOpenPicker: onTogglePicker,
             onGraphSwitched: onGraphSwitched,
             onSwitched: onSwitched,

@@ -12,7 +12,7 @@
 | --- | --- |
 | 胶囊（收起） | 分支名 + 改动数；圆点按状态着色（干净 / 有改动 / 有冲突）；游离 HEAD 时显示 `HEAD@<短哈希>` |
 | 胶囊（展开） | 上游与 `↑ahead ↓behind`、分组文件列表（已暂存 / 未暂存 / 未跟踪 / 冲突）、`最近提交`；20s/5s 自动刷新，切会话立即重取 |
-| 底部「自动提交」 | 用户点击才执行：自动生成 Conventional Commit 信息（文档→`docs`、测试→`test`、其余→`chore`）提交全部改动，并**推送到远端**（优先走已配置的上游，否则 `push --set-upstream origin <分支>`）；冲突 / 游离 HEAD / 无改动会拒绝并说明原因；推送失败时提交保留并提示原因（无远端 / 远端有新提交 / 其它 git 报错）；从不 force push、不 amend、不重写历史 |
+| 图谱工具条的「自动提交」小按钮 | 点开一个操作面板：可填提交描述（**留空自动生成** Conventional Commit 信息）、选「仅提交」或「提交并推送」。推送默认当前分支（有上游走上游，否则 `push --set-upstream`）；推送需要凭据时面板变成一次性凭据输入（用户名 + 密码/令牌），只用于这一次推送、不落盘不保存。游离 HEAD 下会先按面板里填的分支名建分支再提交，原分支指针不动 |
 | 点分支名 | 同一面板切成 **Git 图谱**（宽度 720px，右边缘不动）：单画布连线、泳道、`HEAD`/分支/远程/标签芯片、当前行高亮与「当前」标记、纵向滚动与 `PageUp/PageDown/Home/End` |
 | 点图谱里的分支芯片 | 直接切换分支 |
 | 点图谱里的远程/标签芯片，或非顶点行 | 确认条 → 检出为游离 HEAD |
@@ -29,10 +29,10 @@
 
 | 方式 | 输入 |
 | --- | --- |
-| npm 包（已发布） | `dsh-git-bar`（跟随 latest），或锁定版本 `dsh-git-bar@1.0.4` |
+| npm 包（已发布） | `dsh-git-bar`（跟随 latest），或锁定版本 `dsh-git-bar@1.1.0` |
 | GitHub 仓库 | `git+https://github.com/zhangxuesong-06/dsh-git.git` |
 | 本地目录（开发） | `link:<仓库绝对路径>` |
-| 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.0.4.tgz` |
+| 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.1.0.tgz` |
 
 对应的工具调用：
 
@@ -55,9 +55,10 @@ plugin_manager  action=install_bundle  target=link:<仓库绝对路径>
 - DSH **0.2.1-rc.5** 或兼容版本（用到了 `webServer`、`sessions`、`workingDirectory`、`sidebarRightTabs`、`sidebarRight` 这些扩展点）；
 - 有 Web 载体（`ctx.webServer`）——桌面版与 `dsh web` 都有；Headless 组合下插件会自动降级为不注册路由；
 - 本机 `git` 2.x（应用进程 PATH 里找不到时会再试常见安装路径，也可用环境变量 `DSH_GIT_BIN` 指定）；
-- 「自动提交」的**推送**步骤使用**应用进程**可见的 git 凭据：SSH key/agent 或用 HTTPS remote + credential helper。
-  凭据不可用时不会卡住——插件带 `GIT_TERMINAL_PROMPT=0` 等变量让 git 立即失败，并把原因显示在面板底部
-  （此时本地提交已经生成，只是没推上去）。
+- 「自动提交」的**推送**步骤优先使用应用进程可见的 git 凭据（SSH key/agent、或 HTTPS remote + credential helper）；
+  没有可用凭据时，面板会就地变成一次性凭据输入（用户名 + 密码/令牌），只用于这一次推送、用完即删；也可能直接
+  显示「推送未完成：<git 原始报错>」——此时本地提交已经生成，只是没推上去。
+- HTTPS 推送 GitHub/GitLab 时，密码位置要填 **Personal Access Token**（这些平台已不接受账号密码）；SSH 推送时填私钥口令。
 
 ## 工作原理
 
@@ -81,13 +82,15 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 | `GET /dsh-git-bar/graph?session=&limit=` | 提交图（`--all --topo-order`）：父提交、泳道、`HEAD`/分支/远程/标签装饰、`headFull`、`isHead`、`previousBranch` |
 | `GET /dsh-git-bar/commit?session=&hash=` | 单提交元信息、逐文件增删、完整补丁 |
 | `GET /dsh-git-bar/commit-diff?session=&hash=&path=` | 单提交里某个文件的补丁 |
-| `POST /dsh-git-bar/auto-commit` | 由用户点击触发：`git add -A` 后用生成的提交信息提交全部改动（消息体列出文件），随后推送到远端（有上游走上游，没有则 `push --set-upstream origin <分支>`）。返回 `pushed`/`pushReason`/`pushDetail`/`upstream`；拒绝冲突/游离 HEAD/无改动；从不 force push、不 amend、不重写历史 |
+| `POST /dsh-git-bar/auto-commit` | 由用户点击触发：body `{message?, push?, branch?, username?, password?}`。`message` 为空则自动生成提交信息；`push:true` 时提交后推送到远端（有上游走上游，否则 `push --set-upstream <origin 或首个远端> <分支>`）；游离 HEAD 需要 `branch`，先 `switch -c` 再提交（原分支指针不动）。返回 `committed`/`short`/`subject`/`branch`/`createdBranch`/`pushed`/`pushReason`/`pushDetail`/`upstream`/`needsCredentials`；拒绝冲突、无改动、非法或已存在的分支名；从不 force push、不 amend、不重写历史 |
+| `POST /dsh-git-bar/push` | 只推送不提交，body `{username?, password?}`：面板拿到 `needsCredentials` 后用一次性凭据重试；返回 `ok`/`pushed`/`reason`/`pushDetail`/`upstream` |
 | `GET /dsh-git-bar/health` | 存活探针 |
 
 安全约束：`path` 必须是仓库内相对路径（拒绝绝对路径、盘符、`..`）；`hash` 只接受十六进制；分支/标签名必须来自
-`git for-each-ref` 的实际结果；仓库根由 `git rev-parse --show-toplevel` 解析，浏览器从不直接指定目录。插件的所有
-git 调用都只读，写操作只有三种：切分支、检出为游离 HEAD、以及**用户点击触发的自动提交**（提交 + 推送，没有任何
-后台定时提交，也不 force push）。推送时设置 `GIT_TERMINAL_PROMPT=0` 等环境变量，凭据缺失会直接报错而不是卡在交互提示。
+`git for-each-ref` 的实际结果（新分支名另经 `git check-ref-format --branch` 校验）；仓库根由 `git rev-parse --show-toplevel`
+解析，浏览器从不直接指定目录。写操作只有三种：切分支、检出为游离 HEAD、**用户点击触发的自动提交/推送**
+（没有任何后台定时提交，也不 force push）。推送时设置 `GIT_TERMINAL_PROMPT=0` 等变量避免卡在交互提示；一次性密码
+经 Host 写入临时 askpass 辅助程序交给 git（不出现在 argv 里），推送结束立即删除，不落盘、不保存。
 
 ## 仓库结构
 

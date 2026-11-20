@@ -9,8 +9,9 @@
  * here and the browser never names a directory.
  */
 import { execFile } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
-import { isAbsolute, resolve as resolvePath } from 'node:path'
+import { readFile, mkdtemp, writeFile, rm as rmPath, chmod } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { isAbsolute, join, resolve as resolvePath } from 'node:path'
 
 /**
  * Every route this plugin owns. The route table matches a prefix either
@@ -745,30 +746,72 @@ function commitType(paths) {
 }
 
 /**
- * Commit every working-tree change with a generated message. Deliberately
- * user-triggered only: no background timer ever calls this, and it never
- * pushes, amends or rewrites history.
+ * Commit every working-tree change, optionally pushing afterwards. Deliberately
+ * user-triggered only: no background timer ever calls this, it never amends or
+ * rewrites history, and a detached HEAD is only committed after the caller
+ * names the branch that will hold the commit.
  */
-async function autoCommit(root, state) {
-  if (state.detached) return { ok: false, reason: 'detached', detail: 'HEAD is detached' }
+async function autoCommit(root, state, options = {}) {
+  const wantedMessage = typeof options.message === 'string' ? options.message.replace(/\r/g, '').trim() : ''
+  const wantedPush = options.push === true
+  const credentials = normaliseCredentials(options)
+  let createdBranch = ''
+
+  if (state.detached) {
+    const branchName = typeof options.branch === 'string' ? options.branch.trim() : ''
+    if (branchName === '') {
+      return {
+        ok: false,
+        reason: 'detached',
+        needsBranch: true,
+        detail: 'HEAD is detached; name a branch to hold the commit',
+      }
+    }
+    if (branchName.startsWith('-') || branchName.length > 200) {
+      return { ok: false, reason: 'invalid-branch', detail: clipText(branchName) }
+    }
+    const valid = await git(root, ['check-ref-format', '--branch', branchName])
+    if (valid.failed) return { ok: false, reason: 'invalid-branch', detail: clipText(valid.err || branchName) }
+    const exists = await git(root, ['rev-parse', '--verify', '--quiet', `refs/heads/${branchName}`])
+    if (!exists.failed && exists.out.trim() !== '') {
+      return { ok: false, reason: 'branch-exists', detail: branchName }
+    }
+  }
+
   const conflicted = (state.files ?? []).filter((file) => file.conflicted).map((file) => file.path)
   if (conflicted.length > 0) {
     return { ok: false, reason: 'conflicted', detail: clipText(conflicted.slice(0, 20).join(', ')) }
   }
   const paths = (state.files ?? []).map((file) => file.path).filter(Boolean)
-  if (paths.length === 0) return { ok: false, reason: 'nothing-to-commit' }
+  if (paths.length === 0 && wantedMessage === '') return { ok: false, reason: 'nothing-to-commit' }
 
-  const type = commitType(paths)
-  const subject = `${type}: auto-commit ${paths.length} file${paths.length === 1 ? '' : 's'}`
+  if (state.detached) {
+    const branchName = options.branch.trim()
+    const created = await git(root, ['switch', '-c', branchName])
+    if (created.failed) return { ok: false, reason: 'git-error', detail: clipText(created.err || created.out) }
+    createdBranch = branchName
+  }
+
+  const generatedSubject = `${commitType(paths)}: auto-commit ${paths.length} file${paths.length === 1 ? '' : 's'}`
   const listed = paths.slice(0, 25).join('\n')
-  const body = paths.length > 25 ? `${listed}\n... and ${paths.length - 25} more` : listed
+  const generatedBody = paths.length > 25 ? `${listed}\n... and ${paths.length - 25} more` : listed
+  let subject = generatedSubject
+  let body = generatedBody
+  if (wantedMessage !== '') {
+    const lines = wantedMessage.split('\n')
+    subject = (lines.shift() ?? '').trim().slice(0, 200)
+    if (subject === '') subject = generatedSubject
+    body = lines.join('\n').trim()
+  }
 
   const staged = await git(root, ['add', '-A'])
   if (staged.failed) {
     return { ok: false, reason: 'git-error', detail: clipText(staged.err || staged.out) }
   }
 
-  const committed = await git(root, ['commit', '-m', subject, '-m', body], 60_000)
+  const commitArgs = ['commit', '-m', subject]
+  if (body !== '') commitArgs.push('-m', body)
+  const committed = await git(root, commitArgs, 60_000)
   if (committed.failed) {
     const detail = clipText(committed.err || committed.out)
     if (/nothing to commit|no changes added to commit/i.test(detail)) {
@@ -777,12 +820,16 @@ async function autoCommit(root, state) {
     return { ok: false, reason: 'git-error', detail }
   }
 
-  const [shortResult, fullResult] = await Promise.all([
+  const [shortResult, fullResult, branchResult] = await Promise.all([
     git(root, ['rev-parse', '--short', 'HEAD']),
     git(root, ['rev-parse', 'HEAD']),
+    git(root, ['symbolic-ref', '--short', '-q', 'HEAD']),
   ])
-  const branch = typeof state.branch === 'string' ? state.branch.trim() : ''
-  const push = branch === '' ? { pushed: false, pushReason: 'detached', pushDetail: 'HEAD is detached' } : await pushCommitted(root, branch)
+  const branch = branchResult.failed ? createdBranch : branchResult.out.trim() || createdBranch
+  const push = wantedPush
+    ? await pushCommitted(root, branch, credentials)
+    : { pushed: false, skipped: true }
+
   return {
     ok: true,
     committed: true,
@@ -790,13 +837,25 @@ async function autoCommit(root, state) {
     short: shortResult.out.trim(),
     hash: fullResult.out.trim(),
     subject,
-    message: `${subject}\n\n${body}`,
+    message: body === '' ? subject : `${subject}\n\n${body}`,
     files: paths.length,
+    branch,
+    createdBranch,
     pushed: push.pushed === true,
+    skipped: push.skipped === true,
     pushReason: push.pushReason ?? '',
     pushDetail: push.pushDetail ?? '',
     upstream: push.upstream ?? '',
+    needsCredentials: push.needsCredentials === true,
   }
+}
+
+/** Username/password pair from a request body, or null when absent. */
+function normaliseCredentials(options) {
+  const password = typeof options.password === 'string' ? options.password : ''
+  if (password === '') return null
+  const username = typeof options.username === 'string' && options.username.trim() !== '' ? options.username.trim() : 'git'
+  return { username, password }
 }
 
 /** Environment that makes network git fail fast instead of prompting. */
@@ -806,6 +865,54 @@ const NETWORK_ENV = Object.freeze({
   SSH_ASKPASS: 'echo',
   GCM_INTERACTIVE: 'never',
 })
+
+/** True when a failed push most likely only needs credentials. */
+function isAuthFailure(detail) {
+  return /could not read Username|terminal prompts disabled|Authentication failed|Invalid username or password|Permission denied \(publickey\)|Support for password authentication was removed|fatal: Authentication|403 Forbidden|401 Unauthorized/i.test(
+    detail,
+  )
+}
+
+/**
+ * Write a throw-away askpass helper (plus the two answers it echoes) so a single
+ * push can use a one-shot password. The secret reaches git through a helper
+ * process and never through argv; the directory is deleted by the caller.
+ *
+ * Exported for the self-tests only; the plugin itself never calls it directly.
+ */
+export async function createAskpass(credentials) {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-git-bar-askpass-'))
+  try {
+    await writeFile(join(dir, 'username.txt'), credentials.username, 'utf8')
+    await writeFile(join(dir, 'password.txt'), credentials.password, 'utf8')
+    if (process.platform === 'win32') {
+      const script = [
+        '@echo off',
+        'echo %~1 | findstr /I "username" >nul',
+        'if errorlevel 1 (',
+        '  type "%~dp0password.txt"',
+        ') else (',
+        '  type "%~dp0username.txt"',
+        ')',
+        '',
+      ].join('\r\n')
+      const path = join(dir, 'askpass.cmd')
+      await writeFile(path, script, 'utf8')
+      return { dir, path }
+    }
+    const path = join(dir, 'askpass.sh')
+    await writeFile(
+      path,
+      ['#!/bin/sh', 'case "$1" in', '  *[Uu]sername*) cat "$(dirname "$0")/username.txt" ;;', '  *) cat "$(dirname "$0")/password.txt" ;;', 'esac', ''].join('\n'),
+      'utf8',
+    )
+    await chmod(path, 0o755)
+    return { dir, path }
+  } catch (error) {
+    await rmPath(dir, { recursive: true, force: true }).catch(() => {})
+    throw error
+  }
+}
 
 /** Where a push would go: the configured upstream, else origin/first remote. */
 async function pushTarget(root, branch) {
@@ -827,27 +934,55 @@ async function pushTarget(root, branch) {
 }
 
 /**
- * Push the current branch right after a commit. Never force-pushes and never
- * prompts for credentials: an interactive prompt would block the request.
+ * Push a branch. Never force-pushes. Without credentials git is told to fail
+ * instead of prompting; with a one-shot password a temporary askpass helper
+ * answers the prompt, and the directory is removed before returning.
  */
-async function pushCommitted(root, branch) {
+async function pushCommitted(root, branch, credentials = null) {
   const target = await pushTarget(root, branch)
   if (target.reason === 'no-remote') {
     return { pushed: false, pushReason: 'no-remote', pushDetail: 'no git remote is configured' }
   }
   const args = target.setTracking ? ['push', '--set-upstream', target.remote, branch] : ['push']
-  const pushed = await git(root, args, 120_000, NETWORK_ENV)
-  if (pushed.failed) {
-    const detail = clipText(pushed.err || pushed.out)
-    const outOfDate = /non-fast-forward|fetch first|rejected|updates were rejected/i.test(detail)
+
+  let helper = null
+  try {
+    if (credentials) {
+      helper = await createAskpass(credentials)
+    }
+    const env = helper
+      ? {
+          ...NETWORK_ENV,
+          GIT_TERMINAL_PROMPT: '0',
+          GIT_ASKPASS: helper.path,
+          GCM_INTERACTIVE: 'never',
+          SSH_ASKPASS: helper.path,
+          SSH_ASKPASS_REQUIRE: 'force',
+        }
+      : NETWORK_ENV
+    const pushed = await git(root, args, 120_000, env)
+    if (pushed.failed) {
+      const detail = clipText(pushed.err || pushed.out)
+      const outOfDate = /non-fast-forward|fetch first|rejected|updates were rejected/i.test(detail)
+      return {
+        pushed: false,
+        pushReason: outOfDate ? 'out-of-date' : 'push-failed',
+        pushDetail: detail,
+        upstream: target.upstream,
+        needsCredentials: credentials === null && isAuthFailure(detail),
+      }
+    }
+    return { pushed: true, upstream: target.upstream, needsCredentials: false }
+  } catch (error) {
     return {
       pushed: false,
-      pushReason: outOfDate ? 'out-of-date' : 'push-failed',
-      pushDetail: detail,
+      pushReason: 'push-failed',
+      pushDetail: clipText(error && error.message ? error.message : error),
       upstream: target.upstream,
     }
+  } finally {
+    if (helper) await rmPath(helper.dir, { recursive: true, force: true }).catch(() => {})
   }
-  return { pushed: true, upstream: target.upstream }
 }
 
 /** Answer one HTTP request from this plugin's route family. */
@@ -934,18 +1069,52 @@ async function handle(ctx, req, res) {
         send(405, { ok: false, reason: 'method-not-allowed' })
         return
       }
+      let payload = {}
       try {
-        // The payload is empty; draining it keeps keep-alive sockets clean.
-        await readBody(req)
+        const raw = await readBody(req)
+        const parsed = raw.trim() === '' ? {} : JSON.parse(raw)
+        payload = parsed && typeof parsed === 'object' ? parsed : {}
       } catch {
-        /* an unread body must not fail the commit */
+        payload = {}
       }
       const state = await collectState(resolveCwd(ctx, url))
       if (!state.ok) {
         send(200, { ok: false, reason: state.reason ?? 'not-a-repository', detail: state.detail ?? '' })
         return
       }
-      send(200, await autoCommit(state.root, state))
+      send(200, await autoCommit(state.root, state, payload))
+      return
+    }
+
+    if (action === 'push') {
+      if (req.method !== 'POST') {
+        send(405, { ok: false, reason: 'method-not-allowed' })
+        return
+      }
+      let payload = {}
+      try {
+        const raw = await readBody(req)
+        const parsed = raw.trim() === '' ? {} : JSON.parse(raw)
+        payload = parsed && typeof parsed === 'object' ? parsed : {}
+      } catch {
+        payload = {}
+      }
+      const state = await collectState(resolveCwd(ctx, url))
+      if (!state.ok) {
+        send(200, { ok: false, reason: state.reason ?? 'not-a-repository', detail: state.detail ?? '' })
+        return
+      }
+      if (state.detached || typeof state.branch !== 'string' || state.branch.trim() === '') {
+        send(200, { ok: false, reason: 'detached', detail: 'HEAD is detached' })
+        return
+      }
+      const result = await pushCommitted(state.root, state.branch.trim(), normaliseCredentials(payload))
+      const failed = result.pushed !== true
+      send(200, {
+        ...result,
+        ok: !failed,
+        reason: failed ? result.pushReason ?? 'push-failed' : '',
+      })
       return
     }
 

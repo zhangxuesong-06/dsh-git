@@ -69,7 +69,8 @@
 | `GET /dsh-git-bar/commit?session=<id>&hash=<sha>` | 单个提交的元信息、逐文件增删统计与完整补丁（4–64 位十六进制校验，`rev-parse --verify` 确认存在） |
 | `GET /dsh-git-bar/commit-diff?session=<id>&hash=<sha>&path=<相对路径>` | 某个提交里单个文件的补丁与增删行数 |
 | `GET /dsh-git-bar/graph?session=<id>&limit=10..300` | 仓库提交图（`--all --topo-order`）：父提交、作者、时间、主题、泳道号、装饰（HEAD/分支/远程/标签）与总列数 |
-| `POST /dsh-git-bar/auto-commit` | 仅在用户点击「自动提交」时调用：`git add -A` 后以生成的 Conventional Commit 信息提交全部改动（类型按路径推断：文档→`docs`、测试→`test`、其余→`chore`），然后推送到远端（有上游走上游，没有则 `push --set-upstream <origin 或首个远端> <分支>`）。冲突、游离 HEAD、无改动直接拒绝；返回值含短/完整哈希、主题、文件数，以及 `pushed`/`pushReason`（`no-remote`/`out-of-date`/`push-failed`/`detached`）/`pushDetail`/`upstream`。推送失败时本地提交保留；从不 force push、不 amend、不重写历史；网络命令带 `GIT_TERMINAL_PROMPT=0` 等变量避免卡在凭据交互 |
+| `POST /dsh-git-bar/auto-commit` | 仅在用户点击图谱工具条的「自动提交」小按钮并确认面板时调用：body `{message?, push?, branch?, username?, password?}`。`git add -A` 后提交（`message` 为空则按路径推断生成 Conventional Commit 信息：文档→`docs`、测试→`test`、其余→`chore`）；`push:true` 时随后推送到远端（有上游走上游，没有则 `push --set-upstream <origin 或首个远端> <分支>`）。游离 HEAD 必须给 `branch`（先经 `git check-ref-format --branch` 校验、再确认不存在），Host 会 `switch -c` 后提交，原分支指针不动。返回 `committed`/`short`/`hash`/`subject`/`message`/`files`/`branch`/`createdBranch`/`pushed`/`skipped`/`pushReason`（`no-remote`/`out-of-date`/`push-failed`）/`pushDetail`/`upstream`/`needsCredentials`；冲突、无改动、非法或已存在的分支名直接拒绝。推送失败时本地提交保留；从不 force push、不 amend、不重写历史 |
+| `POST /dsh-git-bar/push` | 只推送、不提交（面板拿到 `needsCredentials` 后用一次性凭据重试）：body `{username?, password?}`。密码经临时 askpass 辅助程序传给 git（不进 argv），推送结束即删除临时目录，不保存凭据。返回 `{ok, pushed, reason, pushReason, pushDetail, upstream, needsCredentials}` |
 | `GET /dsh-git-bar/health` | 存活探针 |
 
 安全约束：`path` 必须是仓库内相对路径（拒绝绝对路径、盘符与 `..`）；`hash` 只接受十六进制；分支名必须来自
