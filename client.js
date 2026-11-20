@@ -40,6 +40,7 @@ window.__ModuleLoader__.load({
     var SWITCH_URL = '/dsh-git-bar/switch'
     var COMMIT_URL = '/dsh-git-bar/commit'
     var COMMIT_DIFF_URL = '/dsh-git-bar/commit-diff'
+    var AUTO_COMMIT_URL = '/dsh-git-bar/auto-commit'
     var REVIEW_PAGE_ADDRESS = 'sidebar://git-review'
     var GRAPH_URL = '/dsh-git-bar/graph'
     var GRAPH_LIMIT = 120
@@ -84,6 +85,12 @@ window.__ModuleLoader__.load({
       clean: '工作区干净',
       notRepo: '不是 git 仓库',
       refresh: '刷新',
+      autoCommit: '自动提交',
+      committed: '已提交',
+      nothingToCommit: '没有可提交的改动',
+      commitConflicts: '存在冲突，请先解决冲突',
+      commitDetached: '分离 HEAD 下无法提交',
+      commitFailed: '提交失败',
       close: '关闭',
       back: '返回',
       backToList: '返回列表',
@@ -145,6 +152,12 @@ window.__ModuleLoader__.load({
       clean: 'Working tree clean',
       notRepo: 'Not a git repository',
       refresh: 'Refresh',
+      autoCommit: 'Auto-commit',
+      committed: 'Committed',
+      nothingToCommit: 'Nothing to commit',
+      commitConflicts: 'Resolve conflicts before committing',
+      commitDetached: 'Cannot commit while HEAD is detached',
+      commitFailed: 'Commit failed',
       close: 'Close',
       back: 'Back',
       backToList: 'Back to list',
@@ -869,6 +882,9 @@ window.__ModuleLoader__.load({
       '.gitbar-body{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}',
       '.gitbar-body-back{will-change:transform,opacity;animation:gitbar-back-in 180ms cubic-bezier(0.2,0,0,1) both}',
       '@keyframes gitbar-back-in{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}',
+      '.gitbar-body-forward{will-change:transform,opacity;animation:gitbar-forward-in 180ms cubic-bezier(0.2,0,0,1) both}',
+      '@keyframes gitbar-forward-in{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}',
+      '.gitbar-body-forward .gitbar-commit-detail{animation:none}',
       '.gitbar-list{padding:4px 5px 6px}',
       '.gitbar-group{padding:6px 6px 3px;font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-row{display:flex;align-items:center;gap:7px;width:100%;box-sizing:border-box;padding:4px 6px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer;transition:background-color 120ms ease,color 120ms ease}',
@@ -895,7 +911,10 @@ window.__ModuleLoader__.load({
       '.gitbar-commitstitle{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.gitbar-commitschev{flex:0 0 auto;display:inline-block;transition:transform 120ms ease}',
       '.gitbar-commitschev-open{transform:rotate(90deg)}',
-      '.gitbar-commitlist{padding:2px 0 0}',
+      '.gitbar-commitlist{padding:2px 0 0;overflow-x:hidden}',
+      '.gitbar-commits-shell{display:grid;grid-template-rows:0fr;opacity:0;visibility:hidden;overflow:hidden;transition:grid-template-rows 180ms cubic-bezier(0.2,0,0,1),opacity 180ms cubic-bezier(0.2,0,0,1),visibility 0s linear 180ms}',
+      '.gitbar-commits-shell-open{grid-template-rows:1fr;opacity:1;visibility:visible;transition:grid-template-rows 180ms cubic-bezier(0.2,0,0,1),opacity 180ms cubic-bezier(0.2,0,0,1),visibility 0s}',
+      '.gitbar-commits-clip{min-height:0;min-width:0;overflow:hidden}',
       '.gitbar-commit{display:flex;align-items:baseline;gap:7px;width:100%;box-sizing:border-box;padding:2px 6px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;text-align:left;cursor:pointer;transition:background-color 120ms ease,color 120ms ease}',
       '.gitbar-commit:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.gitbar-commit:active{transform:scale(.99)}',
@@ -1020,7 +1039,15 @@ window.__ModuleLoader__.load({
       '.gitbar-sidebar-list{display:flex;flex-direction:column;min-height:0}',
       '.gitbar-sidebar-hint{padding:8px 10px 4px;font-size:11.5px;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l1)}',
       '.gitbar-chip-commit{flex:0 0 auto;font-family:ui-monospace,"Cascadia Code",Consolas,monospace}',
-      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
+      '.gitbar-actions{flex:0 0 auto;display:flex;align-items:center;gap:6px;min-width:0;box-sizing:border-box;padding:4px 6px;border-top:1px solid var(--dsw-alias-border-l1)}',
+      '.gitbar-actbtn{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;max-width:100%;box-sizing:border-box;padding:2px 9px;border:1px solid var(--dsw-alias-brand-primary);border-radius:8px;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-overlay);font:inherit;font-size:11.5px;font-weight:600;white-space:nowrap;cursor:pointer;transition:opacity 120ms ease,transform 120ms ease}',
+      '.gitbar-actbtn:hover:not(:disabled){opacity:.92}',
+      '.gitbar-actbtn:active:not(:disabled){transform:scale(.99)}',
+      '.gitbar-actbtn:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-actbtn:disabled{cursor:default;opacity:.55}',
+      '.gitbar-actbtn-ready{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-actstatus{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-state-error-primary)}',
+      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-actbtn,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
     // ── components ────────────────────────────────────────────────────────
@@ -1152,35 +1179,45 @@ window.__ModuleLoader__.load({
               '›'
             )
           ),
-          open
-            ? h(
+          h(
+            'div',
+            {
+              className: 'gitbar-commits-shell' + (open ? ' gitbar-commits-shell-open' : ''),
+              'aria-hidden': open ? 'false' : 'true'
+            },
+            h(
               'div',
-              { className: 'gitbar-commitlist' },
-              commits.map(function (commit, index) {
-                var safe = commit && typeof commit === 'object' ? commit : {}
-                var subject = toText(safe.subject)
-                return h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-commit',
-                    key: 'commit-' + toText(safe.full || safe.hash) + '-' + index,
-                    title: subject,
-                    onClick: function () {
-                      try {
-                        if (typeof props.onOpen === 'function') props.onOpen(safe)
-                      } catch (error) {
-                        /* ignore */
+              { className: 'gitbar-commits-clip' },
+              h(
+                'div',
+                { className: 'gitbar-commitlist' },
+                commits.map(function (commit, index) {
+                  var safe = commit && typeof commit === 'object' ? commit : {}
+                  var subject = toText(safe.subject)
+                  return h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-commit',
+                      key: 'commit-' + toText(safe.full || safe.hash) + '-' + index,
+                      title: subject,
+                      tabIndex: open ? 0 : -1,
+                      onClick: function () {
+                        try {
+                          if (typeof props.onOpen === 'function') props.onOpen(safe)
+                        } catch (error) {
+                          /* ignore */
+                        }
                       }
-                    }
-                  },
-                  h('span', { className: 'gitbar-hash' }, toText(safe.hash)),
-                  h('span', { className: 'gitbar-subject' }, subject),
-                  h('span', { className: 'gitbar-when' }, toText(safe.when))
-                )
-              })
+                    },
+                    h('span', { className: 'gitbar-hash' }, toText(safe.hash)),
+                    h('span', { className: 'gitbar-subject' }, subject),
+                    h('span', { className: 'gitbar-when' }, toText(safe.when))
+                  )
+                })
+              )
             )
-            : null
+          )
         )
       } catch (error) {
         return null
@@ -3180,6 +3217,122 @@ window.__ModuleLoader__.load({
 
     // ── panel ─────────────────────────────────────────────────────────────
     /** The expanded popover: header, counts, picker/list/commit/review body, commits. */
+    /** The bottom action bar: auto-commit runs only on an explicit click. */
+    function AutoCommitBar(props) {
+      var t = props.t || translate
+      var sessionId = toText(props.sessionId)
+      var pendingHook = useState(false)
+      var pending = pendingHook[0]
+      var setPending = pendingHook[1]
+      var statusHook = useState(null)
+      var status = statusHook[0]
+      var setStatus = statusHook[1]
+      var alive = useRef(true)
+      var abortRef = useRef(null)
+      var statusTimer = useRef(null)
+
+      useEffect(function () {
+        alive.current = true
+        return function () {
+          alive.current = false
+          try {
+            if (abortRef.current) abortRef.current()
+          } catch (error) {
+            /* ignore */
+          }
+          abortRef.current = null
+          try {
+            if (statusTimer.current !== null) clearTimeout(statusTimer.current)
+          } catch (error) {
+            /* ignore */
+          }
+          statusTimer.current = null
+        }
+      }, [])
+
+      var total = toNumber(props.total)
+      if (total === null) total = 0
+      var disabled = pending || total === 0
+
+      function showStatus(text) {
+        setStatus(toText(text))
+        try {
+          if (statusTimer.current !== null) clearTimeout(statusTimer.current)
+        } catch (error) {
+          /* ignore */
+        }
+        statusTimer.current = setTimeout(function () {
+          if (alive.current) setStatus(null)
+        }, 5000)
+      }
+
+      function reasonText(reason, detail) {
+        var safe = toText(reason)
+        if (safe === 'nothing-to-commit') return t('nothingToCommit')
+        if (safe === 'conflicted') return t('commitConflicts')
+        if (safe === 'detached') return t('commitDetached')
+        if (safe === 'not-a-repository') return t('notRepo')
+        var line = toText(detail).split('\n')[0]
+        if (line.length > 120) line = line.slice(0, 120) + '…'
+        return line ? t('commitFailed') + ' · ' + line : t('commitFailed')
+      }
+
+      function commit() {
+        if (pending || total === 0) return
+        setPending(true)
+        setStatus(null)
+        try {
+          if (abortRef.current) abortRef.current()
+        } catch (error) {
+          /* ignore */
+        }
+        abortRef.current = requestJson(
+          withQuery(AUTO_COMMIT_URL, [{ key: 'session', value: sessionId }]),
+          { method: 'POST', body: '{}' },
+          function (result) {
+            if (!alive.current) return
+            abortRef.current = null
+            setPending(false)
+            if (result && result.ok === true) {
+              try {
+                if (typeof props.onCommitted === 'function') props.onCommitted(result)
+              } catch (error) {
+                /* ignore */
+              }
+              return
+            }
+            showStatus(reasonText(result && result.reason, result && result.detail))
+          }
+        )
+      }
+
+      try {
+        return h(
+          'div',
+          { className: 'gitbar-actions' },
+          status
+            ? h('span', { className: 'gitbar-actstatus', role: 'status', title: status }, status)
+            : h('span', { className: 'gitbar-spacer' }),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'gitbar-actbtn gitbar-autocommit',
+              disabled: disabled,
+              'aria-busy': pending ? 'true' : 'false',
+              'aria-disabled': disabled ? 'true' : 'false',
+              title: total === 0 && !pending ? t('clean') : t('autoCommit'),
+              onClick: commit
+            },
+            pending ? h('span', { className: 'gitbar-busy', 'aria-hidden': 'true' }) : null,
+            pending ? t('loading') : t('autoCommit')
+          )
+        )
+      } catch (error) {
+        return null
+      }
+    }
+
     function GitPanel(props) {
       var t = props.t || translate
       var data = props.data
@@ -3383,6 +3536,17 @@ window.__ModuleLoader__.load({
               open: props.commitsOpen === true,
               onToggle: props.onToggleCommits,
               onOpen: props.onOpenCommit
+            })
+          )
+        }
+        if (mode === 'list' && !notRepo) {
+          children.push(
+            h(AutoCommitBar, {
+              key: 'actions',
+              t: t,
+              sessionId: props.sessionId,
+              total: toNumber((state && state.counts && state.counts.all) || 0) || 0,
+              onCommitted: props.onAutoCommitted
             })
           )
         }
@@ -3870,7 +4034,10 @@ window.__ModuleLoader__.load({
 
       function onOpenGraph() {
         try {
-          setView(view && view.mode === 'graph' ? LIST_VIEW : { mode: 'graph' })
+          var leavingGraph = Boolean(view && view.mode === 'graph')
+          setView(leavingGraph ? LIST_VIEW : { mode: 'graph' })
+          setBodyAnim(motionMs(DETAIL_MS) === 0 ? '' : leavingGraph ? 'gitbar-body-back' : 'gitbar-body-forward')
+          setBodyKey(function (value) { return value + 1 })
         } catch (error) {
           setView(LIST_VIEW)
         }
@@ -3881,6 +4048,8 @@ window.__ModuleLoader__.load({
         try {
           if (viewMode !== 'list') {
             setView(LIST_VIEW)
+            setBodyAnim(motionMs(DETAIL_MS) === 0 ? '' : 'gitbar-body-back')
+            setBodyKey(function (value) { return value + 1 })
             return true
           }
         } catch (error) {
@@ -3894,6 +4063,19 @@ window.__ModuleLoader__.load({
           loadRef.current()
         } catch (error) {
           /* ignore */
+        }
+      }
+
+      function onAutoCommitted(result) {
+        try {
+          var safe = result && typeof result === 'object' ? result : {}
+          var short = toText(safe.short)
+          var subject = toText(safe.subject)
+          if (subject.length > 48) subject = subject.slice(0, 48) + '…'
+          flashMessage(t('committed') + (short ? ' ' + short : '') + (subject ? ' · ' + subject : ''))
+          loadRef.current()
+        } catch (error) {
+          /* the commit itself already happened */
         }
       }
 
@@ -3914,7 +4096,8 @@ window.__ModuleLoader__.load({
           var hash = toText(safe.full) || toText(safe.hash)
           if (!hash) return
           setView({ mode: 'commit', hash: hash })
-          setBodyAnim('')
+          setBodyAnim(motionMs(DETAIL_MS) === 0 ? '' : 'gitbar-body-forward')
+          setBodyKey(function (value) { return value + 1 })
         } catch (error) {
           /* stay on the list */
         }
@@ -4093,6 +4276,7 @@ window.__ModuleLoader__.load({
             onCommitFile: onCommitFile,
             onTogglePicker: onTogglePicker,
             onOpenGraph: onOpenGraph,
+            onAutoCommitted: onAutoCommitted,
             onOpenPicker: onTogglePicker,
             onGraphSwitched: onGraphSwitched,
             onSwitched: onSwitched,

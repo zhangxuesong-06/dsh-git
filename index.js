@@ -717,6 +717,74 @@ function readBody(req, limit = 64 * 1024) {
   })
 }
 
+/** Keep an error message useful in one line without echoing a whole log. */
+function clipText(text, limit = 400) {
+  const value = String(text ?? '')
+    .replace(/\r/g, '')
+    .trim()
+  if (value.length <= limit) return value
+  return `${value.slice(0, limit)}…`
+}
+
+/** Conventional-Commit type derived from the paths being committed. */
+function commitType(paths) {
+  if (paths.length === 0) return 'chore'
+  const list = paths.map((value) => value.toLowerCase().replace(/\\/g, '/'))
+  const isDoc = (path) => /\.(md|mdx|txt|rst|adoc)$/.test(path) || /(^|\/)docs?\//.test(path)
+  const isTest = (path) => /(^|\/)(test|tests|__tests__|spec)\//.test(path) || /\.(test|spec)\.[^/]+$/.test(path)
+  if (list.every(isDoc)) return 'docs'
+  if (list.every(isTest)) return 'test'
+  return 'chore'
+}
+
+/**
+ * Commit every working-tree change with a generated message. Deliberately
+ * user-triggered only: no background timer ever calls this, and it never
+ * pushes, amends or rewrites history.
+ */
+async function autoCommit(root, state) {
+  if (state.detached) return { ok: false, reason: 'detached', detail: 'HEAD is detached' }
+  const conflicted = (state.files ?? []).filter((file) => file.conflicted).map((file) => file.path)
+  if (conflicted.length > 0) {
+    return { ok: false, reason: 'conflicted', detail: clipText(conflicted.slice(0, 20).join(', ')) }
+  }
+  const paths = (state.files ?? []).map((file) => file.path).filter(Boolean)
+  if (paths.length === 0) return { ok: false, reason: 'nothing-to-commit' }
+
+  const type = commitType(paths)
+  const subject = `${type}: auto-commit ${paths.length} file${paths.length === 1 ? '' : 's'}`
+  const listed = paths.slice(0, 25).join('\n')
+  const body = paths.length > 25 ? `${listed}\n... and ${paths.length - 25} more` : listed
+
+  const staged = await git(root, ['add', '-A'])
+  if (staged.failed) {
+    return { ok: false, reason: 'git-error', detail: clipText(staged.err || staged.out) }
+  }
+
+  const committed = await git(root, ['commit', '-m', subject, '-m', body], 60_000)
+  if (committed.failed) {
+    const detail = clipText(committed.err || committed.out)
+    if (/nothing to commit|no changes added to commit/i.test(detail)) {
+      return { ok: false, reason: 'nothing-to-commit', detail }
+    }
+    return { ok: false, reason: 'git-error', detail }
+  }
+
+  const [shortResult, fullResult] = await Promise.all([
+    git(root, ['rev-parse', '--short', 'HEAD']),
+    git(root, ['rev-parse', 'HEAD']),
+  ])
+  return {
+    ok: true,
+    root,
+    short: shortResult.out.trim(),
+    hash: fullResult.out.trim(),
+    subject,
+    message: `${subject}\n\n${body}`,
+    files: paths.length,
+  }
+}
+
 /** Answer one HTTP request from this plugin's route family. */
 async function handle(ctx, req, res) {
   const send = (status, body) => {
@@ -793,6 +861,26 @@ async function handle(ctx, req, res) {
         return
       }
       send(200, await detachTo(root, payload.detach))
+      return
+    }
+
+    if (action === 'auto-commit') {
+      if (req.method !== 'POST') {
+        send(405, { ok: false, reason: 'method-not-allowed' })
+        return
+      }
+      try {
+        // The payload is empty; draining it keeps keep-alive sockets clean.
+        await readBody(req)
+      } catch {
+        /* an unread body must not fail the commit */
+      }
+      const state = await collectState(resolveCwd(ctx, url))
+      if (!state.ok) {
+        send(200, { ok: false, reason: state.reason ?? 'not-a-repository', detail: state.detail ?? '' })
+        return
+      }
+      send(200, await autoCommit(state.root, state))
       return
     }
 
