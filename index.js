@@ -184,26 +184,35 @@ function parseBranches(raw) {
   return branches
 }
 
+/**
+ * Resolve the directory whose git facts this request asks about, and say when
+ * the Session is not ready yet: at startup the Session or its workspace can be
+ * unresolved, and reporting that as `not-a-repository` would be wrong.
+ */
+function resolveWorkspace(ctx, url) {
+  const sessionId = url.searchParams.get('session')
+  const workingDirectory = ctx.get('workingDirectory')
+  const fallback =
+    workingDirectory && typeof workingDirectory.defaultDirectory === 'string'
+      ? workingDirectory.defaultDirectory
+      : process.cwd()
+  if (!sessionId) return { cwd: fallback, pending: false }
+  const sessions = ctx.get('sessions')
+  if (!sessions || !workingDirectory) return { cwd: fallback, pending: false }
+  try {
+    const session = sessions.get(sessionId)
+    if (!session) return { cwd: fallback, pending: true }
+    const cwd = workingDirectory.get(session)
+    if (typeof cwd !== 'string' || cwd.trim() === '') return { cwd: fallback, pending: true }
+    return { cwd, pending: false }
+  } catch {
+    return { cwd: fallback, pending: true }
+  }
+}
+
 /** Resolve the directory whose git facts this request asks about. */
 function resolveCwd(ctx, url) {
-  const sessionId = url.searchParams.get('session')
-  if (sessionId) {
-    const sessions = ctx.get('sessions')
-    const workingDirectory = ctx.get('workingDirectory')
-    if (sessions && workingDirectory) {
-      try {
-        const session = sessions.get(sessionId)
-        if (session) return workingDirectory.get(session)
-      } catch {
-        /* a stale Session id falls through to the process default */
-      }
-    }
-  }
-  const workingDirectory = ctx.get('workingDirectory')
-  if (workingDirectory && typeof workingDirectory.defaultDirectory === 'string') {
-    return workingDirectory.defaultDirectory
-  }
-  return process.cwd()
+  return resolveWorkspace(ctx, url).cwd
 }
 
 /** One comparable spelling: forward slashes, no trailing separator. */
@@ -757,6 +766,48 @@ async function autoCommit(root, state, options = {}) {
   const credentials = normaliseCredentials(options)
   let createdBranch = ''
 
+  const conflicted = (state.files ?? []).filter((file) => file.conflicted).map((file) => file.path)
+  const paths = (state.files ?? []).map((file) => file.path).filter(Boolean)
+  const hasChanges = paths.length > 0
+  const ahead = Number.isFinite(Number(state.ahead)) ? Number(state.ahead) : 0
+  const upstream = typeof state.upstream === 'string' ? state.upstream : ''
+
+  // Nothing to commit: "push" degrades to pushing whatever is already ahead,
+  // and reports plainly when there is nothing to push either.
+  if (!hasChanges) {
+    if (!wantedPush) return { ok: false, reason: 'nothing-to-commit' }
+    if (state.detached) {
+      return { ok: false, reason: 'detached', detail: 'HEAD is detached; nothing can be pushed' }
+    }
+    if (upstream !== '' && ahead <= 0) {
+      return { ok: false, reason: 'nothing-to-push', upstream, ahead }
+    }
+    const pushOnly = await pushCommitted(root, state.branch, credentials)
+    return {
+      ok: true,
+      committed: false,
+      root,
+      short: '',
+      hash: '',
+      subject: '',
+      message: '',
+      files: 0,
+      branch: state.branch,
+      createdBranch: '',
+      ahead,
+      pushed: pushOnly.pushed === true,
+      skipped: false,
+      pushReason: pushOnly.pushReason ?? '',
+      pushDetail: pushOnly.pushDetail ?? '',
+      upstream: pushOnly.upstream ?? upstream,
+      needsCredentials: pushOnly.needsCredentials === true,
+    }
+  }
+
+  if (conflicted.length > 0) {
+    return { ok: false, reason: 'conflicted', detail: clipText(conflicted.slice(0, 20).join(', ')) }
+  }
+
   if (state.detached) {
     const branchName = typeof options.branch === 'string' ? options.branch.trim() : ''
     if (branchName === '') {
@@ -777,13 +828,6 @@ async function autoCommit(root, state, options = {}) {
       return { ok: false, reason: 'branch-exists', detail: branchName }
     }
   }
-
-  const conflicted = (state.files ?? []).filter((file) => file.conflicted).map((file) => file.path)
-  if (conflicted.length > 0) {
-    return { ok: false, reason: 'conflicted', detail: clipText(conflicted.slice(0, 20).join(', ')) }
-  }
-  const paths = (state.files ?? []).map((file) => file.path).filter(Boolean)
-  if (paths.length === 0 && wantedMessage === '') return { ok: false, reason: 'nothing-to-commit' }
 
   if (state.detached) {
     const branchName = options.branch.trim()
@@ -1009,8 +1053,12 @@ async function handle(ctx, req, res) {
     }
 
     if (action === 'state') {
-      const cwd = resolveCwd(ctx, url)
-      send(200, await collectState(cwd))
+      const workspace = resolveWorkspace(ctx, url)
+      if (workspace.pending) {
+        send(200, { ok: false, reason: 'session-pending', detail: 'the Session workspace is not resolved yet' })
+        return
+      }
+      send(200, await collectState(workspace.cwd))
       return
     }
 
@@ -1077,7 +1125,12 @@ async function handle(ctx, req, res) {
       } catch {
         payload = {}
       }
-      const state = await collectState(resolveCwd(ctx, url))
+      const workspace = resolveWorkspace(ctx, url)
+      if (workspace.pending) {
+        send(200, { ok: false, reason: 'session-pending', detail: 'the Session workspace is not resolved yet' })
+        return
+      }
+      const state = await collectState(workspace.cwd)
       if (!state.ok) {
         send(200, { ok: false, reason: state.reason ?? 'not-a-repository', detail: state.detail ?? '' })
         return

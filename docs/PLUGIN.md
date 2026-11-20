@@ -62,14 +62,14 @@
 
 | 路由 | 说明 |
 | --- | --- |
-| `GET /dsh-git-bar/state?session=<id>` | 分支、HEAD、上游与 ahead/behind、状态条目（含 `--numstat` 增删行数）、最近 12 条提交（短哈希 + 完整哈希） |
+| `GET /dsh-git-bar/state?session=<id>` | 分支、HEAD、上游与 ahead/behind、状态条目（含 `--numstat` 增删行数）、最近 12 条提交（短哈希 + 完整哈希）。会话或它的工作区尚未就绪时返回 `{ok:false, reason:'session-pending'}`，而不是退回进程默认目录误报 `not-a-repository` |
 | `GET /dsh-git-bar/diff?session=<id>&path=<相对路径>&staged=0或1` | 单个文件的统一差异；未跟踪文件合成「新文件」差异；超过上限截断 |
 | `GET /dsh-git-bar/branches?session=<id>` | 本地分支（按提交时间倒序，标记当前分支），带上游与最后一条提交 |
 | `POST /dsh-git-bar/switch` | `{"branch":"<name>"}` 切分支；`{"detach":"<sha/标签/远程名>"}` 检出为游离 HEAD。分支名必须存在、目标必须以十六进制或已知标签/远程名给出，拒绝 `-` 开头；有未解决冲突直接拒绝，git 拒绝时回传原始报错 |
 | `GET /dsh-git-bar/commit?session=<id>&hash=<sha>` | 单个提交的元信息、逐文件增删统计与完整补丁（4–64 位十六进制校验，`rev-parse --verify` 确认存在） |
 | `GET /dsh-git-bar/commit-diff?session=<id>&hash=<sha>&path=<相对路径>` | 某个提交里单个文件的补丁与增删行数 |
 | `GET /dsh-git-bar/graph?session=<id>&limit=10..300` | 仓库提交图（`--all --topo-order`）：父提交、作者、时间、主题、泳道号、装饰（HEAD/分支/远程/标签）与总列数 |
-| `POST /dsh-git-bar/auto-commit` | 仅在用户点击图谱工具条的「自动提交」小按钮并确认面板时调用：body `{message?, push?, branch?, username?, password?}`。`git add -A` 后提交（`message` 为空则按路径推断生成 Conventional Commit 信息：文档→`docs`、测试→`test`、其余→`chore`）；`push:true` 时随后推送到远端（有上游走上游，没有则 `push --set-upstream <origin 或首个远端> <分支>`）。游离 HEAD 必须给 `branch`（先经 `git check-ref-format --branch` 校验、再确认不存在），Host 会 `switch -c` 后提交，原分支指针不动。返回 `committed`/`short`/`hash`/`subject`/`message`/`files`/`branch`/`createdBranch`/`pushed`/`skipped`/`pushReason`（`no-remote`/`out-of-date`/`push-failed`）/`pushDetail`/`upstream`/`needsCredentials`；冲突、无改动、非法或已存在的分支名直接拒绝。推送失败时本地提交保留；从不 force push、不 amend、不重写历史 |
+| `POST /dsh-git-bar/auto-commit` | 仅在用户点击图谱工具条的「自动提交」小按钮并确认面板时调用：body `{message?, push?, branch?, username?, password?}`。**有改动**：`git add -A` 后提交（`message` 为空则按路径推断生成 Conventional Commit 信息：文档→`docs`、测试→`test`、其余→`chore`），`push:true` 时随后推送到远端（有上游走上游，没有则 `push --set-upstream <origin 或首个远端> <分支>`）。**无改动且 `push:true`**：若存在未推送提交则不提交、直接推送（返回 `committed:false` 与 `ahead`），否则 `reason:'nothing-to-push'`；`push:false` 时为 `nothing-to-commit`。游离 HEAD 提交必须给 `branch`（先经 `git check-ref-format --branch` 校验、再确认不存在），Host 会 `switch -c` 后提交，原分支指针不动。返回 `committed`/`short`/`hash`/`subject`/`message`/`files`/`branch`/`createdBranch`/`ahead`/`pushed`/`skipped`/`pushReason`（`no-remote`/`out-of-date`/`push-failed`）/`pushDetail`/`upstream`/`needsCredentials`；冲突、非法或已存在的分支名直接拒绝。推送失败时本地提交保留；从不 force push、不 amend、不重写历史 |
 | `POST /dsh-git-bar/push` | 只推送、不提交（面板拿到 `needsCredentials` 后用一次性凭据重试）：body `{username?, password?}`。密码经临时 askpass 辅助程序传给 git（不进 argv），推送结束即删除临时目录，不保存凭据。返回 `{ok, pushed, reason, pushReason, pushDetail, upstream, needsCredentials}` |
 | `GET /dsh-git-bar/health` | 存活探针 |
 

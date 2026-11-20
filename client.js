@@ -55,6 +55,8 @@ window.__ModuleLoader__.load({
     var GRAPH_STAGGER_CAP = 12
     var GRAPH_PAGE_ROWS = 6
     var LANE_COUNT = 8
+    var RETRY_DELAYS = [400, 800, 1600, 3000, 5000]
+    var RETRY_WINDOW_MS = 10000
     var POLL_COLLAPSED = 20000
     var POLL_EXPANDED = 5000
     var MAX_DIFF_ROWS = 4000
@@ -87,6 +89,11 @@ window.__ModuleLoader__.load({
       notRepo: '不是 git 仓库',
       refresh: '刷新',
       autoCommit: '自动提交',
+      identifyingWorkspace: '正在识别工作区',
+      pushNow: '推送',
+      nothingToPush: '没有可推送的改动',
+      pushOnlyHint: '当前无未提交改动，将直接推送 {n} 个提交',
+      pushedCount: '已推送 {n} 个提交',
       commitMessage: '提交描述',
       commitMessagePlaceholder: '留空则自动生成提交信息',
       commitOnly: '仅提交',
@@ -176,6 +183,11 @@ window.__ModuleLoader__.load({
       notRepo: 'Not a git repository',
       refresh: 'Refresh',
       autoCommit: 'Auto-commit',
+      identifyingWorkspace: 'Identifying workspace',
+      pushNow: 'Push',
+      nothingToPush: 'Nothing to push',
+      pushOnlyHint: 'No uncommitted changes; pushing {n} commits directly',
+      pushedCount: 'Pushed {n} commits',
       commitMessage: 'Commit message',
       commitMessagePlaceholder: 'Leave empty to generate the message automatically',
       commitOnly: 'Commit only',
@@ -3325,6 +3337,14 @@ window.__ModuleLoader__.load({
       var sessionId = toText(props.sessionId)
       var detached = props.detached === true
 
+      var countsAll = toNumber(props.countsAll)
+      if (countsAll === null) countsAll = 0
+      var ahead = toNumber(props.ahead)
+      if (ahead === null) ahead = 0
+      var upstream = toText(props.upstream)
+      var canCommit = countsAll > 0
+      var canPush = countsAll > 0 || ahead > 0 || upstream === ''
+
       var messageHook = useState('')
       var message = messageHook[0]
       var setMessage = messageHook[1]
@@ -3401,6 +3421,7 @@ window.__ModuleLoader__.load({
         if (safe === 'branch-exists') return t('branchExists')
         if (safe === 'not-a-repository') return t('notRepo')
         if (safe === 'detached') return t('detachedNeedsBranch')
+        if (safe === 'nothing-to-push') return t('nothingToPush')
         var line = detailLine(detail)
         return line || t('commitFailed')
       }
@@ -3420,6 +3441,7 @@ window.__ModuleLoader__.load({
 
       function submit(shouldPush) {
         if (pending !== '') return
+        if (shouldPush === true ? !canPush : !canCommit) return
         setPending('commit')
         setStatus(null)
         var body = { message: toText(message).trim(), push: shouldPush === true }
@@ -3439,10 +3461,11 @@ window.__ModuleLoader__.load({
             if (result && result.ok === true) {
               var short = toText(result.short)
               var subject = toText(result.subject)
-              setCommitted({ short: short, subject: subject })
+              var committedNow = result.committed === true
+              setCommitted({ short: short, subject: subject, committed: committedNow })
               if (result.pushed === true) {
                 try {
-                  if (typeof props.onDone === 'function') props.onDone(result, shouldPush === true)
+                  if (typeof props.onDone === 'function') props.onDone(result)
                 } catch (error) {
                   /* ignore */
                 }
@@ -3464,7 +3487,8 @@ window.__ModuleLoader__.load({
               setStatus({
                 tone: 'warn',
                 text:
-                  t('committed') + (short ? ' ' + short : '') + ' · ' + t('pushIncomplete') + t('pushReasonSep') + pushReasonText(result.pushReason, result.pushDetail)
+                  (committedNow && short ? t('committed') + ' ' + short + ' · ' : '') +
+                  t('pushIncomplete') + t('pushReasonSep') + pushReasonText(result.pushReason, result.pushDetail)
               })
               return
             }
@@ -3581,7 +3605,7 @@ window.__ModuleLoader__.load({
           )
         }
 
-        if (retryMode && committed && committed.short) {
+        if (retryMode && committed && committed.committed !== false && committed.short) {
           children.push(
             h('div', { className: 'gitbar-commitpanel-note', key: 'note' }, t('committed') + ' ' + committed.short)
           )
@@ -3640,6 +3664,16 @@ window.__ModuleLoader__.load({
           )
         }
 
+        if (!retryMode && canPush && countsAll === 0 && ahead > 0) {
+          children.push(
+            h(
+              'div',
+              { className: 'gitbar-commitpanel-hint', key: 'pushonly' },
+              t('pushOnlyHint').replace('{n}', String(ahead))
+            )
+          )
+        }
+
         if (status && status.text) {
           children.push(
             h(
@@ -3663,7 +3697,8 @@ window.__ModuleLoader__.load({
                 type: 'button',
                 key: 'only',
                 className: 'gitbar-btn gitbar-commitpanel-btn',
-                disabled: busy,
+                disabled: busy || !canCommit,
+                title: canCommit ? t('commitOnly') : t('nothingToCommit'),
                 onClick: function () {
                   submit(false)
                 }
@@ -3678,12 +3713,13 @@ window.__ModuleLoader__.load({
                 type: 'button',
                 key: 'push',
                 className: 'gitbar-btn gitbar-commitpanel-btn gitbar-commitpanel-primary',
-                disabled: busy,
+                disabled: busy || !canPush,
+                title: canPush ? t('pushNow') : t('nothingToPush'),
                 onClick: function () {
                   submit(true)
                 }
               },
-              t('commitAndPush')
+              t('pushNow')
             )
           )
           actions.push(
@@ -3958,6 +3994,9 @@ window.__ModuleLoader__.load({
               t: t,
               sessionId: props.sessionId,
               detached: Boolean(state && state.detached),
+              countsAll: toNumber(state && state.counts && state.counts.all) || 0,
+              ahead: toNumber(state && state.ahead) || 0,
+              upstream: state ? toText(state.upstream) : '',
               onClose: props.onCloseCommitPanel,
               onDone: props.onCommitDone,
               onCommitted: props.onCommitCommitted,
@@ -4066,9 +4105,43 @@ window.__ModuleLoader__.load({
       var bodyKeyHook = useState(0)
       var bodyKey = bodyKeyHook[0]
       var setBodyKey = bodyKeyHook[1]
+      var pendingHook = useState(true)
+      var pending = pendingHook[0]
+      var setPending = pendingHook[1]
+      var retryTimerRef = useRef(null)
+      var retryIndexRef = useRef(0)
+      var pendingSinceRef = useRef(Date.now())
+      var settledRef = useRef(false)
       var commitPanelHook = useState(false)
       var commitPanelOpen = commitPanelHook[0]
       var setCommitPanelOpen = commitPanelHook[1]
+
+      function clearRetryTimer() {
+        try {
+          if (retryTimerRef.current !== null) clearTimeout(retryTimerRef.current)
+        } catch (error) {
+          /* ignore */
+        }
+        retryTimerRef.current = null
+      }
+
+      /** One step of the 400/800/1600/3000/5000ms backoff (~10s total). */
+      function scheduleRetry() {
+        var index = retryIndexRef.current
+        if (index >= RETRY_DELAYS.length) return false
+        retryIndexRef.current = index + 1
+        clearRetryTimer()
+        retryTimerRef.current = setTimeout(function () {
+          retryTimerRef.current = null
+          if (!mountedRef.current) return
+          try {
+            loadRef.current()
+          } catch (error) {
+            /* ignore */
+          }
+        }, RETRY_DELAYS[index])
+        return true
+      }
 
       function loadState() {
         try {
@@ -4077,8 +4150,37 @@ window.__ModuleLoader__.load({
           /* ignore */
         }
         stateAbortRef.current = null
-        stateAbortRef.current = requestJson(withQuery(STATE_URL, [{ key: 'session', value: sessionRef.current }]), null, function (payload) {
+        var session = toText(sessionRef.current)
+        // Without a Session id the Host could only answer for its own cwd.
+        if (!session) {
+          setPending(true)
+          setFailed(false)
+          return
+        }
+        stateAbortRef.current = requestJson(withQuery(STATE_URL, [{ key: 'session', value: session }]), null, function (payload) {
           if (!mountedRef.current) return
+          var reason = toText(payload && payload.reason)
+          if (!payload || payload.ok !== true) {
+            var withinWindow = Date.now() - pendingSinceRef.current < RETRY_WINDOW_MS
+            var retryable = reason === 'session-pending' || (reason === 'not-a-repository' && withinWindow)
+            if (retryable && scheduleRetry()) {
+              // After a settled result a transient pending must not blank the pill.
+              if (!settledRef.current) setPending(true)
+              return
+            }
+            if (reason === 'session-pending') {
+              // Still not ready after the window: settle on the neutral failure.
+              settledRef.current = true
+              clearRetryTimer()
+              setPending(false)
+              setData({ ok: false, reason: 'not-a-repository', detail: toText(payload && payload.detail) })
+              setFailed(false)
+              return
+            }
+          }
+          settledRef.current = true
+          clearRetryTimer()
+          setPending(false)
           if (payload.ok === true || payload.ok === false) {
             setData(payload)
             setFailed(false)
@@ -4131,6 +4233,7 @@ window.__ModuleLoader__.load({
           }
           clearCloseTimer()
           clearFlashTimer()
+          clearRetryTimer()
           try {
             if (stateAbortRef.current) stateAbortRef.current()
           } catch (error) {
@@ -4142,6 +4245,11 @@ window.__ModuleLoader__.load({
 
       // 2. Fetch on mount and whenever the Session changes.
       useEffect(function () {
+        pendingSinceRef.current = Date.now()
+        retryIndexRef.current = 0
+        settledRef.current = false
+        clearRetryTimer()
+        setPending(true)
         setData(null)
         setFailed(false)
         setView(LIST_VIEW)
@@ -4506,14 +4614,16 @@ window.__ModuleLoader__.load({
       }
 
       /** Commit accepted by the panel: close it and celebrate. */
-      function onCommitDone(result, pushedIntent) {
+      function onCommitDone(result) {
         try {
           setCommitPanelOpen(false)
           var safe = result && typeof result === 'object' ? result : {}
           var short = toText(safe.short)
           var subject = toText(safe.subject)
           if (subject.length > 48) subject = subject.slice(0, 48) + '…'
-          if (pushedIntent === true && safe.pushed === true) {
+          if (safe.committed === false) {
+            flashMessage(t('pushedCount').replace('{n}', String(toNumber(safe.ahead) || 0)))
+          } else if (safe.pushed === true) {
             flashMessage(t('committedPushed') + (short ? ' ' + short : '') + (subject ? ' · ' + subject : ''))
           } else {
             flashMessage(t('committed') + (short ? ' ' + short : ''))
@@ -4686,11 +4796,12 @@ window.__ModuleLoader__.load({
         if (pulse) countClass += ' gitbar-pulse'
 
         var pillBranch = ''
-        if (state) {
+        if (pending) pillBranch = '…'
+        else if (state) {
           pillBranch = state.detached ? 'HEAD@' + toText(state.head) : toText(state.branch) || toText(state.head)
         }
 
-        var title = pillTitle(state, notRepo, failed)
+        var title = pending ? t('identifyingWorkspace') : pillTitle(state, notRepo, failed)
 
         var pill = h(
           'button',
@@ -4705,11 +4816,13 @@ window.__ModuleLoader__.load({
             onClick: onToggle
           },
           h('span', { className: 'gitbar-glyph', 'aria-hidden': 'true' }, branchGlyph(12)),
-          notRepo
-            ? h('span', { className: 'gitbar-branch gitbar-branch-muted' }, t('notRepo'))
-            : pillBranch
-              ? h('span', { className: 'gitbar-branch' }, pillBranch)
-              : null,
+          pending
+            ? h('span', { className: 'gitbar-branch gitbar-branch-muted' }, pillBranch)
+            : notRepo
+              ? h('span', { className: 'gitbar-branch gitbar-branch-muted' }, t('notRepo'))
+              : pillBranch
+                ? h('span', { className: 'gitbar-branch' }, pillBranch)
+                : null,
           h('span', { className: dotClass, 'aria-hidden': 'true' }),
           state ? h('span', { className: countClass }, String(all)) : null
         )

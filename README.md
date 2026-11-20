@@ -12,7 +12,7 @@
 | --- | --- |
 | 胶囊（收起） | 分支名 + 改动数；圆点按状态着色（干净 / 有改动 / 有冲突）；游离 HEAD 时显示 `HEAD@<短哈希>` |
 | 胶囊（展开） | 上游与 `↑ahead ↓behind`、分组文件列表（已暂存 / 未暂存 / 未跟踪 / 冲突）、`最近提交`；20s/5s 自动刷新，切会话立即重取 |
-| 图谱工具条的「自动提交」小按钮 | 点开一个操作面板：可填提交描述（**留空自动生成** Conventional Commit 信息）、选「仅提交」或「提交并推送」。推送默认当前分支（有上游走上游，否则 `push --set-upstream`）；推送需要凭据时面板变成一次性凭据输入（用户名 + 密码/令牌），只用于这一次推送、不落盘不保存。游离 HEAD 下会先按面板里填的分支名建分支再提交，原分支指针不动 |
+| 图谱工具条的「自动提交」小按钮 | 点开一个操作面板：可填提交描述（**留空自动生成** Conventional Commit 信息），两个操作「仅提交」和「推送」。**推送会按当前状态自动选择**：有未提交改动 → 先提交再推送；没有改动但有未推送提交 → 直接推送；两者都没有 → 提示「没有可推送的改动」。推送默认当前分支（有上游走上游，否则 `push --set-upstream`）；需要凭据时面板变成一次性凭据输入（用户名 + 密码/令牌），只用于这一次推送、不落盘不保存。游离 HEAD 下会先按面板里填的分支名建分支再提交，原分支指针不动 |
 | 点分支名 | 同一面板切成 **Git 图谱**（宽度 720px，右边缘不动）：单画布连线、泳道、`HEAD`/分支/远程/标签芯片、当前行高亮与「当前」标记、纵向滚动与 `PageUp/PageDown/Home/End` |
 | 点图谱里的分支芯片 | 直接切换分支 |
 | 点图谱里的远程/标签芯片，或非顶点行 | 确认条 → 检出为游离 HEAD |
@@ -29,10 +29,10 @@
 
 | 方式 | 输入 |
 | --- | --- |
-| npm 包（已发布） | `dsh-git-bar`（跟随 latest），或锁定版本 `dsh-git-bar@1.1.0` |
+| npm 包（已发布） | `dsh-git-bar`（跟随 latest），或锁定版本 `dsh-git-bar@1.1.1` |
 | GitHub 仓库 | `git+https://github.com/zhangxuesong-06/dsh-git.git` |
 | 本地目录（开发） | `link:<仓库绝对路径>` |
-| 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.1.0.tgz` |
+| 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.1.1.tgz` |
 
 对应的工具调用：
 
@@ -75,14 +75,14 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 
 | 路由 | 作用 |
 | --- | --- |
-| `GET /dsh-git-bar/state?session=` | 分支、HEAD、上游、ahead/behind、状态条目（含 `--numstat`）、最近提交（短/完整哈希） |
+| `GET /dsh-git-bar/state?session=` | 分支、HEAD、上游、ahead/behind、状态条目（含 `--numstat`）、最近提交（短/完整哈希）；会话/工作区尚未就绪时返回 `{ok:false, reason:'session-pending'}`（客户端会短暂重试，不会误判成「不是 git 仓库」） |
 | `GET /dsh-git-bar/diff?session=&path=&staged=` | 单文件统一差异（未跟踪文件合成「新文件」差异） |
 | `GET /dsh-git-bar/branches?session=` | 本地分支列表（当前分支标记、上游、最后一条提交） |
 | `POST /dsh-git-bar/switch` | `{branch}` 切分支 / `{detach}` 检出为游离 HEAD；拒绝 `-` 开头、未知目标、有冲突的工作区，git 报错原样回传 |
 | `GET /dsh-git-bar/graph?session=&limit=` | 提交图（`--all --topo-order`）：父提交、泳道、`HEAD`/分支/远程/标签装饰、`headFull`、`isHead`、`previousBranch` |
 | `GET /dsh-git-bar/commit?session=&hash=` | 单提交元信息、逐文件增删、完整补丁 |
 | `GET /dsh-git-bar/commit-diff?session=&hash=&path=` | 单提交里某个文件的补丁 |
-| `POST /dsh-git-bar/auto-commit` | 由用户点击触发：body `{message?, push?, branch?, username?, password?}`。`message` 为空则自动生成提交信息；`push:true` 时提交后推送到远端（有上游走上游，否则 `push --set-upstream <origin 或首个远端> <分支>`）；游离 HEAD 需要 `branch`，先 `switch -c` 再提交（原分支指针不动）。返回 `committed`/`short`/`subject`/`branch`/`createdBranch`/`pushed`/`pushReason`/`pushDetail`/`upstream`/`needsCredentials`；拒绝冲突、无改动、非法或已存在的分支名；从不 force push、不 amend、不重写历史 |
+| `POST /dsh-git-bar/auto-commit` | 由用户点击触发：body `{message?, push?, branch?, username?, password?}`。`message` 为空则自动生成提交信息。**有改动时**：提交（`push:true` 则随后推送，有上游走上游，否则 `push --set-upstream`）；**无改动但 `push:true` 且存在未推送提交时**：不提交、直接推送，返回 `committed:false` 与 `ahead`；**无改动也无未推送提交时**：`reason:'nothing-to-push'`（`push:false` 时是 `nothing-to-commit`）。游离 HEAD 提交需要 `branch`，先 `switch -c` 再提交（原分支指针不动）。返回 `committed`/`short`/`subject`/`branch`/`createdBranch`/`ahead`/`pushed`/`pushReason`/`pushDetail`/`upstream`/`needsCredentials`；拒绝冲突、非法或已存在的分支名；从不 force push、不 amend、不重写历史 |
 | `POST /dsh-git-bar/push` | 只推送不提交，body `{username?, password?}`：面板拿到 `needsCredentials` 后用一次性凭据重试；返回 `ok`/`pushed`/`reason`/`pushDetail`/`upstream` |
 | `GET /dsh-git-bar/health` | 存活探针 |
 
