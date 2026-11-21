@@ -57,6 +57,7 @@ window.__ModuleLoader__.load({
     var LANE_COUNT = 8
     var RETRY_DELAYS = [400, 800, 1600, 3000, 5000]
     var RETRY_WINDOW_MS = 10000
+    var SLOW_RETRY_MS = 30000
     var POLL_COLLAPSED = 20000
     var POLL_EXPANDED = 5000
     var MAX_DIFF_ROWS = 4000
@@ -90,6 +91,7 @@ window.__ModuleLoader__.load({
       refresh: '刷新',
       autoCommit: '自动提交',
       identifyingWorkspace: '正在识别工作区',
+      justNow: '刚刚',
       pushNow: '推送',
       nothingToPush: '没有可推送的改动',
       pushOnlyHint: '当前无未提交改动，将直接推送 {n} 个提交',
@@ -184,6 +186,7 @@ window.__ModuleLoader__.load({
       refresh: 'Refresh',
       autoCommit: 'Auto-commit',
       identifyingWorkspace: 'Identifying workspace',
+      justNow: 'Just now',
       pushNow: 'Push',
       nothingToPush: 'Nothing to push',
       pushOnlyHint: 'No uncommitted changes; pushing {n} commits directly',
@@ -398,6 +401,63 @@ window.__ModuleLoader__.load({
         translator = null
       }
       return translator
+    }
+
+    /** The active language tag for Intl (zh-CN / en), best effort. */
+    function localeTag() {
+      try {
+        var service = localeService()
+        if (service) {
+          var direct = service.locale || service.language || service.current || service.tag || null
+          if (typeof direct === 'string' && direct) return direct
+          if (direct && typeof direct.locale === 'string') return direct.locale
+          if (typeof service.getLocale === 'function') {
+            var fetched = service.getLocale()
+            if (typeof fetched === 'string' && fetched) return fetched
+            if (fetched && typeof fetched.locale === 'string') return fetched.locale
+          }
+        }
+      } catch (error) {
+        /* fall through to the probe */
+      }
+      try {
+        var probe = translate('clean')
+        if (probe && probe === DICTS.zh.clean) return 'zh-CN'
+        if (probe && probe === DICTS.en.clean) return 'en'
+      } catch (error) {
+        /* keep the default */
+      }
+      return 'zh-CN'
+    }
+
+    /**
+     * A commit time for humans: just now / N minutes / N hours / N days ago,
+     * then an absolute date after 30 days. Falls back to the git `when`.
+     */
+    function formatWhen(iso, when) {
+      var fallback = toText(when)
+      var text = toText(iso)
+      if (!text) return fallback
+      try {
+        var parsed = Date.parse(text)
+        if (isNaN(parsed)) return fallback
+        var seconds = (Date.now() - parsed) / 1000
+        var abs = Math.abs(seconds)
+        if (abs < 60) return translate('justNow')
+        var tag = localeTag()
+        var relative = typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function' ? new Intl.RelativeTimeFormat(tag, { numeric: 'always' }) : null
+        if (abs < 3600) return relative ? relative.format(-Math.round(seconds / 60), 'minute') : fallback
+        if (abs < 86400) return relative ? relative.format(-Math.round(seconds / 3600), 'hour') : fallback
+        if (abs < 30 * 86400) return relative ? relative.format(-Math.round(seconds / 86400), 'day') : fallback
+        var date = new Date(parsed)
+        var dateTag = /^en/i.test(tag) ? 'en-US' : 'zh-CN'
+        if (typeof Intl !== 'undefined' && typeof Intl.DateTimeFormat === 'function') {
+          return new Intl.DateTimeFormat(dateTag, { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
+        }
+        return fallback
+      } catch (error) {
+        return fallback
+      }
     }
 
     /** Every visible string goes through here; never throws, never returns ''. */
@@ -1285,7 +1345,7 @@ window.__ModuleLoader__.load({
                     },
                     h('span', { className: 'gitbar-hash' }, toText(safe.hash)),
                     h('span', { className: 'gitbar-subject' }, subject),
-                    h('span', { className: 'gitbar-when' }, toText(safe.when))
+                    h('span', { className: 'gitbar-when' }, formatWhen(safe.iso, safe.when))
                   )
                 })
               )
@@ -1483,6 +1543,8 @@ window.__ModuleLoader__.load({
     function CommitDetail(props) {
       var t = props.t || translate
       var hash = toText(props.hash)
+      var fallbackIso = toText(props.iso)
+      var fallbackWhen = toText(props.when)
       var sessionId = toText(props.sessionId)
       var retryHook = useState(0)
       var retry = retryHook[0]
@@ -1552,6 +1614,8 @@ window.__ModuleLoader__.load({
           path: path,
           hash: toText(fullHash) || hash,
           hashShort: toText(shortHash) || (toText(fullHash) || hash).slice(0, 7),
+          iso: fallbackIso,
+          when: fallbackWhen,
           sessionId: sessionId
         }
         try {
@@ -1668,7 +1732,7 @@ window.__ModuleLoader__.load({
             toText(commit.author) +
               (toText(commit.email) ? ' <' + toText(commit.email) + '>' : '') +
               ' · ' +
-              toText(commit.when) +
+              formatWhen(commit.iso || fallbackIso, commit.when || fallbackWhen) +
               ' · +' +
               additions +
               ' −' +
@@ -1919,6 +1983,9 @@ window.__ModuleLoader__.load({
             )
             : null,
           h('span', { className: 'gitbar-path', title: props.path }, props.path || t('reviewTitle')),
+          props.mode === 'commit' && (toText(props.iso) || toText(props.when))
+            ? h('span', { className: 'gitbar-when' }, formatWhen(props.iso, props.when))
+            : null,
           chips.length > 0 ? chips : null,
           h('span', { className: 'gitbar-spacer' }),
           h(
@@ -2173,6 +2240,8 @@ window.__ModuleLoader__.load({
           untracked: targetUntracked,
           hash: targetHash,
           hashShort: targetHashShort,
+          iso: target ? toText(target.iso) : '',
+          when: target ? toText(target.when) : '',
           onBack: !external && selected
             ? function () {
               setSelected(null)
@@ -2771,7 +2840,7 @@ window.__ModuleLoader__.load({
                     isHead ? h('span', { className: 'gitbar-graph-now', title: t('current') }, t('current')) : null,
                     h('span', { className: 'gitbar-graph-subject', title: toText(commit.subject) }, toText(commit.subject))
                   ),
-                  h('span', { className: 'gitbar-graph-date', title: toText(commit.iso) }, toText(commit.iso)),
+                  h('span', { className: 'gitbar-graph-date', title: toText(commit.iso) || toText(commit.when) }, formatWhen(commit.iso, commit.when)),
                   h('span', { className: 'gitbar-graph-author', title: toText(commit.author) }, toText(commit.author)),
                   h('span', { className: 'gitbar-graph-hash', title: toText(commit.full) }, toText(commit.hash))
                 ),
@@ -3303,7 +3372,7 @@ window.__ModuleLoader__.load({
         gitbarReviewStore.set(target)
         if (target && typeof target.sessionId === 'string' && target.sessionId) lastSidebarSessionId = target.sessionId
         var params = target && target.mode === 'commit'
-          ? { mode: 'commit', path: target.path, hash: target.hash, hashShort: target.hashShort }
+          ? { mode: 'commit', path: target.path, hash: target.hash, hashShort: target.hashShort, iso: toText(target.iso), when: toText(target.when) }
           : { mode: 'worktree', path: target.path, staged: target.staged === true, untracked: target.untracked === true }
         right.openResource(REVIEW_ADDRESS, sidebarOpenOptions(params, REVIEW_KIND))
         return true
@@ -3787,6 +3856,7 @@ window.__ModuleLoader__.load({
       var pos = props.pos || { top: 56, right: 12, width: 460, maxHeight: 480 }
       var mode = view.mode === 'branches' || view.mode === 'commit' || view.mode === 'review' || view.mode === 'graph' ? view.mode : 'list'
       var state = data && data.ok === true ? data : null
+      var briefState = Boolean(state && state.brief === true)
       var notRepo = Boolean(data && data.ok === false)
 
       var style = {
@@ -3914,6 +3984,8 @@ window.__ModuleLoader__.load({
             t: t,
             sessionId: props.sessionId,
             hash: view.hash,
+            iso: view.iso,
+            when: view.when,
             onBack: props.onCommitBack,
             onHandoff: props.onCommitFile
           })
@@ -3950,6 +4022,10 @@ window.__ModuleLoader__.load({
           )
         } else if (!state) {
           body = h('div', { className: 'gitbar-empty' }, props.failed === true ? t('error') : t('loading'))
+        } else if (briefState) {
+          // A collapsed-mode brief payload carries no files yet: wait for the
+          // full fetch that the open effect already kicked off.
+          body = h('div', { className: 'gitbar-empty' }, t('loading'))
         } else {
           body = h(ChangedFileList, { t: t, groups: groupFiles(state), onOpen: props.onOpenFile })
         }
@@ -3975,7 +4051,7 @@ window.__ModuleLoader__.load({
         if (flashRow) children.push(flashRow)
         if (chipsRow) children.push(chipsRow)
         children.push(bodyNode)
-        if (mode === 'list' && commits.length > 0) {
+        if (mode === 'list' && commits.length > 0 && !briefState) {
           children.push(
             h(CommitList, {
               key: 'commits',
@@ -4112,6 +4188,8 @@ window.__ModuleLoader__.load({
       var retryIndexRef = useRef(0)
       var pendingSinceRef = useRef(Date.now())
       var settledRef = useRef(false)
+      var slowTimerRef = useRef(null)
+      var slowActiveRef = useRef(false)
       var commitPanelHook = useState(false)
       var commitPanelOpen = commitPanelHook[0]
       var setCommitPanelOpen = commitPanelHook[1]
@@ -4135,7 +4213,7 @@ window.__ModuleLoader__.load({
           retryTimerRef.current = null
           if (!mountedRef.current) return
           try {
-            loadRef.current()
+            loadRef.current(true)
           } catch (error) {
             /* ignore */
           }
@@ -4143,7 +4221,32 @@ window.__ModuleLoader__.load({
         return true
       }
 
-      function loadState() {
+      function clearSlowRetry() {
+        slowActiveRef.current = false
+        try {
+          if (slowTimerRef.current !== null) clearTimeout(slowTimerRef.current)
+        } catch (error) {
+          /* ignore */
+        }
+        slowTimerRef.current = null
+      }
+
+      /** While nothing definitive arrived, keep a quiet retry every 30s. */
+      function scheduleSlowRetry() {
+        if (slowTimerRef.current !== null) return
+        slowActiveRef.current = true
+        slowTimerRef.current = setTimeout(function () {
+          slowTimerRef.current = null
+          if (!mountedRef.current) return
+          try {
+            loadRef.current(true)
+          } catch (error) {
+            /* ignore */
+          }
+        }, SLOW_RETRY_MS)
+      }
+
+      function loadState(brief) {
         try {
           if (stateAbortRef.current) stateAbortRef.current()
         } catch (error) {
@@ -4157,7 +4260,13 @@ window.__ModuleLoader__.load({
           setFailed(false)
           return
         }
-        stateAbortRef.current = requestJson(withQuery(STATE_URL, [{ key: 'session', value: session }]), null, function (payload) {
+        var stateUrl = brief === true
+          ? withQuery(STATE_URL, [
+            { key: 'session', value: session },
+            { key: 'brief', value: '1' }
+          ])
+          : withQuery(STATE_URL, [{ key: 'session', value: session }])
+        stateAbortRef.current = requestJson(stateUrl, null, function (payload) {
           if (!mountedRef.current) return
           var reason = toText(payload && payload.reason)
           if (!payload || payload.ok !== true) {
@@ -4175,17 +4284,21 @@ window.__ModuleLoader__.load({
               setPending(false)
               setData({ ok: false, reason: 'not-a-repository', detail: toText(payload && payload.detail) })
               setFailed(false)
+              scheduleSlowRetry()
               return
             }
           }
           settledRef.current = true
           clearRetryTimer()
           setPending(false)
+          if (!payload || payload.ok !== true) scheduleSlowRetry()
+          else clearSlowRetry()
           if (payload.ok === true || payload.ok === false) {
             setData(payload)
             setFailed(false)
           } else {
             setFailed(true)
+            scheduleSlowRetry()
           }
         })
       }
@@ -4234,6 +4347,7 @@ window.__ModuleLoader__.load({
           clearCloseTimer()
           clearFlashTimer()
           clearRetryTimer()
+          clearSlowRetry()
           try {
             if (stateAbortRef.current) stateAbortRef.current()
           } catch (error) {
@@ -4249,6 +4363,7 @@ window.__ModuleLoader__.load({
         retryIndexRef.current = 0
         settledRef.current = false
         clearRetryTimer()
+        clearSlowRetry()
         setPending(true)
         setData(null)
         setFailed(false)
@@ -4257,7 +4372,7 @@ window.__ModuleLoader__.load({
         setBodyAnim('')
         clearFlashTimer()
         setFlash('')
-        loadRef.current()
+        loadRef.current(true)
         return function () {
           try {
             if (stateAbortRef.current) stateAbortRef.current()
@@ -4271,7 +4386,7 @@ window.__ModuleLoader__.load({
       // 3. Fetch whenever the panel opens.
       useEffect(function () {
         if (!open || closing) return undefined
-        loadRef.current()
+        loadRef.current(false)
         return undefined
       }, [open])
 
@@ -4284,7 +4399,8 @@ window.__ModuleLoader__.load({
           } catch (error) {
             /* treat as visible */
           }
-          loadRef.current()
+          if (slowActiveRef.current) return
+          loadRef.current(!open)
         }
         function arm() {
           if (timer !== null) {
@@ -4676,7 +4792,7 @@ window.__ModuleLoader__.load({
           var safe = commit && typeof commit === 'object' ? commit : {}
           var hash = toText(safe.full) || toText(safe.hash)
           if (!hash) return
-          setView({ mode: 'commit', hash: hash })
+          setView({ mode: 'commit', hash: hash, iso: toText(safe.iso), when: toText(safe.when) })
           setBodyAnim(motionMs(DETAIL_MS) === 0 ? '' : 'gitbar-body-forward')
           setBodyKey(function (value) { return value + 1 })
         } catch (error) {
@@ -4722,6 +4838,8 @@ window.__ModuleLoader__.load({
             path: path,
             hash: toText(safe.hash),
             hashShort: toText(safe.hashShort),
+            iso: toText(safe.iso),
+            when: toText(safe.when),
             sessionId: sessionRef.current
           })
         } catch (error) {

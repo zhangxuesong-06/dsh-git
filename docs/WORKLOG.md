@@ -134,14 +134,35 @@ URL 为准；会话 ID 也会随环境变化。
 
 ## 8. 路线图
 
-- **v1.1.2（稳健化）**：自测入库 + `npm test` + GitHub Actions；提交时间本地化（Host 传 ISO、前端
-  `Intl.RelativeTimeFormat`）；启动识别在退避窗口后转后台慢重试；收起态用 `?brief=1` 轻量轮询。
+- **v1.1.2（稳健化，进行中）**：
+  - [x] 自测入库 `test/*.test.mjs` + `npm test`（`node --test`）+ `prepublishOnly` 闸门；
+  - [x] GitHub Actions（ubuntu + windows 跑 check/test，打 tag 时 `npm publish --provenance`）；
+  - [x] `docs/WORKLOG.md` + `CHANGELOG.md`；
+  - [x] Host：`/state?brief=1` 轻量模式（收起态轮询少跑 2 个 git 子进程）、提交时间补 `iso` 字段；
+  - [x] `test/contract.test.mjs`：静态契约（loader 形态、只 require('react')、无 Web Storage、类名前缀、
+        host 路由前缀无尾斜杠、无 shell 执行、manifest/locale/patch 完整性）；
+  - [ ] 客户端：收起态 brief 轮询、`Intl.RelativeTimeFormat` 时间本地化、启动识别后台慢重试。
 - **v1.2.0（功能）**：文件列表操作（暂存/取消暂存/丢弃/复制相对路径/冲突取我方或对方）、撤销上一次提交
   （`--soft`，用户点击）、图谱搜索（作者/信息/哈希）与加载更多。
-- **发布收尾**：CHANGELOG、README 截图、删除 npm 上 `0.0.0-stage` 占位（需 OTP）、GitHub 仓库改名为
+- **发布收尾**：README 截图、删除 npm 上 `0.0.0-stage` 占位（需 OTP）、GitHub 仓库改名为
   `dsh-git-bar` 并同步 `repository` 字段。
 
-## 9. 发版检查清单
+## 9. 测试说明（`npm test`）
+
+`node --test` 自动发现 `test/*.test.mjs`，每个文件是一个独立进程，跑完打印 JSON 断言清单并以退出码表结论。
+所有用例都在 `%TEMP%` 下造临时 git 仓库，不碰工作区、不需要启动 DSH。
+
+| 文件 | 覆盖 |
+| --- | --- |
+| `upstream.test.mjs` | 无跟踪分支回退到 `origin/<branch>`、ahead/behind 计数、真配了上游时行为不变 |
+| `auto-commit.test.mjs` | 提交合并改动、自定义/自动提交信息、提交后工作区清空、无改动与冲突的拒绝 |
+| `push.test.mjs` | 有上游/无上游/无远端/远端领先/远端不可达五种推送路径与分类 |
+| `push-only.test.mjs` | `session-pending` 与"干净但有未推送提交→只推送"的降级逻辑 |
+| `commit-panel.test.mjs` | 自定义描述、仅提交、游离 HEAD 建分支、`/push` 路由、askpass 特殊字符与临时目录清理 |
+| `brief.test.mjs` | `?brief=1` 不返回文件/提交但计数一致、`iso` 格式、干净树计数为 0 |
+| `contract.test.mjs` | 两个半边的静态契约（见上文路线图里的说明） |
+
+## 10. 发版检查清单
 
 1. 改代码 → `node --check index.js client.js`；
 2. `npm test`（自测全绿）；

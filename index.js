@@ -148,22 +148,52 @@ function parseNumstat(raw) {
   return stats
 }
 
-/** Parse `git log` output produced with the unit-separator format below. */
+/**
+ * Parse `git log` output in the `%H %h %an %ar %aI %s` unit-separator format.
+ * `iso` lets the client localise the relative time instead of printing git's
+ * English "2 hours ago"; `when` stays as the fallback.
+ */
 function parseLog(raw) {
   const commits = []
   for (const line of raw.split('\n')) {
     if (!line) continue
     const cells = line.split('\u001f')
     if (cells.length < 5) continue
+    if (cells.length >= 6) {
+      commits.push({
+        full: cells[0],
+        hash: cells[1],
+        author: cells[2],
+        when: cells[3],
+        iso: cells[4],
+        subject: cells.slice(5).join('\u001f'),
+      })
+      continue
+    }
     commits.push({
       full: cells[0],
       hash: cells[1],
       author: cells[2],
       when: cells[3],
+      iso: '',
       subject: cells.slice(4).join('\u001f'),
     })
   }
   return commits
+}
+
+/** Count status entries per group; shared by the full and brief state paths. */
+function countFiles(files) {
+  const counts = { all: files.length, staged: 0, unstaged: 0, untracked: 0, conflicted: 0 }
+  for (const file of files) {
+    if (file.conflicted) counts.conflicted += 1
+    else if (file.untracked) counts.untracked += 1
+    else {
+      if (file.staged) counts.staged += 1
+      if (file.unstaged) counts.unstaged += 1
+    }
+  }
+  return counts
 }
 
 /** Parse `for-each-ref` output for local branches. */
@@ -251,7 +281,7 @@ async function guessUpstream(root, branch) {
 }
 
 /** Read the complete state the capsule shows in one round trip. */
-async function collectState(cwd) {
+async function collectState(cwd, options = {}) {
   const inside = await git(cwd, ['rev-parse', '--is-inside-work-tree'])
   if (inside.failed || inside.out.trim() !== 'true') {
     return {
@@ -291,11 +321,35 @@ async function collectState(cwd) {
     }
   }
 
+  // The collapsed capsule only needs branch/upstream/counters, so `brief`
+  // skips the two numstat diffs and the commit log (3 of the 4 subprocesses).
+  if (options.brief === true) {
+    const statusOnly = await git(root, ['status', '--porcelain=v1', '-z', '-uall'])
+    const briefFiles = parseStatus(statusOnly.out)
+    const briefCounts = countFiles(briefFiles)
+    return {
+      ok: true,
+      cwd,
+      root,
+      branch,
+      detached,
+      head,
+      upstream,
+      ahead,
+      behind,
+      brief: true,
+      files: [],
+      counts: briefCounts,
+      commits: [],
+      generatedAt: Date.now(),
+    }
+  }
+
   const [statusResult, unstagedStats, stagedStats, logResult] = await Promise.all([
     git(root, ['status', '--porcelain=v1', '-z', '-uall']),
     git(root, ['diff', '--numstat']),
     git(root, ['diff', '--cached', '--numstat']),
-    git(root, ['log', '-n', String(COMMIT_LIMIT), '--pretty=format:%H\u001f%h\u001f%an\u001f%ar\u001f%s']),
+    git(root, ['log', '-n', String(COMMIT_LIMIT), '--pretty=format:%H\u001f%h\u001f%an\u001f%ar\u001f%aI\u001f%s']),
   ])
 
   const files = parseStatus(statusResult.out)
@@ -305,16 +359,6 @@ async function collectState(cwd) {
     const stats = (file.staged && stagedMap.get(file.path)) || unstagedMap.get(file.path) || null
     file.additions = stats ? stats.additions : null
     file.deletions = stats ? stats.deletions : null
-  }
-
-  const counts = { all: files.length, staged: 0, unstaged: 0, untracked: 0, conflicted: 0 }
-  for (const file of files) {
-    if (file.conflicted) counts.conflicted += 1
-    else if (file.untracked) counts.untracked += 1
-    else {
-      if (file.staged) counts.staged += 1
-      if (file.unstaged) counts.unstaged += 1
-    }
   }
 
   return {
@@ -327,8 +371,9 @@ async function collectState(cwd) {
     upstream,
     ahead,
     behind,
+    brief: false,
     files,
-    counts,
+    counts: countFiles(files),
     commits: parseLog(logResult.out),
     generatedAt: Date.now(),
   }
@@ -1058,7 +1103,7 @@ async function handle(ctx, req, res) {
         send(200, { ok: false, reason: 'session-pending', detail: 'the Session workspace is not resolved yet' })
         return
       }
-      send(200, await collectState(workspace.cwd))
+      send(200, await collectState(workspace.cwd, { brief: url.searchParams.get('brief') === '1' }))
       return
     }
 
