@@ -1022,6 +1022,138 @@ async function pushTarget(root, branch) {
   return { upstream: `${remote}/${branch}`, remote, branch, setTracking: true }
 }
 
+/** Read a JSON object body; an empty or broken body becomes `{}`. */
+async function readPayload(req) {
+  try {
+    const raw = await readBody(req)
+    const parsed = raw.trim() === '' ? {} : JSON.parse(raw)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Validate the `paths` array of a file-operation request against the repo. */
+function requestPaths(root, payload, limit = 500) {
+  const raw = Array.isArray(payload?.paths) ? payload.paths : []
+  if (raw.length === 0 || raw.length > limit) return null
+  const paths = []
+  for (const entry of raw) {
+    const safe = relativePath(entry, root)
+    if (!safe || safe.startsWith('-')) return null
+    if (!paths.includes(safe)) paths.push(safe)
+  }
+  return paths
+}
+
+/** Current status keyed by path, for validating file operations. */
+async function statusByPath(root) {
+  const result = await git(root, ['status', '--porcelain=v1', '-z', '-uall'])
+  const files = parseStatus(result.out)
+  return { files, map: new Map(files.map((file) => [file.path, file])) }
+}
+
+/** Stage the given paths (or everything with `all: true`). */
+async function stagePaths(root, payload) {
+  if (payload?.all === true) {
+    const added = await git(root, ['add', '-A'])
+    if (added.failed) return { ok: false, reason: 'git-error', detail: clipText(added.err || added.out) }
+    const state = await statusByPath(root)
+    return { ok: true, staged: state.files.filter((file) => file.staged).map((file) => file.path), all: true }
+  }
+  const paths = requestPaths(root, payload)
+  if (!paths) return { ok: false, reason: 'missing-paths' }
+  const added = await git(root, ['add', '--', ...paths])
+  if (added.failed) return { ok: false, reason: 'git-error', detail: clipText(added.err || added.out) }
+  return { ok: true, staged: paths }
+}
+
+/** Move the given paths back out of the index. */
+async function unstagePaths(root, payload) {
+  if (payload?.all === true) {
+    const reset = await git(root, ['reset', '-q', 'HEAD', '--', '.'])
+    if (reset.failed) return { ok: false, reason: 'git-error', detail: clipText(reset.err || reset.out) }
+    return { ok: true, unstaged: [], all: true }
+  }
+  const paths = requestPaths(root, payload)
+  if (!paths) return { ok: false, reason: 'missing-paths' }
+  const reset = await git(root, ['restore', '--staged', '--', ...paths])
+  if (reset.failed) return { ok: false, reason: 'git-error', detail: clipText(reset.err || reset.out) }
+  return { ok: true, unstaged: paths }
+}
+
+/**
+ * Throw away working-tree changes of tracked paths (restores both index and
+ * worktree from HEAD, so an added-then-edited file goes back to its committed
+ * content). Untracked files are refused here — they need `clean`, which the
+ * client only offers after its own confirmation.
+ */
+async function discardPaths(root, payload) {
+  const paths = requestPaths(root, payload)
+  if (!paths) return { ok: false, reason: 'missing-paths' }
+  const state = await statusByPath(root)
+  const untracked = paths.filter((path) => state.map.get(path)?.untracked)
+  if (untracked.length > 0) {
+    return { ok: false, reason: 'untracked-needs-clean', detail: clipText(untracked.join(', ')) }
+  }
+  const conflicted = paths.filter((path) => state.map.get(path)?.conflicted)
+  if (conflicted.length > 0) {
+    return { ok: false, reason: 'conflicted-needs-resolve', detail: clipText(conflicted.join(', ')) }
+  }
+  const restored = await git(root, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...paths])
+  if (restored.failed) {
+    return { ok: false, reason: 'git-error', detail: clipText(restored.err || restored.out) }
+  }
+  return { ok: true, discarded: paths }
+}
+
+/** Delete untracked paths from disk (git clean, files only). */
+async function cleanPaths(root, payload) {
+  const paths = requestPaths(root, payload)
+  if (!paths) return { ok: false, reason: 'missing-paths' }
+  const state = await statusByPath(root)
+  const tracked = paths.filter((path) => !state.map.get(path)?.untracked)
+  if (tracked.length > 0) {
+    return { ok: false, reason: 'tracked-needs-discard', detail: clipText(tracked.join(', ')) }
+  }
+  const cleaned = await git(root, ['clean', '-f', '--', ...paths])
+  if (cleaned.failed) return { ok: false, reason: 'git-error', detail: clipText(cleaned.err || cleaned.out) }
+  return { ok: true, cleaned: paths }
+}
+
+/** Resolve conflicted paths by taking one side wholesale. */
+async function resolvePaths(root, payload) {
+  const side = payload?.side === 'ours' ? 'ours' : payload?.side === 'theirs' ? 'theirs' : ''
+  if (side === '') return { ok: false, reason: 'missing-side' }
+  const paths = requestPaths(root, payload)
+  if (!paths) return { ok: false, reason: 'missing-paths' }
+  const state = await statusByPath(root)
+  const notConflicted = paths.filter((path) => !state.map.get(path)?.conflicted)
+  if (notConflicted.length > 0) {
+    return { ok: false, reason: 'not-conflicted', detail: clipText(notConflicted.join(', ')) }
+  }
+  const checkout = await git(root, ['checkout', `--${side}`, '--', ...paths])
+  if (checkout.failed) {
+    return { ok: false, reason: 'git-error', detail: clipText(checkout.err || checkout.out) }
+  }
+  const added = await git(root, ['add', '--', ...paths])
+  if (added.failed) return { ok: false, reason: 'git-error', detail: clipText(added.err || added.out) }
+  return { ok: true, resolved: paths, side }
+}
+
+/** Undo the last commit, keeping its changes staged (`reset --soft`). */
+async function undoCommit(root) {
+  const previous = await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD~1'])
+  if (previous.failed || previous.out.trim() === '') {
+    return { ok: false, reason: 'no-previous-commit' }
+  }
+  const subject = await git(root, ['log', '-1', '--pretty=%s'])
+  const reset = await git(root, ['reset', '--soft', 'HEAD~1'])
+  if (reset.failed) return { ok: false, reason: 'git-error', detail: clipText(reset.err || reset.out) }
+  const head = await git(root, ['rev-parse', '--short', 'HEAD'])
+  return { ok: true, undone: clipText(subject.out.trim(), 200), short: head.out.trim() }
+}
+
 /**
  * Push a branch. Never force-pushes. Without credentials git is told to fail
  * instead of prompting; with a one-shot password a temporary askpass helper
@@ -1213,6 +1345,43 @@ async function handle(ctx, req, res) {
         ok: !failed,
         reason: failed ? result.pushReason ?? 'push-failed' : '',
       })
+      return
+    }
+
+    // File-level operations. Every one of them is user-triggered, works on
+    // repo-relative paths only, and refuses anything the current status does
+    // not support (untracked paths need `clean`, conflicts need `resolve`).
+    if (
+      action === 'stage' ||
+      action === 'unstage' ||
+      action === 'discard' ||
+      action === 'clean' ||
+      action === 'resolve' ||
+      action === 'undo-commit'
+    ) {
+      if (req.method !== 'POST') {
+        send(405, { ok: false, reason: 'method-not-allowed' })
+        return
+      }
+      // Read the body before any git work: an unconsumed request body must not
+      // have to wait for a subprocess.
+      const payload = await readPayload(req)
+      const workspace = resolveWorkspace(ctx, url)
+      if (workspace.pending) {
+        send(200, { ok: false, reason: 'session-pending', detail: 'the Session workspace is not resolved yet' })
+        return
+      }
+      const root = await repositoryRoot(workspace.cwd)
+      if (!root) {
+        send(200, { ok: false, reason: 'not-a-repository' })
+        return
+      }
+      if (action === 'stage') send(200, await stagePaths(root, payload))
+      else if (action === 'unstage') send(200, await unstagePaths(root, payload))
+      else if (action === 'discard') send(200, await discardPaths(root, payload))
+      else if (action === 'clean') send(200, await cleanPaths(root, payload))
+      else if (action === 'resolve') send(200, await resolvePaths(root, payload))
+      else send(200, await undoCommit(root))
       return
     }
 
