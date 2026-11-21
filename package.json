@@ -20,6 +20,11 @@
   "publishConfig": {
     "access": "public"
   },
+  "scripts": {
+    "check": "node --check index.js && node --check client.js",
+    "test": "node --test",
+    "prepublishOnly": "npm run check && npm test"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhangxuesong-06/dsh-git.git"

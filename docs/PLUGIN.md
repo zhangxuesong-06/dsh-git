@@ -97,18 +97,27 @@
 仓库根目录就是包本体（npm 包名 `dsh-git-bar`）：
 
 ```
-dsh-git-bar/            # ← 仓库根 = npm 包
-├── package.json        # bundle 补丁 + dsh.client 声明（platform: web, inject: ui-conversation）
-├── cordis.patch.yml    # 插入 id: dsh-git-bar 的 Host 行
-├── index.js            # Host 半边：会话目录解析 + git 读取/图谱/切换 + 路由
-├── client.js           # 浏览器半边：胶囊 / 面板 / 图谱 / 差异审查（纯 JS，仅 require('react')）
-├── locale/en.json      # 插件管理页显示名与描述（英文）
-├── locale/zh.json      # 插件管理页显示名与描述（中文）
-├── icon.svg            # 插件图标（原始绘制）
-├── README.md           # 仓库/npm 主页说明
-├── LICENSE             # MIT
-└── docs/PLUGIN.md      # 本文件
+dsh-git-bar/                # ← 仓库根 = npm 包
+├── package.json            # bundle 补丁 + dsh.client 声明（platform: web, inject: ui-conversation）+ scripts
+├── cordis.patch.yml        # 插入 id: dsh-git-bar 的 Host 行
+├── index.js                # Host 半边：会话目录解析 + git 读取/图谱/切换/提交推送 + 路由
+├── client.js               # 浏览器半边：胶囊 / 面板 / 图谱 / 提交面板 / 差异审查（纯 JS，仅 require('react')）
+├── locale/en.json          # 插件管理页显示名与描述（英文）
+├── locale/zh.json          # 插件管理页显示名与描述（中文）
+├── icon.svg                # 插件图标（原始绘制）
+├── test/*.test.mjs         # 离线自测（node --test，含 bare 远端/冲突/游离 HEAD/凭据等真实 git 场景）
+├── .github/workflows/ci.yml# CI：两平台跑 check + test；打 tag 时发布 npm
+├── README.md               # 仓库/npm 主页说明
+├── CHANGELOG.md            # 面向使用者的版本变化
+├── LICENSE                 # MIT
+└── docs/
+    ├── PLUGIN.md           # 本文件（插件开发视角）
+    ├── WORKLOG.md          # 工作记录：时间线、关键决策、事故根因、验证策略
+    └── screenshots/        # 截图（待补）
 ```
+
+开发命令：`npm run check`（两边 `node --check`）、`npm test`（`node --test`，约 12 秒）、
+`npm publish` 会先跑 `prepublishOnly` 里的 check + test。
 
 ## 实现要点
 

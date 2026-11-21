@@ -98,27 +98,36 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 
 ```
 .
-├── package.json          # 包清单：dsh.bundle 补丁 + dsh.client（platform: web）
-├── cordis.patch.yml      # 插入 id: dsh-git-bar 的 Host 行
-├── index.js              # Host 半边：会话目录 → git → HTTP 路由
-├── client.js             # 浏览器半边：胶囊 / 面板 / 图谱 / 审查（纯 JS，仅 require('react')）
-├── locale/en.json        # 插件管理页显示名与描述
+├── package.json           # 包清单：dsh.bundle 补丁 + dsh.client（platform: web）+ scripts
+├── cordis.patch.yml       # 插入 id: dsh-git-bar 的 Host 行
+├── index.js               # Host 半边：会话目录 → git → HTTP 路由（含提交/推送）
+├── client.js              # 浏览器半边：胶囊 / 面板 / 图谱 / 提交面板 / 审查（纯 JS，仅 require('react')）
+├── locale/en.json         # 插件管理页显示名与描述
 ├── locale/zh.json
-├── icon.svg              # 插件图标（原始绘制）
-├── README.md             # 本文件（npm 页也会展示）
+├── icon.svg               # 插件图标（原始绘制）
+├── test/*.test.mjs        # 离线自测：真实临时仓库 + mock ctx，覆盖提交/推送/游离 HEAD/凭据等
+├── .github/workflows/ci.yml # CI：双平台 check + test，打 tag 时发布 npm
+├── README.md              # 本文件（npm 页也会展示）
+├── CHANGELOG.md           # 版本变化
 ├── LICENSE
 ├── .gitignore
-└── docs/PLUGIN.md        # 插件级深文档：交互细节、实现要点、可调参数
+└── docs/
+    ├── PLUGIN.md          # 插件级深文档：交互细节、实现要点、可调参数
+    └── WORKLOG.md         # 工作记录：时间线、决策、事故根因、验证策略、路线图
 ```
 
 ## 开发与调试
 
-- 语法检查：`node --check index.js` 与 `node --check client.js`。
-- 打包预览：`npm pack --dry-run`（应只包含运行需要的文件）。
+- 语法检查：`npm run check`（等价 `node --check index.js && node --check client.js`）。
+- 自测：`npm test`（`node --test`，5 个测试文件、约 12 秒）。测试会在临时目录里造真实 git 仓库
+  （含 bare 远端、冲突、游离 HEAD、无上游、凭据 askpass 等场景），用 mock 的 `ctx`/`req`/`res` 直接驱动
+  Host 路由，不需要启动 DSH。首次贡献代码前建议先跑一遍。
+- 打包预览：`npm pack --dry-run`（应只包含运行需要的 10 个文件，测试与文档不随包发布）。
 - 热重载：`plugin_manager action=set_plugin target=include:dsh-git-bar enabled=false` 再 `enabled=true`，Host 与浏览器两半都会换成磁盘上的最新文件（仅 `link:` 安装时跟随磁盘）。
 - 浏览器半边的约束：`window.__ModuleLoader__.load({ id, factory })` 形式（`id` 必须等于包名 `dsh-git-bar`）、只用
   `require('react')`、无 JSX/`import`、样式只用主题 token（`--dsw-alias-*`）、`<style>` 渲染在组件自身子树内、所有 effect 成对清理。
 - 审查标签体拿不到 `useTabInfo()`，所以审查目标放在模块内可订阅 store 里；右侧栏不可用时自动回退到面板内审查。
+- 完整开发史、事故根因与路线图见 [`docs/WORKLOG.md`](docs/WORKLOG.md)；版本变化见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 发布
 
