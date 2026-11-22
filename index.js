@@ -658,7 +658,10 @@ async function collectGraph(root, requestedLimit, options = {}) {
   const fetchCount = filtered ? Math.min(GRAPH_SEARCH_WINDOW, Math.max(limit + skip + 200, 400)) : limit
   const logArgs = ['log', '--all', '--topo-order', '-n', String(fetchCount + 1)]
   if (!filtered && skip > 0) logArgs.push('--skip', String(skip))
-  logArgs.push('--date=format:%m/%d %H:%M', '--pretty=format:%H\u001f%h\u001f%P\u001f%an\u001f%ad\u001f%ar\u001f%s')
+  // `%aI` is a strict ISO timestamp so the browser can localise it. `%ad` with
+  // a custom --date format would leave "11/22 10:56" year-less, which
+  // Date.parse() reads as 2001.
+  logArgs.push('--pretty=format:%H\u001f%h\u001f%P\u001f%an\u001f%aI\u001f%ar\u001f%s')
 
   const [logResult, refsResult, headResult, shortHeadResult] = await Promise.all([
     git(root, logArgs),

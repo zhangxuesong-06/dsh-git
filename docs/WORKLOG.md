@@ -70,6 +70,8 @@ conversation.session.header.utilities    会话 ID → ctx.sessions.get(id)
 | 11-20 13:15 | v1.1.1 | 修启动误报「不是 git 仓库」（Host 在会话未就绪时返回 `session-pending`，客户端按 400/800/1600/3000/5000ms 退避重试并显示 `…`）；推送按钮按状态自动降级：有改动→提交并推送，没改动但有未推送→只推送，都没有→「没有可推送的改动」 |
 | 11-21 起 | v1.1.2 | 稳健化：自测入库 + CI、时间本地化、启动后台重试、收起态轻量轮询（本文件同时补写）；当日发布并装到本机，`/state?brief=1` 与 `iso` 时间戳实测通过 |
 | 11-22 | v1.2.0 | Host 新增 6 条文件操作路由（stage / unstage / discard / clean / resolve / undo-commit）与 `test/file-ops.test.mjs`；客户端接上文件行操作、冲突取一边、分组「全部暂存」、提交面板「撤销上次提交」 |
+| 11-22 | v1.3.0 / v1.3.1 | 图谱搜索（信息/作者/哈希）+ 加载更多 + 触摸常显；搜索词跨详情保留、Esc 清空搜索；GitHub 仓库改名 `dsh-git-bar` 并同步 `repository`/首页/安装地址 |
+| 11-22 | v1.3.2 | **修图谱时间显示 2001 年**：`collectGraph` 曾用 `--date=format:%m/%d %H:%M` 的 `%ad`（无年份）冒充 ISO，`Date.parse` 解析成 2001；改用 `%aI` 严格 ISO，并加回归断言 |
 
 ## 4. 关键决策（含理由）
 

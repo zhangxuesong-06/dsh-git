@@ -32,10 +32,10 @@
 
 | 方式 | 输入 |
 | --- | --- |
-| npm 包（已发布） | `dsh-git-bar`（跟随 latest），或锁定版本 `dsh-git-bar@1.3.1` |
+| npm 包（已发布） | `dsh-git-bar`（跟随 latest），或锁定版本 `dsh-git-bar@1.3.2` |
 | GitHub 仓库 | `git+https://github.com/zhangxuesong-06/dsh-git-bar.git` |
 | 本地目录（开发） | `link:<仓库绝对路径>` |
-| 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.3.1.tgz` |
+| 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.3.2.tgz` |
 
 对应的工具调用：
 

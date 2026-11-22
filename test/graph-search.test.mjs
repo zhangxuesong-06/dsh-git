@@ -63,6 +63,19 @@ check('plain: 26 commits', plain.commits.length === total, plain.commits.length)
 check('plain: lanes assigned', plain.columns >= 1 && plain.commits[0].lane === 0, `${plain.columns}/${plain.commits[0].lane}`)
 check('plain: not filtered', plain.filtered === false && plain.hasMore === false, `${plain.filtered}/${plain.hasMore}`)
 check('plain: refs decorated', Array.isArray(plain.commits[0].refs), JSON.stringify(plain.commits[0].refs).slice(0, 80))
+// Regression: `%ad` with a custom --date format produced "11/22 10:56", which
+// Date.parse() turns into the year 2001 in the browser.
+check(
+  'plain: commit time is a real ISO timestamp',
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(plain.commits[0].iso || ''),
+  plain.commits[0].iso,
+)
+check(
+  'plain: commit time parses to a plausible year',
+  Number.isFinite(Date.parse(plain.commits[0].iso)) && new Date(plain.commits[0].iso).getFullYear() >= 2020,
+  String(new Date(plain.commits[0].iso).getFullYear()),
+)
+check('plain: relative fallback still present', typeof plain.commits[0].when === 'string' && plain.commits[0].when.length > 0, plain.commits[0].when)
 
 // ── search by message ────────────────────────────────────────────────────
 const byMessage = await G('?session=s1&q=item%2017')
