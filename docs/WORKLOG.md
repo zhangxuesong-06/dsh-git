@@ -4,7 +4,7 @@
 还剩什么。**新接手的人（或未来的我）应当先读这一份**，再看 `README.md`（面向用户）和 `docs/PLUGIN.md`
 （面向插件开发者）。
 
-- 仓库：<https://github.com/zhangxuesong-06/dsh-git>
+- 仓库：<https://github.com/zhangxuesong-06/dsh-git-bar>（2026-11-22 由 `dsh-git` 改名，旧 URL 由 GitHub 自动重定向）
 - npm：<https://www.npmjs.com/package/dsh-git-bar>
 - 目标 DSH 版本：`>=0.2.1-rc.5 <0.3.0`
 
@@ -161,10 +161,14 @@ URL 为准；会话 ID 也会随环境变化。
         信息/作者/哈希，大小写不敏感，命中后按扁平列表返回）；
   - [x] `test/graph-search.test.mjs`（24 项：信息/作者/哈希/大小写/无结果/三页分页/搜索分页/limit 夹取）；
   - [x] 客户端：图谱搜索框与结果列表、加载更多、触摸设备行操作常显；
-  - [ ] 打磨项（1.3.1 候选）：从搜索结果进详情再返回会重置搜索（需把 query 上提到 GitPanel）、
-        搜索框内 Esc 目前是返回列表而不是清空搜索、跨页泳道连线未重算、大仓库虚拟滚动（观察后再定）。
-- **发布收尾**：README 截图、删除 npm 上 `0.0.0-stage` 占位（需 OTP）、GitHub 仓库改名为
-  `dsh-git-bar` 并同步 `repository` 字段。
+  - [x] 打磨项（1.3.1）：从搜索结果进详情再返回保留搜索词与已加载分页、搜索框内 Esc 先清空搜索、
+        清空搜索即时生效（打字仍防抖）；
+  - [ ] 剩余观察项：跨页泳道连线未重算、从详情返回滚动位置回顶部、大仓库虚拟滚动（观察后再定）。
+- **发布收尾**：
+  - [x] GitHub 仓库已改名为 `dsh-git-bar`（2026-11-22，旧 URL 自动重定向），`repository`/`homepage`/`bugs`
+        与 README 里的安装地址已在 1.3.1 同步更新；
+  - [ ] README 截图（需要真机截图）；
+  - [-] 删除 npm 上的 `0.0.0-stage` 占位 —— **用户决定保留**（不影响安装，`latest` 始终指向正式版本）。
 
 ## 9. 测试说明（`npm test`）
 

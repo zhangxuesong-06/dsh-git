@@ -51,6 +51,7 @@ window.__ModuleLoader__.load({
     var REVIEW_PAGE_ADDRESS = 'sidebar://git-review'
     var GRAPH_URL = '/dsh-git-bar/graph'
     var GRAPH_LIMIT = 120
+    var GRAPH_MAX_LIMIT = 500
     var GRAPH_SEARCH_DEBOUNCE_MS = 250
     var GRAPH_PANEL_WIDTH = 720
     var GRAPH_ROW_HEIGHT = 34
@@ -1340,6 +1341,16 @@ window.__ModuleLoader__.load({
     }
     function clearActiveConfirmDismiss(fn) {
       if (activeConfirmDismiss === fn) activeConfirmDismiss = null
+    }
+
+    // While the graph search box has focus and text, Esc clears it instead of
+    // closing/switching anything.
+    var activeSearchEsc = null
+    function setActiveSearchEsc(fn) {
+      activeSearchEsc = typeof fn === 'function' ? fn : null
+    }
+    function clearActiveSearchEsc(fn) {
+      if (activeSearchEsc === fn) activeSearchEsc = null
     }
 
     /** One changed-file row inside the grouped list. */
@@ -3453,12 +3464,10 @@ window.__ModuleLoader__.load({
       var switchAbort = useRef(null)
       var headScrolled = useRef(false)
       var hostPrevious = ''
-      var queryHook = useState('')
-      var query = queryHook[0]
-      var setQuery = queryHook[1]
-      var appliedHook = useState('')
-      var appliedQuery = appliedHook[0]
-      var setAppliedQuery = appliedHook[1]
+      var query = toText(safe.query)
+      var appliedQuery = toText(safe.appliedQuery)
+      var loadedCount = toNumber(safe.loadedCount)
+      if (loadedCount === null) loadedCount = 0
       var moreHook = useState(false)
       var loadingMore = moreHook[0]
       var setLoadingMore = moreHook[1]
@@ -3483,15 +3492,24 @@ window.__ModuleLoader__.load({
         moreAbort.current = null
         setLoadingMore(false)
         setPayload({ loading: true })
+        var baseLimit = loadedCount > GRAPH_LIMIT ? loadedCount : GRAPH_LIMIT
+        if (baseLimit > GRAPH_MAX_LIMIT) baseLimit = GRAPH_MAX_LIMIT
         var pairs = [
           { key: 'session', value: sessionId },
-          { key: 'limit', value: String(GRAPH_LIMIT) },
+          { key: 'limit', value: String(baseLimit) },
           { key: 'skip', value: '0' }
         ]
         if (appliedQuery !== '') pairs.push({ key: 'q', value: appliedQuery })
         return requestJson(withQuery(GRAPH_URL, pairs), null, function (data) {
           if (data && typeof data === 'object' && data.ok === true) {
             setPayload({ ok: true, data: data })
+            try {
+              if (typeof props.onLoadedChange === 'function') {
+                props.onLoadedChange(data.commits && typeof data.commits.length === 'number' ? data.commits.length : 0)
+              }
+            } catch (error) {
+              /* ignore */
+            }
             var fromHost = toText(data.previousBranch)
             if (fromHost) {
               graphMemory.previousBranch = fromHost
@@ -3519,7 +3537,11 @@ window.__ModuleLoader__.load({
         searchTimer.current = setTimeout(function () {
           searchTimer.current = null
           if (!alive.current) return
-          setAppliedQuery(next)
+          try {
+            if (typeof props.onApplyQuery === 'function') props.onApplyQuery(next)
+          } catch (error) {
+            /* ignore */
+          }
         }, GRAPH_SEARCH_DEBOUNCE_MS)
         return function () {
           try {
@@ -3680,6 +3702,15 @@ window.__ModuleLoader__.load({
             merged.commits = oldCommits.concat(newCommits)
             return { ok: true, data: merged }
           })
+          try {
+            if (typeof props.onLoadedChange === 'function') {
+              var alreadyLoaded = currentData.commits && typeof currentData.commits.length === 'number' ? currentData.commits.length : 0
+              var addedLoaded = result.commits && typeof result.commits.length === 'number' ? result.commits.length : 0
+              props.onLoadedChange(alreadyLoaded + addedLoaded)
+            }
+          } catch (error) {
+            /* ignore */
+          }
         })
       }
 
@@ -3817,10 +3848,18 @@ window.__ModuleLoader__.load({
             },
             query: query,
             onQueryChange: function (next) {
-              setQuery(toText(next))
+              try {
+                if (typeof props.onQueryChange === 'function') props.onQueryChange(toText(next))
+              } catch (error) {
+                /* ignore */
+              }
             },
             onClearQuery: function () {
-              setQuery('')
+              try {
+                if (typeof props.onClearQuery === 'function') props.onClearQuery()
+              } catch (error) {
+                /* ignore */
+              }
             },
             filtered: Boolean(data && data.filtered === true),
             total: data ? toNumber(data.total) : null,
@@ -4569,6 +4608,47 @@ window.__ModuleLoader__.load({
       var state = data && data.ok === true ? data : null
       var briefState = Boolean(state && state.brief === true)
       var notRepo = Boolean(data && data.ok === false)
+      // The graph search + pagination state lives here, so opening a commit
+      // detail (which unmounts GraphView) keeps the typed query.
+      var graphQueryHook = useState('')
+      var graphQuery = graphQueryHook[0]
+      var setGraphQuery = graphQueryHook[1]
+      var graphAppliedHook = useState('')
+      var graphApplied = graphAppliedHook[0]
+      var setGraphApplied = graphAppliedHook[1]
+      var graphLoadedHook = useState(0)
+      var graphLoaded = graphLoadedHook[0]
+      var setGraphLoaded = graphLoadedHook[1]
+
+      useEffect(function () {
+        setGraphQuery('')
+        setGraphApplied('')
+        setGraphLoaded(0)
+      }, [props.sessionId])
+
+      var searchEsc = function () {
+        try {
+          if (mode !== 'graph') return false
+          if (toText(graphQuery).trim() === '') return false
+          var doc = typeof document !== 'undefined' ? document : null
+          var active = doc && doc.activeElement ? doc.activeElement : null
+          if (!active) return false
+          var activeClass = typeof active.className === 'string' ? active.className : ''
+          if (activeClass.indexOf('gitbar-graph-searchinput') < 0) return false
+          setGraphQuery('')
+          setGraphApplied('')
+          setGraphLoaded(0)
+          return true
+        } catch (error) {
+          return false
+        }
+      }
+      useEffect(function () {
+        setActiveSearchEsc(searchEsc)
+        return function () {
+          clearActiveSearchEsc(searchEsc)
+        }
+      }, [mode, graphQuery, props.sessionId])
 
       var style = {
         position: 'fixed',
@@ -4723,6 +4803,25 @@ window.__ModuleLoader__.load({
             onOpenPicker: props.onOpenPicker,
             onBack: props.onBack,
             onCommit: props.onCommitPanel,
+            query: graphQuery,
+            appliedQuery: graphApplied,
+            loadedCount: graphLoaded,
+            onQueryChange: function (next) {
+              setGraphQuery(toText(next))
+            },
+            onApplyQuery: function (next) {
+              setGraphApplied(toText(next).trim())
+              setGraphLoaded(0)
+            },
+            onClearQuery: function () {
+              setGraphQuery('')
+              setGraphApplied('')
+              setGraphLoaded(0)
+            },
+            onLoadedChange: function (count) {
+              var loaded = toNumber(count)
+              setGraphLoaded(loaded === null ? 0 : loaded)
+            },
             onOpenCommit: props.onOpenCommit
           })
         } else if (notRepo) {
@@ -5410,6 +5509,7 @@ window.__ModuleLoader__.load({
       /** Escape pops one level: any sub-body returns to the list first. */
       function popLevel() {
         try {
+          if (activeSearchEsc && activeSearchEsc()) return true
           if (activeConfirmDismiss) {
             activeConfirmDismiss()
             return true
