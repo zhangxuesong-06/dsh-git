@@ -567,6 +567,10 @@ async function collectCommitDiff(root, requestedHash, requestedPath) {
 
 /** Commits drawn by one graph request. */
 const GRAPH_LIMIT = 120
+/** Upper bound for one page when the browser asks for more. */
+const GRAPH_MAX_LIMIT = 500
+/** How many recent commits a search scans (message / author / hash). */
+const GRAPH_SEARCH_WINDOW = 1000
 /** Lanes beyond this are folded so a wide history cannot squeeze the rows. */
 const MAX_GRAPH_COLUMNS = 8
 
@@ -640,18 +644,24 @@ function parseRefs(raw) {
 }
 
 /** The commit graph the Sidebar's graph tab draws. */
-async function collectGraph(root, requestedLimit) {
-  const limit = Math.min(Math.max(Number(requestedLimit) || GRAPH_LIMIT, 10), 300)
+/**
+ * Read the commit graph. `options.skip` paginates (the browser appends pages),
+ * and `options.q` switches to search over the most recent GRAPH_SEARCH_WINDOW
+ * commits (message / author / hash, case-insensitive); search results carry no
+ * meaningful lanes, so the caller renders them as a flat list.
+ */
+async function collectGraph(root, requestedLimit, options = {}) {
+  const limit = Math.min(Math.max(Number(requestedLimit) || GRAPH_LIMIT, 10), GRAPH_MAX_LIMIT)
+  const skip = Math.max(Number(options.skip) || 0, 0)
+  const query = typeof options.q === 'string' ? options.q.replace(/\s+/g, ' ').trim().slice(0, 120) : ''
+  const filtered = query !== ''
+  const fetchCount = filtered ? Math.min(GRAPH_SEARCH_WINDOW, Math.max(limit + skip + 200, 400)) : limit
+  const logArgs = ['log', '--all', '--topo-order', '-n', String(fetchCount + 1)]
+  if (!filtered && skip > 0) logArgs.push('--skip', String(skip))
+  logArgs.push('--date=format:%m/%d %H:%M', '--pretty=format:%H\u001f%h\u001f%P\u001f%an\u001f%ad\u001f%ar\u001f%s')
+
   const [logResult, refsResult, headResult, shortHeadResult] = await Promise.all([
-    git(root, [
-      'log',
-      '--all',
-      '--topo-order',
-      '-n',
-      String(limit),
-      '--date=format:%m/%d %H:%M',
-      '--pretty=format:%H\u001f%h\u001f%P\u001f%an\u001f%ad\u001f%ar\u001f%s',
-    ]),
+    git(root, logArgs),
     git(root, [
       'for-each-ref',
       'refs/heads',
@@ -664,18 +674,32 @@ async function collectGraph(root, requestedLimit) {
   ])
 
   if (logResult.failed && logResult.out.trim() === '') {
-    return { ok: true, root, current: '', detached: true, head: '', columns: 1, commits: [], empty: true }
+    return {
+      ok: true,
+      root,
+      current: '',
+      detached: true,
+      head: '',
+      columns: 1,
+      commits: [],
+      empty: true,
+      filtered,
+      query,
+      skip,
+      limit,
+      hasMore: false,
+    }
   }
 
   const current = headResult.failed ? '' : headResult.out.trim()
   const refsByCommit = parseRefs(refsResult.out)
-  const rows = []
+  const fetched = []
   for (const line of logResult.out.split('\n')) {
     if (!line) continue
     const cells = line.split('\u001f')
     if (cells.length < 7) continue
     const full = cells[0]
-    rows.push({
+    fetched.push({
       full,
       hash: cells[1],
       parents: (cells[2] ?? '').trim() ? cells[2].trim().split(' ') : [],
@@ -687,6 +711,20 @@ async function collectGraph(root, requestedLimit) {
       refs: [],
     })
   }
+
+  const windowTruncated = fetched.length > fetchCount
+  const inWindow = windowTruncated ? fetched.slice(0, fetchCount) : fetched
+  let rows = inWindow
+  let total
+  if (filtered) {
+    const needle = query.toLowerCase()
+    const matched = inWindow.filter((row) =>
+      `${row.subject}\n${row.author}\n${row.full}\n${row.hash}`.toLowerCase().includes(needle),
+    )
+    total = matched.length
+    rows = matched.slice(skip, skip + limit)
+  }
+
   for (const row of rows) {
     const refs = refsByCommit.get(row.full) ?? []
     const decorated = refs.slice(0, 6)
@@ -694,7 +732,8 @@ async function collectGraph(root, requestedLimit) {
     if (isCurrent) decorated.unshift({ name: 'HEAD', kind: 'head', current: true })
     row.refs = decorated
   }
-  const columns = assignLanes(rows)
+  // Lanes only make sense over contiguous history; a filtered list is flat.
+  const columns = filtered ? 1 : assignLanes(rows)
   const shortHead = shortHeadResult.failed ? '' : shortHeadResult.out.trim()
   const headFullResult = await git(root, ['rev-parse', 'HEAD'])
   const headFull = headFullResult.failed ? '' : headFullResult.out.trim()
@@ -729,6 +768,14 @@ async function collectGraph(root, requestedLimit) {
     previousBranch,
     columns,
     commits: rows,
+    filtered,
+    query,
+    skip,
+    limit,
+    hasMore: filtered
+      ? total > skip + rows.length || windowTruncated
+      : windowTruncated || inWindow.length > rows.length,
+    total,
   }
 }
 
@@ -1391,7 +1438,13 @@ async function handle(ctx, req, res) {
         send(200, { ok: false, reason: 'not-a-repository' })
         return
       }
-      send(200, await collectGraph(root, url.searchParams.get('limit') ?? ''))
+      send(
+        200,
+        await collectGraph(root, url.searchParams.get('limit') ?? '', {
+          skip: url.searchParams.get('skip') ?? '',
+          q: url.searchParams.get('q') ?? '',
+        }),
+      )
       return
     }
 

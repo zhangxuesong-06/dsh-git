@@ -51,6 +51,7 @@ window.__ModuleLoader__.load({
     var REVIEW_PAGE_ADDRESS = 'sidebar://git-review'
     var GRAPH_URL = '/dsh-git-bar/graph'
     var GRAPH_LIMIT = 120
+    var GRAPH_SEARCH_DEBOUNCE_MS = 250
     var GRAPH_PANEL_WIDTH = 720
     var GRAPH_ROW_HEIGHT = 34
     var GRAPH_LANE_WIDTH = 14
@@ -97,6 +98,14 @@ window.__ModuleLoader__.load({
       refresh: '刷新',
       autoCommit: '自动提交',
       identifyingWorkspace: '正在识别工作区',
+      searchPlaceholder: '搜索提交：信息 / 作者 / 哈希',
+      clearSearch: '清空搜索',
+      resultCount: '共 {n} 条结果',
+      noResults: '没有匹配的提交',
+      loadMore: '加载更多',
+      loadMoreFailed: '加载更多失败',
+      loadingMore: '加载中…',
+      searchFailed: '搜索失败',
       stage: '暂存',
       unstage: '取消暂存',
       discardChanges: '丢弃改动',
@@ -215,6 +224,14 @@ window.__ModuleLoader__.load({
       refresh: 'Refresh',
       autoCommit: 'Auto-commit',
       identifyingWorkspace: 'Identifying workspace',
+      searchPlaceholder: 'Search commits: message / author / hash',
+      clearSearch: 'Clear search',
+      resultCount: '{n} results',
+      noResults: 'No matching commits',
+      loadMore: 'Load more',
+      loadMoreFailed: 'Failed to load more',
+      loadingMore: 'Loading…',
+      searchFailed: 'Search failed',
       stage: 'Stage',
       unstage: 'Unstage',
       discardChanges: 'Discard changes',
@@ -1222,6 +1239,28 @@ window.__ModuleLoader__.load({
       '.gitbar-sidebar-list{display:flex;flex-direction:column;min-height:0}',
       '.gitbar-sidebar-hint{padding:8px 10px 4px;font-size:11.5px;color:var(--dsw-alias-label-secondary);border-bottom:1px solid var(--dsw-alias-border-l1)}',
       '.gitbar-chip-commit{flex:0 0 auto;font-family:ui-monospace,"Cascadia Code",Consolas,monospace}',
+      '.gitbar-graph-search{position:relative;display:flex;align-items:center;flex:0 1 200px;min-width:64px}',
+      '.gitbar-graph-searchinput{width:100%;box-sizing:border-box;height:22px;padding:0 20px 0 7px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px}',
+      '.gitbar-graph-searchinput::placeholder{color:var(--dsw-alias-label-tertiary)}',
+      '.gitbar-graph-searchinput:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}',
+      '.gitbar-graph-searchclear{position:absolute;right:2px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;padding:0;border:none;border-radius:4px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer}',
+      '.gitbar-graph-searchclear:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}',
+      '.gitbar-graph-searchclear:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-graph-count{flex:0 0 auto;padding:5px 8px 3px;font-size:11px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-graph-results{display:flex;flex-direction:column;min-width:0}',
+      '.gitbar-graph-result{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:4px 8px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer;transition:background-color 120ms ease}',
+      '.gitbar-graph-result:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.gitbar-graph-result:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-graph-result-hash{flex:0 0 auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-graph-result-subject{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.gitbar-graph-result-author{flex:0 1 auto;max-width:32%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-size:11px}',
+      '.gitbar-graph-result-when{flex:0 0 auto;color:var(--dsw-alias-label-secondary);font-size:11px}',
+      '.gitbar-graph-morewrap{display:flex;justify-content:center;padding:8px 0 10px}',
+      '.gitbar-graph-more{flex:0 0 auto;padding:3px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer}',
+      '.gitbar-graph-more:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
+      '.gitbar-graph-more:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-graph-more:disabled{cursor:default;opacity:.6}',
+      '@media (pointer: coarse){.gitbar-rowactions{opacity:1}}',
       '.gitbar-graph-commitbtn{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:24px;height:24px;box-sizing:border-box;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:1;cursor:pointer;transition:background-color 120ms ease,color 120ms ease,border-color 120ms ease}',
       '.gitbar-graph-commitbtn:hover{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}',
       '.gitbar-graph-commitbtn:active{transform:scale(.97)}',
@@ -1250,7 +1289,7 @@ window.__ModuleLoader__.load({
       '.gitbar-commitpanel-undo:disabled{cursor:default;opacity:.5}',
       '.gitbar-commitpanel-primary{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-overlay)}',
       '.gitbar-commitpanel-primary:hover{opacity:.92}',
-      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
+      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
     // ── components ────────────────────────────────────────────────────────
@@ -2900,6 +2939,46 @@ window.__ModuleLoader__.load({
               current || t('headDetached')
             )
 
+        var searchNode = h(
+          'div',
+          { className: 'gitbar-graph-search' },
+          h('input', {
+            type: 'text',
+            className: 'gitbar-graph-searchinput',
+            value: toText(props.query),
+            placeholder: t('searchPlaceholder'),
+            'aria-label': t('searchPlaceholder'),
+            autoComplete: 'off',
+            spellCheck: false,
+            onChange: function (event) {
+              try {
+                if (typeof props.onQueryChange === 'function') props.onQueryChange(event && event.target ? event.target.value : '')
+              } catch (error) {
+                /* ignore */
+              }
+            }
+          }),
+          toText(props.query)
+            ? h(
+              'button',
+              {
+                type: 'button',
+                className: 'gitbar-graph-searchclear',
+                title: t('clearSearch'),
+                'aria-label': t('clearSearch'),
+                onClick: function () {
+                  try {
+                    if (typeof props.onClearQuery === 'function') props.onClearQuery()
+                  } catch (error) {
+                    /* ignore */
+                  }
+                }
+              },
+              '×'
+            )
+            : null
+        )
+
         var toolbar = h(
           'div',
           { className: 'gitbar-graph-toolbar' },
@@ -2939,6 +3018,7 @@ window.__ModuleLoader__.load({
               '← ' + t('backToBranch') + ' ' + props.escapeTarget
             )
             : null,
+          searchNode,
           h('span', { className: 'gitbar-spacer' }),
           h(
             'button',
@@ -3011,6 +3091,38 @@ window.__ModuleLoader__.load({
           )
           : null
 
+        var moreButton = props.hasMore === true
+          ? h(
+            'div',
+            { className: 'gitbar-graph-morewrap' },
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'gitbar-graph-more',
+                disabled: props.loadingMore === true,
+                'aria-busy': props.loadingMore === true ? 'true' : 'false',
+                onClick: function () {
+                  try {
+                    if (typeof props.onLoadMore === 'function') props.onLoadMore()
+                  } catch (error) {
+                    /* ignore */
+                  }
+                }
+              },
+              props.loadingMore === true ? t('loadingMore') : t('loadMore')
+            )
+          )
+          : null
+
+        function openResult(commit) {
+          try {
+            if (typeof props.onOpenCommit === 'function') props.onOpenCommit(commit)
+          } catch (error) {
+            /* ignore */
+          }
+        }
+
         var body
         if (!payload || payload.loading === true) {
           var skeletons = []
@@ -3043,6 +3155,53 @@ window.__ModuleLoader__.load({
               )
             )
           )
+        } else if (data.filtered === true) {
+          var resultTotal = toNumber(props.total)
+          if (resultTotal === null) resultTotal = commits.length
+          var resultNodes = []
+          for (var resultAt = 0; resultAt < commits.length; resultAt += 1) {
+            var resultCommit = commits[resultAt] && typeof commits[resultAt] === 'object' ? commits[resultAt] : {}
+            resultNodes.push(
+              h(
+                'div',
+                {
+                  className: 'gitbar-graph-result',
+                  role: 'button',
+                  tabIndex: 0,
+                  key: 'result-' + (toText(resultCommit.full) || resultAt),
+                  title: toText(resultCommit.subject),
+                  onClick: function (boundCommit) {
+                    return function () {
+                      openResult(boundCommit)
+                    }
+                  }(resultCommit),
+                  onKeyDown: function (boundCommit) {
+                    return function (event) {
+                      try {
+                        if (!event) return
+                        if (event.key !== 'Enter' && event.key !== ' ' && event.keyCode !== 13 && event.keyCode !== 32) return
+                        if (typeof event.preventDefault === 'function') event.preventDefault()
+                        openResult(boundCommit)
+                      } catch (error) {
+                        /* ignore */
+                      }
+                    }
+                  }(resultCommit)
+                },
+                h('span', { className: 'gitbar-graph-result-hash', title: toText(resultCommit.full) }, toText(resultCommit.hash)),
+                h('span', { className: 'gitbar-graph-result-subject' }, toText(resultCommit.subject)),
+                h('span', { className: 'gitbar-graph-result-author', title: toText(resultCommit.author) }, toText(resultCommit.author)),
+                h('span', { className: 'gitbar-graph-result-when' }, formatWhen(resultCommit.iso, resultCommit.when))
+              )
+            )
+          }
+          body = scroller([
+            h('div', { className: 'gitbar-graph-count', key: 'count' }, toText(t('resultCount')).replace('{n}', String(resultTotal))),
+            commits.length === 0
+              ? h('div', { className: 'gitbar-graph-empty', key: 'noresults' }, t('noResults'))
+              : h('div', { className: 'gitbar-graph-results', key: 'results' }, resultNodes),
+            moreButton
+          ])
         } else if (data.empty === true || commits.length === 0) {
           body = scroller(h('div', { className: 'gitbar-graph-empty' }, t('emptyGraph')))
         } else {
@@ -3242,7 +3401,8 @@ window.__ModuleLoader__.load({
           }
           body = scroller([
             h(GraphCanvas, { key: 'canvas', commits: commits, columns: columns, geometry: geometry }),
-            h('div', { className: 'gitbar-graph-rows', key: 'rows' }, items)
+            h('div', { className: 'gitbar-graph-rows', key: 'rows' }, items),
+            moreButton
           ])
         }
 
@@ -3293,6 +3453,17 @@ window.__ModuleLoader__.load({
       var switchAbort = useRef(null)
       var headScrolled = useRef(false)
       var hostPrevious = ''
+      var queryHook = useState('')
+      var query = queryHook[0]
+      var setQuery = queryHook[1]
+      var appliedHook = useState('')
+      var appliedQuery = appliedHook[0]
+      var setAppliedQuery = appliedHook[1]
+      var moreHook = useState(false)
+      var loadingMore = moreHook[0]
+      var setLoadingMore = moreHook[1]
+      var moreAbort = useRef(null)
+      var searchTimer = useRef(null)
 
       // Seed the remembered branch from the capsule's own state.
       useEffect(function () {
@@ -3302,33 +3473,63 @@ window.__ModuleLoader__.load({
         setPreviousBranch(stateBranch)
       }, [stateBranch, stateDetached])
 
-      // One graph fetch per open, and on every refresh token.
+      // One graph fetch per open, per refresh, and per applied search term.
       useEffect(function () {
+        try {
+          if (moreAbort.current) moreAbort.current()
+        } catch (error) {
+          /* ignore */
+        }
+        moreAbort.current = null
+        setLoadingMore(false)
         setPayload({ loading: true })
-        return requestJson(
-          withQuery(GRAPH_URL, [
-            { key: 'session', value: sessionId },
-            { key: 'limit', value: String(GRAPH_LIMIT) }
-          ]),
-          null,
-          function (data) {
-            if (data && typeof data === 'object' && data.ok === true) {
-              setPayload({ ok: true, data: data })
-              var fromHost = toText(data.previousBranch)
-              if (fromHost) {
-                graphMemory.previousBranch = fromHost
-                setPreviousBranch(fromHost)
-              } else if (data.detached !== true && toText(data.current) && graphMemory.previousBranch !== toText(data.current)) {
-                graphMemory.previousBranch = toText(data.current)
-                setPreviousBranch(toText(data.current))
-              }
-            } else {
-              setPayload({ ok: false, reason: toText(data && data.reason) })
+        var pairs = [
+          { key: 'session', value: sessionId },
+          { key: 'limit', value: String(GRAPH_LIMIT) },
+          { key: 'skip', value: '0' }
+        ]
+        if (appliedQuery !== '') pairs.push({ key: 'q', value: appliedQuery })
+        return requestJson(withQuery(GRAPH_URL, pairs), null, function (data) {
+          if (data && typeof data === 'object' && data.ok === true) {
+            setPayload({ ok: true, data: data })
+            var fromHost = toText(data.previousBranch)
+            if (fromHost) {
+              graphMemory.previousBranch = fromHost
+              setPreviousBranch(fromHost)
+            } else if (data.detached !== true && toText(data.current) && graphMemory.previousBranch !== toText(data.current)) {
+              graphMemory.previousBranch = toText(data.current)
+              setPreviousBranch(toText(data.current))
             }
-            setConfirmRow('')
+          } else {
+            setPayload({ ok: false, reason: toText(data && data.reason) })
           }
-        )
-      }, [sessionId, refresh, token])
+          setConfirmRow('')
+        })
+      }, [sessionId, refresh, token, appliedQuery])
+
+      // 250ms debounce: only the last typed term becomes a request.
+      useEffect(function () {
+        var next = toText(query).trim()
+        if (next === appliedQuery) return undefined
+        try {
+          if (searchTimer.current !== null) clearTimeout(searchTimer.current)
+        } catch (error) {
+          /* ignore */
+        }
+        searchTimer.current = setTimeout(function () {
+          searchTimer.current = null
+          if (!alive.current) return
+          setAppliedQuery(next)
+        }, GRAPH_SEARCH_DEBOUNCE_MS)
+        return function () {
+          try {
+            if (searchTimer.current !== null) clearTimeout(searchTimer.current)
+          } catch (error) {
+            /* ignore */
+          }
+          searchTimer.current = null
+        }
+      }, [query, appliedQuery])
 
       // Restore the scroll position after a switch-driven refetch.
       useEffect(function () {
@@ -3362,6 +3563,18 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
           statusTimer.current = null
+          try {
+            if (searchTimer.current !== null) clearTimeout(searchTimer.current)
+          } catch (error) {
+            /* ignore */
+          }
+          searchTimer.current = null
+          try {
+            if (moreAbort.current) moreAbort.current()
+          } catch (error) {
+            /* ignore */
+          }
+          moreAbort.current = null
           try {
             if (switchAbort.current) switchAbort.current()
           } catch (error) {
@@ -3428,6 +3641,46 @@ window.__ModuleLoader__.load({
         } catch (error) {
           scrollRef.current = null
         }
+      }
+
+      function loadMore() {
+        if (loadingMore) return
+        var currentData = payload && payload.ok === true && payload.data && typeof payload.data === 'object' ? payload.data : null
+        if (!currentData || currentData.hasMore !== true) return
+        var skip = currentData.commits && typeof currentData.commits.length === 'number' ? currentData.commits.length : 0
+        setLoadingMore(true)
+        try {
+          if (moreAbort.current) moreAbort.current()
+        } catch (error) {
+          /* ignore */
+        }
+        var pairs = [
+          { key: 'session', value: sessionId },
+          { key: 'limit', value: String(GRAPH_LIMIT) },
+          { key: 'skip', value: String(skip) }
+        ]
+        if (appliedQuery !== '') pairs.push({ key: 'q', value: appliedQuery })
+        moreAbort.current = requestJson(withQuery(GRAPH_URL, pairs), null, function (result) {
+          if (!alive.current) return
+          moreAbort.current = null
+          setLoadingMore(false)
+          if (!(result && result.ok === true)) {
+            setStatus({ kind: 'error', text: t('loadMoreFailed') })
+            return
+          }
+          setPayload(function (previous) {
+            if (!(previous && previous.ok === true && previous.data && typeof previous.data === 'object')) return previous
+            var merged = {}
+            var key
+            for (key in result) {
+              if (Object.prototype.hasOwnProperty.call(result, key)) merged[key] = result[key]
+            }
+            var oldCommits = previous.data.commits && typeof previous.data.commits.length === 'number' ? previous.data.commits : []
+            var newCommits = result.commits && typeof result.commits.length === 'number' ? result.commits : []
+            merged.commits = oldCommits.concat(newCommits)
+            return { ok: true, data: merged }
+          })
+        })
       }
 
       function postSwitch(body, token2) {
@@ -3562,6 +3815,19 @@ window.__ModuleLoader__.load({
                 /* ignore */
               }
             },
+            query: query,
+            onQueryChange: function (next) {
+              setQuery(toText(next))
+            },
+            onClearQuery: function () {
+              setQuery('')
+            },
+            filtered: Boolean(data && data.filtered === true),
+            total: data ? toNumber(data.total) : null,
+            hasMore: Boolean(data && data.hasMore === true),
+            loadingMore: loadingMore,
+            onLoadMore: loadMore,
+            onOpenCommit: props.onOpenCommit,
             onCurrent: function () {
               noteOk(t('current'))
             },
@@ -4456,7 +4722,8 @@ window.__ModuleLoader__.load({
             onSwitched: props.onGraphSwitched,
             onOpenPicker: props.onOpenPicker,
             onBack: props.onBack,
-            onCommit: props.onCommitPanel
+            onCommit: props.onCommitPanel,
+            onOpenCommit: props.onOpenCommit
           })
         } else if (notRepo) {
           body = h(
