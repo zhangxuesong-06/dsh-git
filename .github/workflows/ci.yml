@@ -22,18 +22,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # Give git an identity through config rather than GIT_AUTHOR_* env vars:
+      # those env vars override per-command `-c user.name=…`, and the tests use
+      # that to create commits by specific authors.
+      - name: Configure git
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+          git config --global init.defaultBranch main
+          git config --global core.autocrlf false
       - name: Syntax check
         run: npm run check
       - name: Self-tests
         run: npm test
         env:
           GIT_TERMINAL_PROMPT: '0'
-          # The tests create throw-away repositories; give git an identity so
-          # commits work on runners without a global config.
-          GIT_AUTHOR_NAME: ci
-          GIT_AUTHOR_EMAIL: ci@example.invalid
-          GIT_COMMITTER_NAME: ci
-          GIT_COMMITTER_EMAIL: ci@example.invalid
 
   publish:
     name: publish to npm

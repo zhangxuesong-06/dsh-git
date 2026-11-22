@@ -1,0 +1,13 @@
+# Keep the repository text-normalised so tests, diffs and CI agree across
+# Windows and Linux checkouts.
+* text=auto eol=lf
+
+# Binary assets must never be converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary

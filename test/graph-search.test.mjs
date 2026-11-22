@@ -9,11 +9,31 @@ import { apply } from '../index.js'
 const results = []
 const check = (name, ok, detail) => results.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail) })
 
+/**
+ * CI used to export GIT_AUTHOR_ / GIT_COMMITTER_ environment variables for git
+ * identity, and an env var beats `-c user.name=…`. Strip them so the
+ * per-commit authors this test relies on actually apply.
+ */
+function cleanEnv() {
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+  for (const key of [
+    'GIT_AUTHOR_NAME',
+    'GIT_AUTHOR_EMAIL',
+    'GIT_AUTHOR_DATE',
+    'GIT_COMMITTER_NAME',
+    'GIT_COMMITTER_EMAIL',
+    'GIT_COMMITTER_DATE',
+  ]) {
+    delete env[key]
+  }
+  return env
+}
+
 function makeRepo(count) {
   const base = mkdtempSync(join(tmpdir(), 'dshgit-graph-'))
   const dir = join(base, 'work')
   execFileSync('git', ['init', '-b', 'main', dir], { encoding: 'utf8' })
-  const run = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
+  const run = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: cleanEnv() })
   run(['config', 'user.name', 'Seed'])
   run(['config', 'user.email', 'seed@example.invalid'])
   writeFileSync(join(dir, 'base.txt'), 'base\n')
