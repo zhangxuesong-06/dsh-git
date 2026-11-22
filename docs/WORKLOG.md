@@ -150,11 +150,14 @@ URL 为准；会话 ID 也会随环境变化。
   - [x] `test/contract.test.mjs`：静态契约（loader 形态、只 require('react')、无 Web Storage、类名前缀、
         host 路由前缀无尾斜杠、无 shell 执行、manifest/locale/patch 完整性）；
   - [x] 客户端：收起态 brief 轮询、`Intl.RelativeTimeFormat` 时间本地化、启动识别后台慢重试。
-- **v1.2.0（功能，进行中）**：
+- **v1.2.0（功能，已完成，2026-11-22 发布）**：
   - [x] Host：`stage` / `unstage` / `discard` / `clean` / `resolve` / `undo-commit` 六条路由 + 路径与状态交叉校验；
   - [x] `test/file-ops.test.mjs`（33 项断言，含 CRLF 与路径越权守则）；
-  - [ ] 客户端：文件行操作按钮、行内确认条、冲突取一边、分组「全部暂存」、面板「撤销上次提交」；
-  - [ ] 图谱搜索（作者/信息/哈希）与加载更多（留到 1.3.0）。
+  - [x] 客户端：文件行操作按钮、行内确认条、冲突取一边、分组「全部暂存」、面板「撤销上次提交」；
+  - [x] 发布并装到本机；真机 HTTPS 探针校验了六条路由的 `405`/`missing-paths`/`missing-side` 分支，
+        并对**未跟踪探针文件**跑通了 stage → unstage → clean 全链路（仓库状态零残留）。
+- **v1.3.0（功能，待办）**：图谱搜索（作者/信息/哈希）与加载更多、触摸设备的行操作常显、
+  小结/大仓库的虚拟滚动。
 - **发布收尾**：README 截图、删除 npm 上 `0.0.0-stage` 占位（需 OTP）、GitHub 仓库改名为
   `dsh-git-bar` 并同步 `repository` 字段。
 
