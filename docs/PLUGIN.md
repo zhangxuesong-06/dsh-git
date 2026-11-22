@@ -71,7 +71,16 @@
 | `GET /dsh-git-bar/graph?session=<id>&limit=10..300` | 仓库提交图（`--all --topo-order`）：父提交、作者、时间、主题、泳道号、装饰（HEAD/分支/远程/标签）与总列数 |
 | `POST /dsh-git-bar/auto-commit` | 仅在用户点击图谱工具条的「自动提交」小按钮并确认面板时调用：body `{message?, push?, branch?, username?, password?}`。**有改动**：`git add -A` 后提交（`message` 为空则按路径推断生成 Conventional Commit 信息：文档→`docs`、测试→`test`、其余→`chore`），`push:true` 时随后推送到远端（有上游走上游，没有则 `push --set-upstream <origin 或首个远端> <分支>`）。**无改动且 `push:true`**：若存在未推送提交则不提交、直接推送（返回 `committed:false` 与 `ahead`），否则 `reason:'nothing-to-push'`；`push:false` 时为 `nothing-to-commit`。游离 HEAD 提交必须给 `branch`（先经 `git check-ref-format --branch` 校验、再确认不存在），Host 会 `switch -c` 后提交，原分支指针不动。返回 `committed`/`short`/`hash`/`subject`/`message`/`files`/`branch`/`createdBranch`/`ahead`/`pushed`/`skipped`/`pushReason`（`no-remote`/`out-of-date`/`push-failed`）/`pushDetail`/`upstream`/`needsCredentials`；冲突、非法或已存在的分支名直接拒绝。推送失败时本地提交保留；从不 force push、不 amend、不重写历史 |
 | `POST /dsh-git-bar/push` | 只推送、不提交（面板拿到 `needsCredentials` 后用一次性凭据重试）：body `{username?, password?}`。密码经临时 askpass 辅助程序传给 git（不进 argv），推送结束即删除临时目录，不保存凭据。返回 `{ok, pushed, reason, pushReason, pushDetail, upstream, needsCredentials}` |
+| `POST /dsh-git-bar/stage` | 文件操作（用户点击）：`{paths:[…]}` 暂存指定路径 / `{all:true}` 暂存全部（`git add -A`）。路径必须通过仓库内相对路径校验且不以 `-` 开头，出错返回 `missing-paths` 或 `git-error` |
+| `POST /dsh-git-bar/unstage` | 取消暂存：`{paths}`（`git restore --staged -- …`）或 `{all:true}`（`git reset -q HEAD -- .`） |
+| `POST /dsh-git-bar/discard` | 丢弃已跟踪文件改动：`git restore --source=HEAD --staged --worktree -- …`，索引与工作区一起还原；未跟踪路径返回 `untracked-needs-clean`，冲突路径返回 `conflicted-needs-resolve` |
+| `POST /dsh-git-bar/clean` | 删除未跟踪文件：`git clean -f -- …`（只删文件）；已跟踪路径返回 `tracked-needs-discard` |
+| `POST /dsh-git-bar/resolve` | 冲突取一边：`{paths, side:'ours'|'theirs'}` → `git checkout --ours/--theirs -- …` 后 `git add`；非冲突路径返回 `not-conflicted`，缺 side 返回 `missing-side` |
+| `POST /dsh-git-bar/undo-commit` | 撤销上一次提交：`git reset --soft HEAD~1`（改动留在暂存区），返回 `{ok, undone:'<标题>', short}`；无父提交返回 `no-previous-commit` |
 | `GET /dsh-git-bar/health` | 存活探针 |
+
+文件操作统一约束：只有 `POST`；`paths` 逐条过 `relativePath` 校验（拒绝绝对路径、盘符、`..`、`-` 开头），
+并与当前 `git status` 交叉核对（未跟踪的只能 `clean`、冲突的只能 `resolve`），所以误用不会毁掉工作区。
 
 安全约束：`path` 必须是仓库内相对路径（拒绝绝对路径、盘符与 `..`）；`hash` 只接受十六进制；分支名必须来自
 `git for-each-ref` 的实际结果；所有 git 调用都是无 shell 的固定 argv，仓库根由 `git rev-parse --show-toplevel`

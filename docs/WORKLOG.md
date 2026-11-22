@@ -68,7 +68,8 @@ conversation.session.header.utilities    会话 ID → ctx.sessions.get(id)
 | 11-20 11:29 | v1.0.4 | 「自动提交」连带推送到远端（有上游走上游，否则 `push --set-upstream`），推送失败保留本地提交并分类报错 |
 | 11-20 12:00 | v1.1.0 | 按钮改为图谱工具条 24×24 小图标 + 覆盖式操作面板：提交描述（留空自动生成）、仅提交/提交并推送、游离 HEAD 先建分支再提交、推送需要凭据时就地输入**一次性**用户名/令牌（临时 askpass，用完即删） |
 | 11-20 13:15 | v1.1.1 | 修启动误报「不是 git 仓库」（Host 在会话未就绪时返回 `session-pending`，客户端按 400/800/1600/3000/5000ms 退避重试并显示 `…`）；推送按钮按状态自动降级：有改动→提交并推送，没改动但有未推送→只推送，都没有→「没有可推送的改动」 |
-| 11-21 起 | v1.1.2 | 稳健化：自测入库 + CI、时间本地化、启动后台重试、收起态轻量轮询（本文件同时补写） |
+| 11-21 起 | v1.1.2 | 稳健化：自测入库 + CI、时间本地化、启动后台重试、收起态轻量轮询（本文件同时补写）；当日发布并装到本机，`/state?brief=1` 与 `iso` 时间戳实测通过 |
+| 11-22 | v1.2.0 | Host 新增 6 条文件操作路由（stage / unstage / discard / clean / resolve / undo-commit）与 `test/file-ops.test.mjs`；客户端接上文件行操作、冲突取一边、分组「全部暂存」、提交面板「撤销上次提交」 |
 
 ## 4. 关键决策（含理由）
 
@@ -89,6 +90,13 @@ conversation.session.header.utilities    会话 ID → ctx.sessions.get(id)
    形态，所以不引入 JSX/打包器，纯 `React.createElement` 手写，`node --check` 作为语法闸门。
 8. **发布形态：仓库根 = npm 包**。这样 `git+https://…` 安装无需 `prepare` 脚本，npm 与 GitHub 两条路径共用一份
    文件清单（`files` 白名单 10 个文件）。
+9. **「丢弃」和「删除」拆成两个操作**：`discard` 用 `git restore --source=HEAD --staged --worktree` 把已跟踪
+   文件连索引带工作区还原；未跟踪文件不属于任何提交，只能 `git clean -f` 从磁盘删除。两者语义不同、风险不同，
+   所以拆开并在 Host 侧交叉校验（拿未跟踪路径调 discard 直接拒绝，反之亦然），前端各自加二次确认。
+10. **撤销提交用 `reset --soft`**：改动退回暂存区，不丢工作；不用 `--mixed`（会让改动静默变成未暂存）也不用
+   `--hard`（会删掉改动）。只有一条提交时没有 `HEAD~1`，直接拒绝并提示。
+11. **文件操作先读 body 再跑 git**：请求体是流，若在 `await` 之后再挂监听，body 可能已经流完（测试里表现为
+   请求永久挂起）。所以所有写操作路由的第一件事都是把 body 读完。
 
 ## 5. 事故与根因（值得记住的坑）
 
@@ -134,16 +142,19 @@ URL 为准；会话 ID 也会随环境变化。
 
 ## 8. 路线图
 
-- **v1.1.2（稳健化，进行中）**：
+- **v1.1.2（稳健化，已完成）**：
   - [x] 自测入库 `test/*.test.mjs` + `npm test`（`node --test`）+ `prepublishOnly` 闸门；
   - [x] GitHub Actions（ubuntu + windows 跑 check/test，打 tag 时 `npm publish --provenance`）；
   - [x] `docs/WORKLOG.md` + `CHANGELOG.md`；
   - [x] Host：`/state?brief=1` 轻量模式（收起态轮询少跑 2 个 git 子进程）、提交时间补 `iso` 字段；
   - [x] `test/contract.test.mjs`：静态契约（loader 形态、只 require('react')、无 Web Storage、类名前缀、
         host 路由前缀无尾斜杠、无 shell 执行、manifest/locale/patch 完整性）；
-  - [ ] 客户端：收起态 brief 轮询、`Intl.RelativeTimeFormat` 时间本地化、启动识别后台慢重试。
-- **v1.2.0（功能）**：文件列表操作（暂存/取消暂存/丢弃/复制相对路径/冲突取我方或对方）、撤销上一次提交
-  （`--soft`，用户点击）、图谱搜索（作者/信息/哈希）与加载更多。
+  - [x] 客户端：收起态 brief 轮询、`Intl.RelativeTimeFormat` 时间本地化、启动识别后台慢重试。
+- **v1.2.0（功能，进行中）**：
+  - [x] Host：`stage` / `unstage` / `discard` / `clean` / `resolve` / `undo-commit` 六条路由 + 路径与状态交叉校验；
+  - [x] `test/file-ops.test.mjs`（33 项断言，含 CRLF 与路径越权守则）；
+  - [ ] 客户端：文件行操作按钮、行内确认条、冲突取一边、分组「全部暂存」、面板「撤销上次提交」；
+  - [ ] 图谱搜索（作者/信息/哈希）与加载更多（留到 1.3.0）。
 - **发布收尾**：README 截图、删除 npm 上 `0.0.0-stage` 占位（需 OTP）、GitHub 仓库改名为
   `dsh-git-bar` 并同步 `repository` 字段。
 

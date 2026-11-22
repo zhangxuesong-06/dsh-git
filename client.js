@@ -42,6 +42,12 @@ window.__ModuleLoader__.load({
     var COMMIT_DIFF_URL = '/dsh-git-bar/commit-diff'
     var AUTO_COMMIT_URL = '/dsh-git-bar/auto-commit'
     var PUSH_URL = '/dsh-git-bar/push'
+    var STAGE_URL = '/dsh-git-bar/stage'
+    var UNSTAGE_URL = '/dsh-git-bar/unstage'
+    var DISCARD_URL = '/dsh-git-bar/discard'
+    var CLEAN_URL = '/dsh-git-bar/clean'
+    var RESOLVE_URL = '/dsh-git-bar/resolve'
+    var UNDO_COMMIT_URL = '/dsh-git-bar/undo-commit'
     var REVIEW_PAGE_ADDRESS = 'sidebar://git-review'
     var GRAPH_URL = '/dsh-git-bar/graph'
     var GRAPH_LIMIT = 120
@@ -91,6 +97,29 @@ window.__ModuleLoader__.load({
       refresh: '刷新',
       autoCommit: '自动提交',
       identifyingWorkspace: '正在识别工作区',
+      stage: '暂存',
+      unstage: '取消暂存',
+      discardChanges: '丢弃改动',
+      deleteUntracked: '删除',
+      copyPath: '复制路径',
+      copiedPath: '已复制路径',
+      copyFailed: '复制失败',
+      useOurs: '用我方',
+      useTheirs: '用对方',
+      stageAll: '全部暂存',
+      confirmDiscard: '丢弃 {path} 的改动？',
+      confirmDelete: '删除未跟踪文件 {path}？',
+      undoCommit: '撤销上次提交',
+      confirmUndo: '撤销提交 {short} {subject}？',
+      undone: '已撤销',
+      noPreviousCommit: '没有可撤销的提交',
+      missingPaths: '操作参数无效',
+      untrackedNeedsClean: '未跟踪文件请用删除',
+      trackedNeedsDiscard: '已跟踪文件请用丢弃改动',
+      conflictedNeedsResolve: '冲突文件请先用我方/对方解决',
+      notConflicted: '该文件没有冲突',
+      missingSide: '缺少解决方式',
+      opFailed: '操作失败',
       justNow: '刚刚',
       pushNow: '推送',
       nothingToPush: '没有可推送的改动',
@@ -186,6 +215,29 @@ window.__ModuleLoader__.load({
       refresh: 'Refresh',
       autoCommit: 'Auto-commit',
       identifyingWorkspace: 'Identifying workspace',
+      stage: 'Stage',
+      unstage: 'Unstage',
+      discardChanges: 'Discard changes',
+      deleteUntracked: 'Delete',
+      copyPath: 'Copy path',
+      copiedPath: 'Path copied',
+      copyFailed: 'Copy failed',
+      useOurs: 'Use ours',
+      useTheirs: 'Use theirs',
+      stageAll: 'Stage all',
+      confirmDiscard: 'Discard changes to {path}?',
+      confirmDelete: 'Delete untracked file {path}?',
+      undoCommit: 'Undo last commit',
+      confirmUndo: 'Undo commit {short} {subject}?',
+      undone: 'Undone',
+      noPreviousCommit: 'No commit to undo',
+      missingPaths: 'Invalid operation arguments',
+      untrackedNeedsClean: 'Use delete for untracked files',
+      trackedNeedsDiscard: 'Use discard for tracked files',
+      conflictedNeedsResolve: 'Resolve conflicts with ours/theirs first',
+      notConflicted: 'This file has no conflict',
+      missingSide: 'Missing resolve side',
+      opFailed: 'Operation failed',
       justNow: 'Just now',
       pushNow: 'Push',
       nothingToPush: 'Nothing to push',
@@ -1003,9 +1055,23 @@ window.__ModuleLoader__.load({
       '@keyframes gitbar-forward-in{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}',
       '.gitbar-body-forward .gitbar-commit-detail{animation:none}',
       '.gitbar-list{padding:4px 5px 6px}',
-      '.gitbar-group{padding:6px 6px 3px;font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-group{display:flex;align-items:center;gap:6px;padding:6px 6px 3px;font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-grouptitle{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.gitbar-groupstage{flex:0 0 auto;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:10px;font-weight:500;line-height:15px;cursor:pointer;transition:background-color 120ms ease,color 120ms ease}',
+      '.gitbar-groupstage:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
+      '.gitbar-groupstage:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-groupstage:disabled{cursor:default;opacity:.55}',
       '.gitbar-row{display:flex;align-items:center;gap:7px;width:100%;box-sizing:border-box;padding:4px 6px;border:none;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer;transition:background-color 120ms ease,color 120ms ease}',
       '.gitbar-row:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.gitbar-rowactions{display:inline-flex;align-items:center;gap:1px;flex:0 0 auto;opacity:0;transition:opacity 120ms ease}',
+      '.gitbar-row:hover .gitbar-rowactions,.gitbar-row:focus-within .gitbar-rowactions{opacity:1}',
+      '.gitbar-rowact{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:none;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1;cursor:pointer;transition:background-color 120ms ease,color 120ms ease}',
+      '.gitbar-rowact:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
+      '.gitbar-rowact:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-rowact-danger:hover:not(:disabled){color:var(--dsw-alias-state-error-primary)}',
+      '.gitbar-rowact:disabled{cursor:default;opacity:.45}',
+      '.gitbar-row-busy{opacity:.7}',
+      '.gitbar-file{padding-right:2px}',
       '.gitbar-row:active{transform:scale(.99)}',
       '.gitbar-row:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
       '.gitbar-badge{flex:0 0 auto;width:13px;text-align:center;font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:11px;font-weight:700;color:var(--dsw-alias-label-secondary)}',
@@ -1178,9 +1244,13 @@ window.__ModuleLoader__.load({
       '.gitbar-commitpanel-status-error{color:var(--dsw-alias-state-error-primary)}',
       '.gitbar-commitpanel-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:auto;flex:0 0 auto}',
       '.gitbar-commitpanel-btn{flex:0 1 auto}',
+      '.gitbar-commitpanel-undo{flex:0 0 auto;padding:2px 4px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-state-error-primary);font:inherit;font-size:11px;cursor:pointer;transition:background-color 120ms ease}',
+      '.gitbar-commitpanel-undo:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2)}',
+      '.gitbar-commitpanel-undo:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-commitpanel-undo:disabled{cursor:default;opacity:.5}',
       '.gitbar-commitpanel-primary{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-overlay)}',
       '.gitbar-commitpanel-primary:hover{opacity:.92}',
-      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
+      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
     // ── components ────────────────────────────────────────────────────────
@@ -1208,11 +1278,37 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Map a file-operation failure to one readable line. */
+    function operationErrorText(reason, detail) {
+      var safe = toText(reason)
+      if (safe === 'missing-paths') return translate('missingPaths')
+      if (safe === 'not-a-repository') return translate('notRepo')
+      if (safe === 'untracked-needs-clean') return translate('untrackedNeedsClean')
+      if (safe === 'tracked-needs-discard') return translate('trackedNeedsDiscard')
+      if (safe === 'conflicted-needs-resolve') return translate('conflictedNeedsResolve')
+      if (safe === 'not-conflicted') return translate('notConflicted')
+      if (safe === 'missing-side') return translate('missingSide')
+      if (safe === 'no-previous-commit') return translate('noPreviousCommit')
+      var line = toText(detail).split('\n')[0]
+      if (line.length > 120) line = line.slice(0, 120) + '…'
+      return line || translate('opFailed')
+    }
+
+    // The single dismissable inline confirm strip (file rows, undo commit).
+    var activeConfirmDismiss = null
+    function setActiveConfirmDismiss(fn) {
+      activeConfirmDismiss = typeof fn === 'function' ? fn : null
+    }
+    function clearActiveConfirmDismiss(fn) {
+      if (activeConfirmDismiss === fn) activeConfirmDismiss = null
+    }
+
     /** One changed-file row inside the grouped list. */
     function ChangedFileRow(props) {
       var t = props.t || translate
       var file = props.file || {}
       var group = props.group || {}
+      var busy = props.busy === true
       try {
         var path = toText(file.path)
         var parts = splitPath(path)
@@ -1221,17 +1317,71 @@ window.__ModuleLoader__.load({
         var deletions = toNumber(file.deletions)
         var hasStats = additions !== null || deletions !== null
         var title = path + (group.title ? ' · ' + t(group.title) : '')
+
+        function action(kind, icon, label, danger) {
+          return h(
+            'button',
+            {
+              type: 'button',
+              key: 'act-' + kind,
+              className: 'gitbar-rowact' + (danger ? ' gitbar-rowact-danger' : ''),
+              title: label,
+              'aria-label': label,
+              disabled: busy,
+              onClick: function (event) {
+                try {
+                  if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
+                  if (typeof props.onAction === 'function') props.onAction(kind, file, group)
+                } catch (error) {
+                  /* ignore */
+                }
+              }
+            },
+            icon
+          )
+        }
+
+        var actions = []
+        if (group.key === 'conflict') {
+          actions.push(action('ours', 'O', t('useOurs'), false))
+          actions.push(action('theirs', 'T', t('useTheirs'), false))
+        } else if (group.key === 'untracked') {
+          actions.push(action('clean', '×', t('deleteUntracked'), true))
+        } else if (group.key === 'staged') {
+          actions.push(action('unstage', '−', t('unstage'), false))
+          actions.push(action('discard', '↺', t('discardChanges'), true))
+        } else {
+          actions.push(action('stage', '+', t('stage'), false))
+          actions.push(action('discard', '↺', t('discardChanges'), true))
+        }
+        actions.push(action('copy', '⧉', t('copyPath'), false))
+
         return h(
-          'button',
+          'div',
           {
-            type: 'button',
-            className: 'gitbar-row',
+            className: 'gitbar-row' + (busy ? ' gitbar-row-busy' : ''),
+            role: 'button',
+            tabIndex: 0,
             title: title,
+            'aria-busy': busy ? 'true' : 'false',
+            'aria-disabled': busy ? 'true' : 'false',
             onClick: function () {
               try {
+                if (busy) return
                 if (typeof props.onOpen === 'function') props.onOpen(file, group.key)
               } catch (error) {
                 /* a broken handler must not break the list */
+              }
+            },
+            onKeyDown: function (event) {
+              try {
+                if (!event) return
+                if (event.key !== 'Enter' && event.key !== ' ' && event.keyCode !== 13 && event.keyCode !== 32) return
+                if (busy) return
+                if (typeof event.preventDefault === 'function') event.preventDefault()
+                if (typeof props.onOpen === 'function') props.onOpen(file, group.key)
+              } catch (error) {
+                /* ignore */
               }
             }
           },
@@ -1245,34 +1395,233 @@ window.__ModuleLoader__.load({
               additions !== null ? h('span', { className: 'gitbar-addstat' }, '+' + additions) : null,
               deletions !== null ? h('span', { className: 'gitbar-delstat' }, '−' + deletions) : null
             )
-            : null
+            : null,
+          h('span', { className: 'gitbar-rowactions' }, actions)
         )
       } catch (error) {
         return h('div', { className: 'gitbar-row' }, toText(file.path))
       }
     }
 
-    /** Grouped changed files: 已暂存 / 未暂存 / 未跟踪 / 冲突. */
+    /** Grouped changed files with per-row git actions and inline confirms. */
     function ChangedFileList(props) {
       var t = props.t || translate
       var groups = props.groups
+      var sessionId = toText(props.sessionId)
+      var opHook = useState(null)
+      var op = opHook[0]
+      var setOp = opHook[1]
+      var confirmHook = useState(null)
+      var confirm = confirmHook[0]
+      var setConfirm = confirmHook[1]
+      var allHook = useState(false)
+      var allBusy = allHook[0]
+      var setAllBusy = allHook[1]
+      var alive = useRef(true)
+      var abortRef = useRef(null)
+
+      useEffect(function () {
+        alive.current = true
+        return function () {
+          alive.current = false
+          try {
+            if (abortRef.current) abortRef.current()
+          } catch (error) {
+            /* ignore */
+          }
+          abortRef.current = null
+        }
+      }, [])
+
+      // Esc dismisses the inline confirm before anything else.
+      var dismiss = function () {
+        setConfirm(null)
+      }
+      useEffect(function () {
+        if (!confirm) return undefined
+        setActiveConfirmDismiss(dismiss)
+        return function () {
+          clearActiveConfirmDismiss(dismiss)
+        }
+      }, [confirm])
+
+      function flash(text) {
+        try {
+          if (typeof props.onFlash === 'function') props.onFlash(toText(text))
+        } catch (error) {
+          /* ignore */
+        }
+      }
+
+      function copyPath(path) {
+        try {
+          var clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : null
+          if (!clipboard || typeof clipboard.writeText !== 'function') {
+            flash(t('copyFailed'))
+            return
+          }
+          var result = clipboard.writeText(path)
+          if (result && typeof result.then === 'function') {
+            result.then(
+              function () {
+                if (alive.current) flash(t('copiedPath'))
+              },
+              function () {
+                if (alive.current) flash(t('copyFailed'))
+              }
+            )
+          } else {
+            flash(t('copiedPath'))
+          }
+        } catch (error) {
+          flash(t('copyFailed'))
+        }
+      }
+
+      function send(url, body, kind, path) {
+        setOp({ kind: kind, path: path })
+        try {
+          if (abortRef.current) abortRef.current()
+        } catch (error) {
+          /* ignore */
+        }
+        abortRef.current = requestJson(withQuery(url, [{ key: 'session', value: sessionId }]), { method: 'POST', body: JSON.stringify(body) }, function (result) {
+          if (!alive.current) return
+          abortRef.current = null
+          setOp(null)
+          if (result && result.ok === true) {
+            setConfirm(null)
+            try {
+              if (typeof props.onChanged === 'function') props.onChanged()
+            } catch (error) {
+              /* ignore */
+            }
+            return
+          }
+          flash(operationErrorText(result && result.reason, result && result.detail))
+        })
+      }
+
+      function stageAll() {
+        if (allBusy || op) return
+        setAllBusy(true)
+        setConfirm(null)
+        try {
+          if (abortRef.current) abortRef.current()
+        } catch (error) {
+          /* ignore */
+        }
+        abortRef.current = requestJson(withQuery(STAGE_URL, [{ key: 'session', value: sessionId }]), { method: 'POST', body: JSON.stringify({ all: true }) }, function (result) {
+          if (!alive.current) return
+          abortRef.current = null
+          setAllBusy(false)
+          if (result && result.ok === true) {
+            try {
+              if (typeof props.onChanged === 'function') props.onChanged()
+            } catch (error) {
+              /* ignore */
+            }
+            return
+          }
+          flash(operationErrorText(result && result.reason, result && result.detail))
+        })
+      }
+
+      function run(kind, file, group, side) {
+        var path = toText(file && file.path)
+        if (!path || allBusy || op) return
+        if (kind === 'stage') return send(STAGE_URL, { paths: [path] }, kind, path)
+        if (kind === 'unstage') return send(UNSTAGE_URL, { paths: [path] }, kind, path)
+        if (kind === 'discard') return send(DISCARD_URL, { paths: [path] }, kind, path)
+        if (kind === 'clean') return send(CLEAN_URL, { paths: [path] }, kind, path)
+        if (kind === 'ours' || kind === 'theirs') return send(RESOLVE_URL, { paths: [path], side: side }, kind, path)
+      }
+
+      function onAction(kind, file, group) {
+        try {
+          var path = toText(file && file.path)
+          if (!path) return
+          if (kind === 'copy') {
+            copyPath(path)
+            return
+          }
+          if (kind === 'discard' || kind === 'clean') {
+            setConfirm({ kind: kind, path: path })
+            return
+          }
+          run(kind, file, group, kind === 'ours' ? 'ours' : kind === 'theirs' ? 'theirs' : undefined)
+        } catch (error) {
+          /* ignore */
+        }
+      }
+
+      function confirmLabel() {
+        if (!confirm) return ''
+        var template = confirm.kind === 'clean' ? t('confirmDelete') : t('confirmDiscard')
+        return toText(template).replace('{path}', confirm.path)
+      }
+
+      function runConfirmed() {
+        if (!confirm) return
+        var kind = confirm.kind
+        var path = confirm.path
+        setConfirm(null)
+        run(kind, { path: path }, {}, kind === 'clean' ? undefined : undefined)
+      }
+
       try {
         if (!groups || groups.length === 0) return h('div', { className: 'gitbar-empty' }, t('clean'))
         var nodes = []
         for (var groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
           var group = groups[groupIndex]
-          nodes.push(h('div', { className: 'gitbar-group', key: 'group-' + group.key }, t(group.title)))
+          var stageable = group.key === 'unstaged' || group.key === 'untracked' || group.key === 'conflict'
+          nodes.push(
+            h(
+              'div',
+              { className: 'gitbar-group', key: 'group-' + group.key },
+              h('span', { className: 'gitbar-grouptitle' }, t(group.title)),
+              stageable
+                ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-groupstage',
+                    title: t('stageAll'),
+                    'aria-label': t('stageAll'),
+                    disabled: allBusy || Boolean(op),
+                    onClick: stageAll
+                  },
+                  t('stageAll')
+                )
+                : null
+            )
+          )
           for (var fileIndex = 0; fileIndex < group.files.length; fileIndex += 1) {
             var file = group.files[fileIndex]
+            var path = toText(file && file.path)
+            var rowBusy = Boolean(op && op.path === path) || allBusy
             nodes.push(
               h(ChangedFileRow, {
-                key: group.key + ':' + toText(file.path) + ':' + fileIndex,
+                key: group.key + ':' + path + ':' + fileIndex,
                 t: t,
                 file: file,
                 group: group,
-                onOpen: props.onOpen
+                busy: rowBusy,
+                onOpen: props.onOpen,
+                onAction: onAction
               })
             )
+            if (confirm && confirm.path === path) {
+              nodes.push(
+                h(
+                  'div',
+                  { className: 'gitbar-confirm', key: 'confirm-' + group.key + ':' + path },
+                  h('span', { className: 'gitbar-confirm-text' }, confirmLabel()),
+                  h('button', { type: 'button', className: 'gitbar-btn', onClick: runConfirmed }, t('confirm')),
+                  h('button', { type: 'button', className: 'gitbar-btn', onClick: dismiss }, t('cancel'))
+                )
+              )
+            }
           }
         }
         return h('div', { className: 'gitbar-list' }, nodes)
@@ -3441,6 +3790,13 @@ window.__ModuleLoader__.load({
       var alive = useRef(true)
       var commitAbort = useRef(null)
       var pushAbort = useRef(null)
+      var undoHook = useState(false)
+      var undoConfirm = undoHook[0]
+      var setUndoConfirm = undoHook[1]
+      var undoPendingHook = useState(false)
+      var undoPending = undoPendingHook[0]
+      var setUndoPending = undoPendingHook[1]
+      var undoAbort = useRef(null)
 
       useEffect(function () {
         alive.current = true
@@ -3458,6 +3814,12 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
           pushAbort.current = null
+          try {
+            if (undoAbort.current) undoAbort.current()
+          } catch (error) {
+            /* ignore */
+          }
+          undoAbort.current = null
           // One-shot credentials never outlive the panel.
           try {
             setPassword('')
@@ -3466,6 +3828,56 @@ window.__ModuleLoader__.load({
           }
         }
       }, [])
+
+      // Esc dismisses the undo confirm before closing the sheet.
+      useEffect(function () {
+        if (!undoConfirm) return undefined
+        var dismiss = function () {
+          setUndoConfirm(false)
+        }
+        setActiveConfirmDismiss(dismiss)
+        return function () {
+          clearActiveConfirmDismiss(dismiss)
+        }
+      }, [undoConfirm])
+
+      function lastCommitInfo() {
+        var safe = props.lastCommit && typeof props.lastCommit === 'object' ? props.lastCommit : {}
+        var short = toText(safe.hash) || toText(safe.short) || (toText(safe.full) || '').slice(0, 7)
+        var subject = toText(safe.subject)
+        if (subject.length > 48) subject = subject.slice(0, 48) + '…'
+        return { short: short, subject: subject }
+      }
+
+      function undoLastCommit() {
+        if (undoPending) return
+        setUndoPending(true)
+        setStatus(null)
+        try {
+          if (undoAbort.current) undoAbort.current()
+        } catch (error) {
+          /* ignore */
+        }
+        undoAbort.current = requestJson(
+          withQuery(UNDO_COMMIT_URL, [{ key: 'session', value: sessionId }]),
+          { method: 'POST', body: '{}' },
+          function (result) {
+            if (!alive.current) return
+            undoAbort.current = null
+            setUndoPending(false)
+            setUndoConfirm(false)
+            if (result && result.ok === true) {
+              try {
+                if (typeof props.onUndone === 'function') props.onUndone(result)
+              } catch (error) {
+                /* ignore */
+              }
+              return
+            }
+            setStatus({ tone: 'error', text: operationErrorText(result && result.reason, result && result.detail) })
+          }
+        )
+      }
 
       function detailLine(detail) {
         var line = toText(detail).split('\n')[0]
@@ -3764,6 +4176,23 @@ window.__ModuleLoader__.load({
               'button',
               {
                 type: 'button',
+                key: 'undo',
+                className: 'gitbar-commitpanel-undo',
+                title: t('undoCommit'),
+                disabled: busy || undoPending,
+                onClick: function () {
+                  setUndoConfirm(true)
+                }
+              },
+              t('undoCommit')
+            )
+          )
+          actions.push(h('span', { className: 'gitbar-spacer', key: 'undogap' }))
+          actions.push(
+            h(
+              'button',
+              {
+                type: 'button',
                 key: 'only',
                 className: 'gitbar-btn gitbar-commitpanel-btn',
                 disabled: busy || !canCommit,
@@ -3829,6 +4258,22 @@ window.__ModuleLoader__.load({
                 onClick: closePanel
               },
               t('close')
+            )
+          )
+        }
+        if (undoConfirm) {
+          var undoInfo = lastCommitInfo()
+          children.push(
+            h(
+              'div',
+              { className: 'gitbar-confirm', key: 'undoconfirm' },
+              h(
+                'span',
+                { className: 'gitbar-confirm-text' },
+                toText(t('confirmUndo')).replace('{short}', undoInfo.short).replace('{subject}', undoInfo.subject)
+              ),
+              h('button', { type: 'button', className: 'gitbar-btn', disabled: undoPending, onClick: undoLastCommit }, t('confirm')),
+              h('button', { type: 'button', className: 'gitbar-btn', disabled: undoPending, onClick: function () { setUndoConfirm(false) } }, t('cancel'))
             )
           )
         }
@@ -4027,7 +4472,14 @@ window.__ModuleLoader__.load({
           // full fetch that the open effect already kicked off.
           body = h('div', { className: 'gitbar-empty' }, t('loading'))
         } else {
-          body = h(ChangedFileList, { t: t, groups: groupFiles(state), onOpen: props.onOpenFile })
+          body = h(ChangedFileList, {
+            t: t,
+            groups: groupFiles(state),
+            sessionId: props.sessionId,
+            onOpen: props.onOpenFile,
+            onChanged: props.onListChanged,
+            onFlash: props.onFlash
+          })
         }
 
         var bodyNode = h(
@@ -4070,6 +4522,8 @@ window.__ModuleLoader__.load({
               t: t,
               sessionId: props.sessionId,
               detached: Boolean(state && state.detached),
+              lastCommit: state && state.commits && state.commits.length > 0 ? state.commits[0] : null,
+              onUndone: props.onCommitUndone,
               countsAll: toNumber(state && state.counts && state.counts.all) || 0,
               ahead: toNumber(state && state.ahead) || 0,
               upstream: state ? toText(state.upstream) : '',
@@ -4689,6 +5143,10 @@ window.__ModuleLoader__.load({
       /** Escape pops one level: any sub-body returns to the list first. */
       function popLevel() {
         try {
+          if (activeConfirmDismiss) {
+            activeConfirmDismiss()
+            return true
+          }
           if (commitPanelOpen) {
             setCommitPanelOpen(false)
             return true
@@ -4703,6 +5161,26 @@ window.__ModuleLoader__.load({
           return false
         }
         return false
+      }
+
+      function onListChanged() {
+        try {
+          loadRef.current(false)
+        } catch (error) {
+          /* ignore */
+        }
+      }
+
+      function onCommitUndone(result) {
+        try {
+          setCommitPanelOpen(false)
+          var safe = result && typeof result === 'object' ? result : {}
+          flashMessage(t('undone') + (toText(safe.undone) ? ' ' + toText(safe.undone) : ''))
+          loadRef.current(false)
+          setGraphToken(function (value) { return value + 1 })
+        } catch (error) {
+          /* the commit is already undone */
+        }
       }
 
       function onGraphSwitched() {
@@ -4979,6 +5457,9 @@ window.__ModuleLoader__.load({
             onTogglePicker: onTogglePicker,
             onOpenGraph: onOpenGraph,
             commitPanelOpen: commitPanelOpen,
+            onListChanged: onListChanged,
+            onFlash: flashMessage,
+            onCommitUndone: onCommitUndone,
             onCommitPanel: onOpenCommitPanel,
             onCloseCommitPanel: onCloseCommitPanel,
             onCommitDone: onCommitDone,

@@ -19,6 +19,8 @@
 | 游离 HEAD | 工具条 `← 回到分支 <名字>`（Host 从 reflog 推断）+「游离 HEAD」芯片就地打开分支选择器 |
 | 点提交名 | 提交详情：哈希、作者、时间、`+N −M`、文件清单（不内嵌补丁）；点文件进该提交的该文件审查 |
 | 点改动文件 | 在右侧栏「Git 审查」标签里打开差异，**面板保持打开**并自动让位，方便连续点下一个 |
+| 改动文件行操作 | 悬停或键盘聚焦出现一组小图标：**暂存 / 取消暂存 / 丢弃改动 / 删除未跟踪文件 / 复制相对路径**；冲突行是**用我方 / 用对方**；丢弃、删除都要行内二次确认（不用浏览器弹窗）。分组标题旁有「全部暂存」 |
+| 提交面板 | 底部还有「撤销上次提交」（`reset --soft`，改动退回暂存区，需确认） |
 | 右侧栏「开始」页 | 一张「代码审查」卡片：没选文件时列出现有改动，点一条即审查 |
 
 所有过渡（展开/收起、`最近提交` 展开、进入提交详情、进入/退出图谱、图谱行入场、确认条、悬停、计数变化）都是平滑动画，并且遵守系统 `prefers-reduced-motion`；只有「进入审查」这一刻是瞬时的。
@@ -29,10 +31,10 @@
 
 | 方式 | 输入 |
 | --- | --- |
-| npm 包（已发布） | `dsh-git-bar`（跟随 latest），或锁定版本 `dsh-git-bar@1.1.2` |
+| npm 包（已发布） | `dsh-git-bar`（跟随 latest），或锁定版本 `dsh-git-bar@1.2.0` |
 | GitHub 仓库 | `git+https://github.com/zhangxuesong-06/dsh-git.git` |
 | 本地目录（开发） | `link:<仓库绝对路径>` |
-| 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.1.2.tgz` |
+| 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.2.0.tgz` |
 
 对应的工具调用：
 
@@ -84,6 +86,12 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 | `GET /dsh-git-bar/commit-diff?session=&hash=&path=` | 单提交里某个文件的补丁 |
 | `POST /dsh-git-bar/auto-commit` | 由用户点击触发：body `{message?, push?, branch?, username?, password?}`。`message` 为空则自动生成提交信息。**有改动时**：提交（`push:true` 则随后推送，有上游走上游，否则 `push --set-upstream`）；**无改动但 `push:true` 且存在未推送提交时**：不提交、直接推送，返回 `committed:false` 与 `ahead`；**无改动也无未推送提交时**：`reason:'nothing-to-push'`（`push:false` 时是 `nothing-to-commit`）。游离 HEAD 提交需要 `branch`，先 `switch -c` 再提交（原分支指针不动）。返回 `committed`/`short`/`subject`/`branch`/`createdBranch`/`ahead`/`pushed`/`pushReason`/`pushDetail`/`upstream`/`needsCredentials`；拒绝冲突、非法或已存在的分支名；从不 force push、不 amend、不重写历史 |
 | `POST /dsh-git-bar/push` | 只推送不提交，body `{username?, password?}`：面板拿到 `needsCredentials` 后用一次性凭据重试；返回 `ok`/`pushed`/`reason`/`pushDetail`/`upstream` |
+| `POST /dsh-git-bar/stage` | 由用户点击触发：body `{paths:[…]}` 暂存指定文件，或 `{all:true}` 暂存全部 |
+| `POST /dsh-git-bar/unstage` | 取消暂存（`{paths}` 或 `{all:true}`）；刚 `add` 的新文件会回到未跟踪 |
+| `POST /dsh-git-bar/discard` | 丢弃已跟踪文件的工作区改动（从 HEAD 恢复索引与工作区）；未跟踪路径会被拒绝（`untracked-needs-clean`） |
+| `POST /dsh-git-bar/clean` | 删除未跟踪文件（`git clean -f`，只接受未跟踪路径；已跟踪返回 `tracked-needs-discard`） |
+| `POST /dsh-git-bar/resolve` | 冲突文件取一边：`{paths, side:'ours'\|'theirs'}`，取完自动标记解决；非冲突路径返回 `not-conflicted` |
+| `POST /dsh-git-bar/undo-commit` | 撤销上一次提交（`reset --soft HEAD~1`，改动保留在暂存区）；只有一条提交时返回 `no-previous-commit` |
 | `GET /dsh-git-bar/health` | 存活探针 |
 
 安全约束：`path` 必须是仓库内相对路径（拒绝绝对路径、盘符、`..`）；`hash` 只接受十六进制；分支/标签名必须来自
