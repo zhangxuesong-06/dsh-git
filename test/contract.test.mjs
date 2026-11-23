@@ -60,7 +60,11 @@ for (const step of ['status', 'login', 'logout', 'device/start', 'device/poll', 
   check(`host: github "${step}" handled`, new RegExp(`step === '${step}'`).test(host), 'missing branch')
 }
 check('host: identity args derive from the account', /export function githubIdentityArgs/.test(host), 'missing identity helper')
-check('host: token push reuses the askpass helper', /createAskpass\(\{ username: 'x-access-token', password: (?:grant|access)\.token \}\)/.test(host), 'token not routed through askpass')
+check(
+  'host: token push reuses the askpass helper',
+  /createAskpass\(\{ username: 'x-access-token', password: (?:grant\.token|access\.token|token) \}\)/.test(host),
+  'token not routed through askpass',
+)
 check('host: ssh remotes are rewritten per push', /url\.https:\/\/github\.com\/\.insteadOf=git@github\.com:/.test(host), 'missing insteadOf rewrite')
 check(
   'host: token never embedded in a remote URL',
