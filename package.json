@@ -23,6 +23,7 @@
   "scripts": {
     "check": "node --check index.js && node --check client.js",
     "test": "node --test",
+    "sync-mirror": "node scripts/sync-mirror.mjs",
     "prepublishOnly": "npm run check && npm test"
   },
   "repository": {

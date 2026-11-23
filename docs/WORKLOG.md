@@ -114,6 +114,9 @@ conversation.session.header.utilities    会话 ID → ctx.sessions.get(id)
 | npm 发布 403 | 账号开了 2FA，普通登录令牌不能发布 | 建带 `bypass 2FA` 的细粒度令牌写入 `%USERPROFILE%\.npmrc`；`.npmrc` 进 `.gitignore` |
 | 发布后 409 版本冲突 | 首次发布走 staged publishing：1.0.0 已 staged 但还在处理中，重复发布报 409 | 等处理完成（约 5 分钟）；不要重复发同一版本 |
 | 镜像装不上新版本 | DSH 的 pnpm 会退到 `registry.npmmirror.com`，镜像同步有延迟 | 用官方 registry 的 tarball（`npm pack` 或直接下载 `.tgz`）安装；或用 `install_bundle` 的 `registry` 参数优先官方源 |
+| **别的用户搜到的是旧版本（1.1.x）** | 用户的 DSH 走国内镜像，镜像的 `latest` 当时停在 1.1.2（版本文件有 1.3.0/1.3.1，但 dist-tag 没跟上、也缺 1.3.2），而且镜像索引有 CDN 缓存 | `PUT https://registry.npmmirror.com/-/package/<name>/syncs` 触发同步；约十几分钟后 `latest` 变为 1.3.2、tarball 的 `integrity` 与官方一致。已固化为 `npm run sync-mirror`（发版清单第 6 步），README 加了 FAQ |
+| 用户以为插件会自动更新 | DSH **没有插件自动更新**：`autoUpdate` 只出现在 `electron-updater`（应用自身）里；插件市场的「有更新」只是把**市场索引**里的版本与已安装版本比较（`dsh-plugin-market` 的 `installationOf`），索引本身由第三方维护 | README 里写清「插件升级 = 重新安装 + 重启 DSH」；另外市场索引用的是 format 1 JSON，本机配置的 `https://awesome-dsh-plugin.com/catalog.json` 不是该格式（`plugin_market` 直接报 `$.format must be 1`），所以市场搜索/更新提示本来就不可用 |
+| 市场里有个同名插件 | 第三方目录里存在另一位作者的 GitHub 插件 `mjnhmd/dsh-git-bar`，与本项目无关 | README FAQ 里明确以 npm 包名 / 本仓库地址为准 |
 | 改了 client.js 但界面没变 | 客户端模块已被页面"物化"，`link:` 下改文件不会自动重新加载；刷新页面有时也不够 | 装新版本（或重启 DSH）才会重新物化；README 明确写了"升级后重启一次 DSH" |
 | 启动瞬间显示"不是 git 仓库" | 会话/工作区未就绪时 Host 退回进程默认目录（profile 目录）→ `not-a-repository` | Host 返回 `session-pending`；客户端等 sessionId 并按退避重试，未确定前显示 `…` |
 | 推送永远 `Permission denied (publickey)` | DSH 进程拿不到用户的 SSH key/agent | 要么把无口令 key 放 `~/.ssh` 或启动 ssh-agent 后重启 DSH，要么改 HTTPS + PAT（面板里输入一次性令牌） |
@@ -193,8 +196,9 @@ URL 为准；会话 ID 也会随环境变化。
 2. `npm test`（自测全绿）；
 3. 更新 `package.json` 版本 + README 里的版本号/离线包名 + `CHANGELOG.md`；
 4. `git commit` + `git tag -a vX.Y.Z`；
-5. `npm publish`（等 5 分钟处理完；镜像会更慢）；
-6. 用**官方 registry 的 tarball** 安装到本机：`plugin_manager remove_bundle` → `install_bundle target=<tgz>`；
-7. 探针验证：`/health`、`/state`、`/graph`、新路由（含错误分支）；
-8. 请用户重启 DSH 目视确认；
-9. `git push origin main vX.Y.Z`。
+5. `npm publish`（等 5 分钟处理完）；
+6. **`npm run sync-mirror`**：触发国内镜像同步并校验 `latest` 与 `integrity`（不同步的话镜像用户会装到旧版本）；
+7. 用**官方 registry 的 tarball** 安装到本机：`plugin_manager remove_bundle` → `install_bundle target=<tgz>`；
+8. 探针验证：`/health`、`/state`、`/graph`、新路由（含错误分支）；
+9. 请用户重启 DSH 目视确认；
+10. `git push origin main vX.Y.Z`。

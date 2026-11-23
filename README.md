@@ -142,11 +142,39 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 
 ```bash
 npm publish          # scoped 包需 --access public；本包为无 scope 名，public 是默认
+npm run sync-mirror  # 发布后同步国内镜像（见下），否则镜像用户会装到旧版本
 ```
 
 - `package.json` 已声明 `engines.dsh`（`>=0.2.1-rc.5 <0.3.0`）：DSH 安装前会按它做兼容性门禁，超出范围会被拒绝；
 - 版本号遵循 semver，DSH 的 registry 安装锁定精确版本；
-- 名字 `dsh-git-bar` 目前在 npm 上已有一个 `0.0.1` 占位包，发布前需确认你对它有所有权。
+- **发布后务必同步国内镜像**：DSH 的插件安装在官方源之后会退到 `registry.npmmirror.com`，镜像有延迟，
+  延迟期间镜像用户会解析到旧版本。`npm run sync-mirror` 会触发镜像同步并轮询到 `latest` 指到本版本、
+  且校验和与官方一致（实测镜像同步后 tarball 的 `integrity` 与官方完全相同）。
+
+## 常见问题
+
+**在别的机器上搜 `dsh-git-bar`，显示/装到的是旧版本？**
+
+两种可能，都不是包本身的问题：
+
+1. **国内镜像滞后**（最常见）：那台机器的 DSH（pnpm）走了 `registry.npmmirror.com`，镜像还没同步到最新版。
+   如果是这种情况，任选一种拿最新版：
+   - 插件页直接输完整版本号：`dsh-git-bar@<最新版本>`
+   - 用 GitHub 地址：`git+https://github.com/zhangxuesong-06/dsh-git-bar.git`
+   - 用官方 tarball：`https://registry.npmjs.org/dsh-git-bar/-/dsh-git-bar-<版本>.tgz`
+   - 或者把那台机器的源改回官方：`npm config set registry https://registry.npmjs.org`
+2. **插件市场索引没收录/收录的是另一位作者的同类插件**：DSH 的「插件市场」读的是第三方维护的索引 JSON，
+   与本仓库无关；市场里确实存在另一个同名的 GitHub 插件（`mjnhmd/dsh-git-bar`），那不是本项目。
+   以 **npm 包名 `dsh-git-bar`** 或本仓库地址为准。
+
+**插件会自动更新吗？**
+
+不会。DSH 目前**没有插件自动更新机制**（自动更新的是 DSH 应用自身，走 electron-updater）。插件升级的方式是：
+
+1. 在插件页/`plugin_manager` 里对 `dsh-git-bar` 重新安装（registry 安装锁定精确版本，所以需要指定新版本或重装）；
+2. 重新安装后**重启一次 DSH**——浏览器半边是「物化」加载的，只刷新页面不会换上新代码。
+
+装好后可以用 `/dsh-git-bar/health` 与插件页显示的版本号确认。
 
 ## 演示数据（可删）
 
