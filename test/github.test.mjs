@@ -160,6 +160,42 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   check('clone: bad spec', bad.ok === false && bad.reason === 'bad-repo', JSON.stringify(bad))
 }
 
+// ── 5b. background clone reports progress and outlives the request ───────
+{
+  const { bare } = makeBare()
+  const root = mkdtempSync(join(tmpdir(), 'dshgit-gh-bg-'))
+  const started = await ask(repo, '/dsh-git-bar/github/clone', 'POST', {
+    repo: `file://${bare.replace(/\\/g, '/')}`,
+    root,
+    background: true,
+  })
+  check('clone job: accepted', started.ok === true && typeof started.id === 'string', JSON.stringify(started))
+
+  let snapshot = started
+  for (let attempt = 0; attempt < 80 && snapshot.state !== 'done' && snapshot.state !== 'failed'; attempt += 1) {
+    await sleep(250)
+    snapshot = await ask(repo, `/dsh-git-bar/github/clone/status?id=${started.id}`)
+  }
+  check('clone job: finishes', snapshot.state === 'done', JSON.stringify(snapshot))
+  check('clone job: path reported', snapshot.path !== '' && existsSync(join(snapshot.path, '.git')), String(snapshot.path))
+  check('clone job: result ok', snapshot.result && snapshot.result.ok === true && snapshot.percent === 100, JSON.stringify(snapshot.result))
+
+  const missing = await ask(repo, '/dsh-git-bar/github/clone', 'POST', {
+    repo: `file://${root.replace(/\\/g, '/')}/does-not-exist.git`,
+    root: mkdtempSync(join(tmpdir(), 'dshgit-gh-bg2-')),
+    background: true,
+  })
+  let failed = missing
+  for (let attempt = 0; attempt < 80 && failed.state !== 'done' && failed.state !== 'failed'; attempt += 1) {
+    await sleep(250)
+    failed = await ask(repo, `/dsh-git-bar/github/clone/status?id=${missing.id}`)
+  }
+  check('clone job: failure is reported', failed.state === 'failed' && failed.reason !== '', JSON.stringify(failed))
+
+  const unknown = await ask(repo, '/dsh-git-bar/github/clone/status?id=nope')
+  check('clone job: unknown id', unknown.ok === false && unknown.reason === 'unknown-job', JSON.stringify(unknown))
+}
+
 // ── 6. config patch ──────────────────────────────────────────────────────
 {
   const cloneRoot = mkdtempSync(join(tmpdir(), 'dshgit-gh-root-'))

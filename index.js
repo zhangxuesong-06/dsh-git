@@ -8,7 +8,7 @@
  * that already own it (`workingDirectory`), so no path policy is duplicated
  * here and the browser never names a directory.
  */
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { readFile, mkdtemp, writeFile, rm as rmPath, chmod, mkdir, readdir } from 'node:fs/promises'
 import { tmpdir, homedir } from 'node:os'
@@ -1831,11 +1831,134 @@ async function githubRepos(ctx, query, limit) {
 }
 
 /**
+ * Clones that outlive one HTTP request. The browser may close the panel while a
+ * large repository is still downloading, so the job keeps its own state and the
+ * panel reads it back with `GET github/clone/status`.
+ */
+const cloneJobs = new Map()
+const CLONE_JOB_TTL_MS = 30 * 60_000
+
+/** Drop finished jobs nobody came back for. */
+function pruneCloneJobs() {
+  const now = Date.now()
+  for (const [id, job] of cloneJobs) {
+    if (job.finishedAt && now - job.finishedAt > CLONE_JOB_TTL_MS) cloneJobs.delete(id)
+  }
+}
+
+/** The JSON shape one clone job reports. */
+function cloneJobSnapshot(job) {
+  return {
+    ok: true,
+    id: job.id,
+    state: job.state,
+    repo: job.repo,
+    root: job.root ?? '',
+    path: job.path ?? '',
+    folder: job.folder ?? '',
+    percent: Math.max(0, Math.min(100, Math.round(job.percent ?? 0))),
+    stage: job.stage ?? '',
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt ?? null,
+    result: job.result ?? null,
+    reason: job.reason ?? '',
+    detail: job.detail ?? '',
+  }
+}
+
+/**
+ * Run `git clone --progress` and stream the percentages git prints on stderr
+ * into the job, so the browser can show real progress instead of a spinner.
+ */
+function runCloneWithProgress(cwd, args, extraEnv, job = null) {
+  return new Promise((done) => {
+    resolveGit()
+      .then((executable) => {
+        const child = spawn(executable, args, {
+          cwd,
+          windowsHide: true,
+          env: { ...process.env, ...extraEnv },
+        })
+        let stderr = ''
+        const timer = setTimeout(() => {
+          child.kill()
+          done({ ok: false, detail: 'clone timed out' })
+        }, GITHUB_CLONE_TIMEOUT_MS)
+        const collect = (chunk) => {
+          stderr += chunk
+          if (stderr.length > 200_000) stderr = stderr.slice(-200_000)
+          for (const line of String(chunk).split(/\r|\n/)) {
+            const stage = /(Counting objects|Compressing objects|Receiving objects|Resolving deltas|Updating files|Checking out files)/i.exec(line)
+            const percent = /(\d{1,3})%/.exec(line)
+            if (stage && percent && job) {
+              job.stage = stage[1].toLowerCase()
+              job.percent = Math.min(100, Number(percent[1]))
+            }
+          }
+        }
+        child.stderr.on('data', (chunk) => collect(chunk))
+        child.stdout.on('data', (chunk) => collect(chunk))
+        child.on('error', (error) => {
+          clearTimeout(timer)
+          done({ ok: false, detail: String(error && error.message ? error.message : error) })
+        })
+        child.on('close', (code) => {
+          clearTimeout(timer)
+          done({ ok: code === 0, detail: clipText(stderr) })
+        })
+      })
+      .catch((error) => done({ ok: false, detail: String(error && error.message ? error.message : error) }))
+  })
+}
+
+/**
+ * Start a clone without waiting for it; the caller gets an id immediately.
+ */
+function startCloneJob(ctx, payload) {
+  pruneCloneJobs()
+  const id = randomBytes(9).toString('hex')
+  const job = {
+    id,
+    state: 'queued',
+    repo: typeof payload.repo === 'string' ? payload.repo : '',
+    percent: 0,
+    stage: 'starting',
+    startedAt: Date.now(),
+    result: null,
+    reason: '',
+    detail: '',
+  }
+  cloneJobs.set(id, job)
+  void (async () => {
+    try {
+      const result = await githubClone(ctx, payload, job)
+      job.result = result
+      if (result.ok) {
+        job.state = 'done'
+        job.percent = 100
+        job.stage = 'done'
+      } else {
+        job.state = 'failed'
+        job.reason = result.reason ?? 'clone-failed'
+        job.detail = result.detail ?? ''
+      }
+    } catch (error) {
+      job.state = 'failed'
+      job.reason = 'clone-failed'
+      job.detail = clipText(error && error.message ? error.message : error)
+    } finally {
+      job.finishedAt = Date.now()
+    }
+  })()
+  return { ok: true, id, state: job.state, path: job.path ?? '', root: job.root ?? '', repo: job.repo }
+}
+
+/**
  * Clone a repository into a fresh folder under the configured root. The token
  * reaches git only through the temporary askpass helper, and a destination that
  * already holds files is refused instead of merged into.
  */
-async function githubClone(ctx, payload = {}) {
+async function githubClone(ctx, payload = {}, job = null) {
   const access = await githubAccessToken(ctx)
   if (!access.token) return { ok: false, reason: access.reason ?? 'not-signed-in', detail: access.detail ?? '' }
   const parsed = parseGithubRepo(payload.repo)
@@ -1850,6 +1973,12 @@ async function githubClone(ctx, payload = {}) {
       ? `${parsed.owner}-${parsed.name}`.replace(/[\\/:*?"<>|]/g, '-')
       : basename(parsed.url.replace(/\.git$/, '')) || 'repository'
   const target = join(root, folder)
+  if (job) {
+    job.root = root
+    job.path = target
+    job.folder = folder
+    job.state = 'checking'
+  }
   const existing = await readdir(target).catch(() => null)
   if (existing !== null && existing.length > 0) {
     return { ok: false, reason: 'target-exists', detail: target }
@@ -1869,14 +1998,15 @@ async function githubClone(ctx, payload = {}) {
       SSH_ASKPASS: helper.path,
       SSH_ASKPASS_REQUIRE: 'force',
     }
-    const args = ['clone', '--quiet']
+    const args = ['clone', '--progress']
     const branch = typeof payload.branch === 'string' ? payload.branch.trim() : ''
     if (branch !== '') args.push('--branch', branch)
     args.push('--', url, target)
-    const cloned = await git(root, args, GITHUB_CLONE_TIMEOUT_MS, env)
-    if (cloned.failed) {
+    if (job) job.state = 'cloning'
+    const cloned = await runCloneWithProgress(root, args, env, job)
+    if (!cloned.ok) {
       await rmPath(target, { recursive: true, force: true }).catch(() => {})
-      const detail = clipText(cloned.err || cloned.out)
+      const detail = clipText(cloned.detail)
       return {
         ok: false,
         reason: /Authentication failed|could not read Username|terminal prompts disabled/i.test(detail)
@@ -1889,6 +2019,11 @@ async function githubClone(ctx, payload = {}) {
     }
   } finally {
     if (helper) await rmPath(helper.dir, { recursive: true, force: true }).catch(() => {})
+  }
+  if (job) {
+    job.percent = 100
+    job.stage = 'finishing'
+    job.state = 'metadata'
   }
 
   let defaultBranch = ''
@@ -1991,7 +2126,7 @@ async function handle(ctx, req, res) {
         send(200, await githubStatus(ctx))
         return
       }
-      if (req.method !== 'POST' && step !== 'repos') {
+      if (req.method !== 'POST' && step !== 'repos' && step !== 'clone/status') {
         send(405, { ok: false, reason: 'method-not-allowed' })
         return
       }
@@ -2034,7 +2169,22 @@ async function handle(ctx, req, res) {
         return
       }
       if (step === 'clone') {
-        send(200, await githubClone(ctx, await readPayload(req)))
+        const payload = await readPayload(req)
+        if (payload.background === true) {
+          send(200, startCloneJob(ctx, payload))
+          return
+        }
+        send(200, await githubClone(ctx, payload))
+        return
+      }
+      if (step === 'clone/status') {
+        pruneCloneJobs()
+        const job = cloneJobs.get(url.searchParams.get('id') ?? '')
+        if (!job) {
+          send(200, { ok: false, reason: 'unknown-job' })
+          return
+        }
+        send(200, cloneJobSnapshot(job))
         return
       }
       if (step === 'config') {
