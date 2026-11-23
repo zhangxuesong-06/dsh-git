@@ -9,9 +9,10 @@
  * here and the browser never names a directory.
  */
 import { execFile } from 'node:child_process'
-import { readFile, mkdtemp, writeFile, rm as rmPath, chmod } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { isAbsolute, join, resolve as resolvePath } from 'node:path'
+import { randomBytes } from 'node:crypto'
+import { readFile, mkdtemp, writeFile, rm as rmPath, chmod, mkdir, readdir } from 'node:fs/promises'
+import { tmpdir, homedir } from 'node:os'
+import { basename, isAbsolute, join, resolve as resolvePath } from 'node:path'
 
 /**
  * Every route this plugin owns. The route table matches a prefix either
@@ -877,7 +878,7 @@ async function autoCommit(root, state, options = {}) {
     if (upstream !== '' && ahead <= 0) {
       return { ok: false, reason: 'nothing-to-push', upstream, ahead }
     }
-    const pushOnly = await pushCommitted(root, state.branch, credentials)
+    const pushOnly = await pushCommitted(root, state.branch, credentials, { token: options.token })
     return {
       ok: true,
       committed: false,
@@ -948,7 +949,7 @@ async function autoCommit(root, state, options = {}) {
     return { ok: false, reason: 'git-error', detail: clipText(staged.err || staged.out) }
   }
 
-  const commitArgs = ['commit', '-m', subject]
+  const commitArgs = [...(Array.isArray(options.identity) ? options.identity : []), 'commit', '-m', subject]
   if (body !== '') commitArgs.push('-m', body)
   const committed = await git(root, commitArgs, 60_000)
   if (committed.failed) {
@@ -966,7 +967,7 @@ async function autoCommit(root, state, options = {}) {
   ])
   const branch = branchResult.failed ? createdBranch : branchResult.out.trim() || createdBranch
   const push = wantedPush
-    ? await pushCommitted(root, branch, credentials)
+    ? await pushCommitted(root, branch, credentials, { token: options.token })
     : { pushed: false, skipped: true }
 
   return {
@@ -1209,17 +1210,20 @@ async function undoCommit(root) {
  * instead of prompting; with a one-shot password a temporary askpass helper
  * answers the prompt, and the directory is removed before returning.
  */
-async function pushCommitted(root, branch, credentials = null) {
+async function pushCommitted(root, branch, credentials = null, options = {}) {
   const target = await pushTarget(root, branch)
   if (target.reason === 'no-remote') {
     return { pushed: false, pushReason: 'no-remote', pushDetail: 'no git remote is configured' }
   }
-  const args = target.setTracking ? ['push', '--set-upstream', target.remote, branch] : ['push']
+  const token = typeof options.token === 'string' ? options.token : ''
+  const effective = credentials ?? (token !== '' ? { username: 'x-access-token', password: token } : null)
+  const transport = token === '' ? [] : await githubTransportArgs(root, target)
+  const args = [...transport, ...(target.setTracking ? ['push', '--set-upstream', target.remote, branch] : ['push'])]
 
   let helper = null
   try {
-    if (credentials) {
-      helper = await createAskpass(credentials)
+    if (effective) {
+      helper = await createAskpass(effective)
     }
     const env = helper
       ? {
@@ -1240,7 +1244,7 @@ async function pushCommitted(root, branch, credentials = null) {
         pushReason: outOfDate ? 'out-of-date' : 'push-failed',
         pushDetail: detail,
         upstream: target.upstream,
-        needsCredentials: credentials === null && isAuthFailure(detail),
+        needsCredentials: effective === null && isAuthFailure(detail),
       }
     }
     return { pushed: true, upstream: target.upstream, needsCredentials: false }
@@ -1254,6 +1258,557 @@ async function pushCommitted(root, branch, credentials = null) {
   } finally {
     if (helper) await rmPath(helper.dir, { recursive: true, force: true }).catch(() => {})
   }
+}
+
+// ─────────────────────────────── GitHub ───────────────────────────────
+/**
+ * GitHub support inside the Host half.
+ *
+ * Three jobs: keep a user token (DSH credential store first, an owner-only file
+ * as fallback), answer the profile and repository questions the browser half
+ * needs, and make the existing commit/push paths run as that account. The token
+ * never reaches the browser, argv, the repository config or a log line: it
+ * travels through a throw-away askpass helper (deleted before returning) and
+ * through an `Authorization` header only.
+ */
+const GITHUB_API = 'https://api.github.com'
+const GITHUB_WEB = 'https://github.com'
+const GITHUB_TOKEN_KEY = 'dsh-git-bar/github-token'
+const GITHUB_TIMEOUT_MS = 20_000
+const GITHUB_DEVICE_TTL_MS = 15 * 60_000
+const GITHUB_REPO_LIMIT = 100
+const GITHUB_CLONE_TIMEOUT_MS = 300_000
+/** Host-held device-flow attempts, keyed by an opaque id handed to the browser. */
+const deviceFlows = new Map()
+
+/** Directory this plugin owns for its own small state files. */
+function githubDataDir() {
+  const override = process.env.DSH_GIT_BAR_DATA_DIR
+  if (typeof override === 'string' && override.trim() !== '') return override.trim()
+  const profile = process.env.DSH_PROFILE_DIR
+  if (typeof profile === 'string' && profile.trim() !== '') return join(profile.trim(), 'data', 'dsh-git-bar')
+  return join(homedir(), '.dsh-git-bar')
+}
+
+/** Settings the browser half may read and patch. */
+function githubDefaultConfig() {
+  return { cloneRoot: join(homedir(), 'dsh-workspaces'), deviceClientId: '', useGithubIdentity: true }
+}
+
+function normaliseGithubConfig(raw) {
+  const config = githubDefaultConfig()
+  if (!raw || typeof raw !== 'object') return config
+  if (typeof raw.cloneRoot === 'string' && raw.cloneRoot.trim() !== '') config.cloneRoot = raw.cloneRoot.trim()
+  if (typeof raw.deviceClientId === 'string') config.deviceClientId = raw.deviceClientId.trim()
+  if (typeof raw.useGithubIdentity === 'boolean') config.useGithubIdentity = raw.useGithubIdentity
+  return config
+}
+
+async function readGithubConfig() {
+  try {
+    return normaliseGithubConfig(JSON.parse(await readFile(join(githubDataDir(), 'github.json'), 'utf8')))
+  } catch {
+    return normaliseGithubConfig(null)
+  }
+}
+
+async function writeGithubConfig(patch) {
+  const current = await readGithubConfig()
+  const next = normaliseGithubConfig({ ...current, ...(patch && typeof patch === 'object' ? patch : {}) })
+  if (next.deviceClientId !== '' && !/^[A-Za-z0-9_-]{8,80}$/.test(next.deviceClientId)) {
+    throw new Error('deviceClientId must look like a GitHub OAuth App client id')
+  }
+  await mkdir(githubDataDir(), { recursive: true })
+  await writeFile(join(githubDataDir(), 'github.json'), `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  return next
+}
+
+/** The credential seam, when this composition provides it. */
+function credentialsService(ctx) {
+  try {
+    return ctx.get('credentials')
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The stored grant: `{ token, tokenKind, account, scopes, connectedAt }`.
+ * The credential store keeps it as a `grant` record; without that service the
+ * same document lives in an owner-only file inside this plugin's data dir.
+ */
+async function readGithubGrant(ctx) {
+  const store = credentialsService(ctx)
+  if (store && typeof store.readRecord === 'function') {
+    try {
+      const record = await store.readRecord(GITHUB_TOKEN_KEY)
+      const payload = record && record.kind === 'grant' ? record.payload : null
+      if (payload && typeof payload.token === 'string' && payload.token !== '') return payload
+      return null
+    } catch {
+      // Fall through to the file store rather than reporting "signed out" on a
+      // store hiccup that a working fallback can cover.
+    }
+  }
+  try {
+    const parsed = JSON.parse(await readFile(join(githubDataDir(), 'github-token.json'), 'utf8'))
+    return parsed && typeof parsed.token === 'string' && parsed.token !== '' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+async function writeGithubGrant(ctx, payload) {
+  const store = credentialsService(ctx)
+  if (store && typeof store.modifyRecord === 'function') {
+    await store.modifyRecord(GITHUB_TOKEN_KEY, () => ({ kind: 'grant', payload }))
+    return
+  }
+  await mkdir(githubDataDir(), { recursive: true })
+  const file = join(githubDataDir(), 'github-token.json')
+  await writeFile(file, `${JSON.stringify(payload, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+  await chmod(file, 0o600).catch(() => {})
+}
+
+async function clearGithubGrant(ctx) {
+  const store = credentialsService(ctx)
+  if (store && typeof store.deleteRecord === 'function') {
+    try {
+      await store.deleteRecord(GITHUB_TOKEN_KEY)
+    } catch {
+      // A store that cannot delete still gets the file fallback removed.
+    }
+  }
+  await rmPath(join(githubDataDir(), 'github-token.json'), { force: true }).catch(() => {})
+}
+
+/** Plain string field from an untrusted API object. */
+function asText(value) {
+  return typeof value === 'string' ? value : ''
+}
+
+/** Trim a GitHub user document down to what the browser half may see. */
+function githubAccountOf(user) {
+  if (!user || typeof user !== 'object') return null
+  const login = asText(user.login)
+  if (login === '') return null
+  const id = Number(user.id)
+  return {
+    login,
+    name: asText(user.name),
+    id: Number.isFinite(id) ? id : 0,
+    avatarUrl: asText(user.avatar_url),
+    htmlUrl: asText(user.html_url),
+    email: asText(user.email),
+  }
+}
+
+/**
+ * `-c` arguments that make a plugin-created commit author *and* committer the
+ * signed-in account, using the address GitHub keeps stable across account
+ * renames. Empty when no account is known.
+ */
+export function githubIdentityArgs(account) {
+  if (!account || typeof account.login !== 'string' || account.login === '') return []
+  const login = account.login.replace(/[<>\s]/g, '')
+  const name = (typeof account.name === 'string' && account.name.trim() !== '' ? account.name : login)
+    .replace(/[<>\n]/g, '')
+    .trim()
+  const email = account.id > 0 ? `${account.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com`
+  return ['-c', `user.name=${name === '' ? login : name}`, '-c', `user.email=${email}`]
+}
+
+/**
+ * Accept `owner/name`, `github.com/owner/name`, or a concrete URL. A URL is
+ * passed through untouched so the tests and unusual remotes keep working.
+ */
+export function parseGithubRepo(spec) {
+  const text = String(spec ?? '').trim()
+  if (text === '') return null
+  if (/^(?:file:|git@|ssh:|https?:|[A-Za-z]:[\\/]|\/)/.test(text)) return { kind: 'url', url: text }
+  const match = text.replace(/^github\.com\//i, '').match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/)
+  if (!match) return null
+  const owner = match[1]
+  const name = match[2]
+  if (owner === '.' || name === '.' || name === '..') return null
+  return { kind: 'github', owner, name }
+}
+
+/** One GitHub REST call; failures become `{ ok: false, reason }` rather than throwing. */
+async function githubRequest(path, options = {}) {
+  const headers = {
+    accept: 'application/vnd.github+json',
+    'user-agent': 'dsh-git-bar',
+    'x-github-api-version': '2022-11-28',
+  }
+  if (typeof options.token === 'string' && options.token !== '') headers.authorization = `Bearer ${options.token}`
+  const init = { method: options.method ?? 'GET', headers, signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS) }
+  if (options.body !== undefined) {
+    headers['content-type'] = 'application/json'
+    init.body = JSON.stringify(options.body)
+  }
+  let response
+  try {
+    response = await fetch(`${GITHUB_API}${path}`, init)
+  } catch (error) {
+    return { ok: false, reason: 'network', detail: clipText(error && error.message ? error.message : error) }
+  }
+  const scopes = (response.headers.get('x-oauth-scopes') ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value !== '')
+  const text = await response.text().catch(() => '')
+  let data = null
+  try {
+    data = text === '' ? null : JSON.parse(text)
+  } catch {
+    data = null
+  }
+  if (!response.ok) {
+    const reason =
+      response.status === 401
+        ? 'bad-credentials'
+        : response.status === 404
+          ? 'not-found'
+          : response.status === 403
+            ? 'forbidden'
+            : 'http-error'
+    return { ok: false, reason, status: response.status, detail: clipText((data && data.message) ?? text), scopes }
+  }
+  return { ok: true, data, scopes }
+}
+
+/**
+ * Environment name the shipped MCP row reads. The row itself stays disabled
+ * until the variable exists, so a signed-out profile never tries to connect.
+ */
+const GITHUB_MCP_ENV = 'DSH_GIT_BAR_GITHUB_TOKEN'
+
+/** Harness home, where the boot-time `.env` layer lives. */
+function dshHome() {
+  const explicit = process.env.DSH_HOME
+  if (typeof explicit === 'string' && explicit.trim() !== '') return explicit.trim()
+  return join(homedir(), '.dsh')
+}
+
+/**
+ * Upsert (or remove) the GitHub token line in the Harness-home `.env`, which
+ * DSH loads at boot. This is what lets the declarative MCP row authenticate
+ * without the token ever appearing in a patch file or a settings document.
+ */
+async function writeGithubEnvToken(token) {
+  const file = join(dshHome(), '.env')
+  let lines = []
+  try {
+    lines = (await readFile(file, 'utf8')).split('\n')
+  } catch {
+    lines = []
+  }
+  const kept = lines.filter((line) => !line.startsWith(`${GITHUB_MCP_ENV}=`))
+  if (typeof token === 'string' && token !== '') kept.push(`${GITHUB_MCP_ENV}=${token}`)
+  const text = `${kept.join('\n').replace(/\n+$/, '')}\n`
+  await mkdir(dshHome(), { recursive: true }).catch(() => {})
+  if (kept.length === 0) {
+    await rmPath(file, { force: true }).catch(() => {})
+  } else {
+    await writeFile(file, text, { encoding: 'utf8', mode: 0o600 })
+    await chmod(file, 0o600).catch(() => {})
+  }
+  if (typeof token === 'string' && token !== '') process.env[GITHUB_MCP_ENV] = token
+  else delete process.env[GITHUB_MCP_ENV]
+}
+
+/** Everything the browser half may know about the current sign-in. */
+async function githubStatus(ctx) {
+  const [config, grant] = await Promise.all([readGithubConfig(), readGithubGrant(ctx)])
+  return {
+    ok: true,
+    signedIn: Boolean(grant && grant.token),
+    account: (grant && grant.account) || null,
+    tokenKind: (grant && grant.tokenKind) || null,
+    connectedAt: grant && typeof grant.connectedAt === 'number' ? grant.connectedAt : null,
+    scopes: grant && Array.isArray(grant.scopes) ? grant.scopes : null,
+    mcp: { configured: Boolean(process.env[GITHUB_MCP_ENV]), envName: GITHUB_MCP_ENV },
+    config,
+  }
+}
+
+/** Verify a token and persist it as a personal access token grant. */
+async function githubLogin(ctx, token) {
+  const verified = await githubRequest('/user', { token })
+  if (!verified.ok) {
+    return { ok: false, reason: verified.reason === 'network' ? 'network' : 'bad-credentials', detail: verified.detail ?? '' }
+  }
+  const account = githubAccountOf(verified.data)
+  if (!account) return { ok: false, reason: 'bad-credentials' }
+  await writeGithubGrant(ctx, {
+    token,
+    tokenKind: 'pat',
+    account,
+    scopes: verified.scopes,
+    connectedAt: Date.now(),
+  })
+  await writeGithubEnvToken(token)
+  return githubStatus(ctx)
+}
+
+/** Begin an OAuth device-flow attempt; the device code never leaves the Host. */
+async function githubDeviceStart() {
+  const config = await readGithubConfig()
+  if (config.deviceClientId === '') return { ok: false, reason: 'missing-client-id' }
+  let response
+  try {
+    response = await fetch(`${GITHUB_WEB}/login/device/code`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: config.deviceClientId, scope: 'repo read:user' }).toString(),
+      signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
+    })
+  } catch (error) {
+    return { ok: false, reason: 'network', detail: clipText(error && error.message ? error.message : error) }
+  }
+  const data = await response.json().catch(() => null)
+  if (!response.ok || !data || typeof data.device_code !== 'string') {
+    return { ok: false, reason: 'device-start-failed', detail: clipText((data && data.error_description) ?? `HTTP ${response.status}`) }
+  }
+  const id = randomBytes(12).toString('hex')
+  const interval = Math.max(1, Number(data.interval) || 5)
+  const expiresAt = Date.now() + (Number(data.expires_in) || 900) * 1000
+  deviceFlows.set(id, { deviceCode: data.device_code, interval, expiresAt, nextPollAt: Date.now() + interval * 1000 })
+  return {
+    ok: true,
+    id,
+    userCode: asText(data.user_code),
+    verificationUri: asText(data.verification_uri) || `${GITHUB_WEB}/login/device`,
+    interval,
+    expiresAt,
+  }
+}
+
+/** Poll one device-flow attempt; resolves to `pending` until the user approves. */
+async function githubDevicePoll(ctx, id) {
+  const flow = deviceFlows.get(id)
+  if (!flow) return { ok: false, reason: 'unknown-flow' }
+  if (Date.now() > flow.expiresAt) {
+    deviceFlows.delete(id)
+    return { ok: false, reason: 'expired' }
+  }
+  if (Date.now() < flow.nextPollAt) {
+    return { ok: true, state: 'pending', retryAfter: Math.max(1, Math.ceil((flow.nextPollAt - Date.now()) / 1000)) }
+  }
+  flow.nextPollAt = Date.now() + flow.interval * 1000
+  const config = await readGithubConfig()
+  let response
+  try {
+    response = await fetch(`${GITHUB_WEB}/login/oauth/access_token`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: config.deviceClientId,
+        device_code: flow.deviceCode,
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      }).toString(),
+      signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
+    })
+  } catch (error) {
+    return { ok: false, reason: 'network', detail: clipText(error && error.message ? error.message : error) }
+  }
+  const data = await response.json().catch(() => null)
+  const error = asText(data && data.error)
+  if (error === 'authorization_pending') return { ok: true, state: 'pending', retryAfter: flow.interval }
+  if (error === 'slow_down') {
+    flow.interval = Math.max(flow.interval + 5, Number(data && data.interval) || 0)
+    return { ok: true, state: 'slow-down', retryAfter: flow.interval }
+  }
+  if (error === 'expired_token') {
+    deviceFlows.delete(id)
+    return { ok: false, reason: 'expired' }
+  }
+  if (error === 'access_denied') {
+    deviceFlows.delete(id)
+    return { ok: false, reason: 'denied' }
+  }
+  if (error !== '' || !data || typeof data.access_token !== 'string' || data.access_token === '') {
+    deviceFlows.delete(id)
+    return { ok: false, reason: 'device-failed', detail: clipText(error || `HTTP ${response.status}`) }
+  }
+  const verified = await githubRequest('/user', { token: data.access_token })
+  const account = verified.ok ? githubAccountOf(verified.data) : null
+  if (!account) {
+    deviceFlows.delete(id)
+    return { ok: false, reason: 'bad-credentials' }
+  }
+  await writeGithubGrant(ctx, {
+    token: data.access_token,
+    tokenKind: 'device',
+    account,
+    scopes: verified.scopes,
+    connectedAt: Date.now(),
+  })
+  await writeGithubEnvToken(data.access_token)
+  deviceFlows.delete(id)
+  return { ok: true, state: 'done', account }
+}
+
+/** Repositories the signed-in account can push to, newest first. */
+async function githubRepos(ctx, query, limit) {
+  const grant = await readGithubGrant(ctx)
+  if (!grant) return { ok: false, reason: 'not-signed-in' }
+  const size = Math.min(GITHUB_REPO_LIMIT, Math.max(1, Number(limit) || 50))
+  const result = await githubRequest(
+    `/user/repos?sort=updated&direction=desc&per_page=${size}&affiliation=owner,collaborator,organization_member`,
+    { token: grant.token },
+  )
+  if (!result.ok) return { ok: false, reason: result.reason, detail: result.detail ?? '' }
+  const needle = String(query ?? '').trim().toLowerCase()
+  const repos = (Array.isArray(result.data) ? result.data : [])
+    .map((repo) => ({
+      fullName: asText(repo.full_name),
+      name: asText(repo.name),
+      owner: asText(repo.owner && repo.owner.login),
+      private: repo.private === true,
+      defaultBranch: asText(repo.default_branch),
+      description: asText(repo.description),
+      updatedAt: asText(repo.updated_at),
+      cloneUrl: asText(repo.clone_url),
+    }))
+    .filter((repo) => repo.fullName !== '')
+    .filter(
+      (repo) =>
+        needle === '' ||
+        repo.fullName.toLowerCase().includes(needle) ||
+        repo.description.toLowerCase().includes(needle),
+    )
+  return { ok: true, repos }
+}
+
+/**
+ * Clone a repository into a fresh folder under the configured root. The token
+ * reaches git only through the temporary askpass helper, and a destination that
+ * already holds files is refused instead of merged into.
+ */
+async function githubClone(ctx, payload = {}) {
+  const grant = await readGithubGrant(ctx)
+  if (!grant) return { ok: false, reason: 'not-signed-in' }
+  const parsed = parseGithubRepo(payload.repo)
+  if (!parsed) return { ok: false, reason: 'bad-repo' }
+  const config = await readGithubConfig()
+  const requestedRoot = typeof payload.root === 'string' && payload.root.trim() !== '' ? payload.root.trim() : config.cloneRoot
+  const root = isAbsolute(requestedRoot) ? resolvePath(requestedRoot) : join(homedir(), requestedRoot)
+  await mkdir(root, { recursive: true })
+
+  const folder =
+    parsed.kind === 'github'
+      ? `${parsed.owner}-${parsed.name}`.replace(/[\\/:*?"<>|]/g, '-')
+      : basename(parsed.url.replace(/\.git$/, '')) || 'repository'
+  const target = join(root, folder)
+  const existing = await readdir(target).catch(() => null)
+  if (existing !== null && existing.length > 0) {
+    return { ok: false, reason: 'target-exists', detail: target }
+  }
+  if (existing !== null) await rmPath(target, { recursive: true, force: true }).catch(() => {})
+
+  const url =
+    parsed.kind === 'github' ? `${GITHUB_WEB}/${parsed.owner}/${parsed.name}.git` : parsed.url
+  let helper = null
+  try {
+    helper = await createAskpass({ username: 'x-access-token', password: grant.token })
+    const env = {
+      ...NETWORK_ENV,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_ASKPASS: helper.path,
+      GCM_INTERACTIVE: 'never',
+      SSH_ASKPASS: helper.path,
+      SSH_ASKPASS_REQUIRE: 'force',
+    }
+    const args = ['clone', '--quiet']
+    const branch = typeof payload.branch === 'string' ? payload.branch.trim() : ''
+    if (branch !== '') args.push('--branch', branch)
+    args.push('--', url, target)
+    const cloned = await git(root, args, GITHUB_CLONE_TIMEOUT_MS, env)
+    if (cloned.failed) {
+      await rmPath(target, { recursive: true, force: true }).catch(() => {})
+      const detail = clipText(cloned.err || cloned.out)
+      return {
+        ok: false,
+        reason: /Authentication failed|could not read Username|terminal prompts disabled/i.test(detail)
+          ? 'auth-failed'
+          : /not found|Repository not found|does not appear to be a git repository/i.test(detail)
+            ? 'not-found'
+            : 'clone-failed',
+        detail,
+      }
+    }
+  } finally {
+    if (helper) await rmPath(helper.dir, { recursive: true, force: true }).catch(() => {})
+  }
+
+  let defaultBranch = ''
+  let isPrivate = false
+  if (parsed.kind === 'github') {
+    const info = await githubRequest(`/repos/${parsed.owner}/${parsed.name}`, { token: grant.token })
+    if (info.ok && info.data) {
+      defaultBranch = asText(info.data.default_branch)
+      isPrivate = info.data.private === true
+    }
+  }
+  const branchResult = await git(target, ['symbolic-ref', '--short', '-q', 'HEAD'])
+  const branch = branchResult.failed ? '' : branchResult.out.trim()
+  return {
+    ok: true,
+    root,
+    path: target,
+    folder,
+    branch: branch || defaultBranch,
+    defaultBranch,
+    private: isPrivate,
+    repo: parsed.kind === 'github' ? `${parsed.owner}/${parsed.name}` : url,
+  }
+}
+
+/** The sign-in facts a commit or push needs, resolved once per request. */
+async function githubRuntime(ctx) {
+  const [config, grant] = await Promise.all([readGithubConfig(), readGithubGrant(ctx)])
+  const account = (grant && grant.account) || null
+  return {
+    config,
+    grant,
+    account,
+    token: (grant && grant.token) || '',
+    identity: config.useGithubIdentity && account ? githubIdentityArgs(account) : [],
+  }
+}
+
+/**
+ * `-c` arguments that let a GitHub SSH remote authenticate with a token over
+ * HTTPS. Pure so the self-tests can cover every URL shape.
+ */
+export function githubRewriteArgs(url) {
+  const text = typeof url === 'string' ? url.trim() : ''
+  if (!/^git@github\.com:/i.test(text) && !/^ssh:\/\/git@github\.com\//i.test(text)) return []
+  return ['-c', 'url.https://github.com/.insteadOf=git@github.com:', '-c', 'url.https://github.com/.insteadOf=ssh://git@github.com/']
+}
+
+/**
+ * `-c` arguments that let a configured SSH GitHub remote authenticate with the
+ * token over HTTPS. This changes one invocation only: the remote stays SSH.
+ */
+async function githubTransportArgs(root, target) {
+  const remoteName = target.remote !== '' ? target.remote : String(target.upstream ?? '').split('/')[0]
+  if (remoteName === '') return []
+  const urlResult = await git(root, ['remote', 'get-url', remoteName])
+  return githubRewriteArgs(urlResult.failed ? '' : urlResult.out)
+}
+
+/**
+ * Payload plus the sign-in facts a commit needs, so the caller can keep using
+ * the plain request body: `identity` (author/committer `-c` arguments) and
+ * `token` (push authentication) are added here and never come from the browser.
+ */
+async function withGithubRuntime(ctx, payload) {
+  const github = await githubRuntime(ctx)
+  if (github.identity.length === 0 && github.token === '') return payload
+  return { ...payload, identity: github.identity, token: github.token }
 }
 
 /** Answer one HTTP request from this plugin's route family. */
@@ -1276,6 +1831,73 @@ async function handle(ctx, req, res) {
   try {
     if (action === '' || action === 'health') {
       send(200, { ok: true, name: 'dsh-git-bar' })
+      return
+    }
+
+    // GitHub sign-in, repository browsing and clone-to-workspace. These routes
+    // never need a Session workspace: they answer from the stored grant alone.
+    if (action.startsWith('github/')) {
+      const step = action.slice('github/'.length)
+      if (step === 'status') {
+        send(200, await githubStatus(ctx))
+        return
+      }
+      if (req.method !== 'POST' && step !== 'repos') {
+        send(405, { ok: false, reason: 'method-not-allowed' })
+        return
+      }
+      if (step === 'login') {
+        const payload = await readPayload(req)
+        const token = typeof payload.token === 'string' ? payload.token.trim() : ''
+        if (token === '') {
+          send(200, { ok: false, reason: 'missing-token' })
+          return
+        }
+        send(200, await githubLogin(ctx, token))
+        return
+      }
+      if (step === 'logout') {
+        await clearGithubGrant(ctx)
+        await writeGithubEnvToken('')
+        send(200, { ok: true })
+        return
+      }
+      if (step === 'device/start') {
+        await readPayload(req)
+        send(200, await githubDeviceStart())
+        return
+      }
+      if (step === 'device/poll') {
+        const payload = await readPayload(req)
+        const id = typeof payload.id === 'string' ? payload.id : ''
+        if (id === '') {
+          send(200, { ok: false, reason: 'missing-id' })
+          return
+        }
+        send(200, await githubDevicePoll(ctx, id))
+        return
+      }
+      if (step === 'repos') {
+        send(
+          200,
+          await githubRepos(ctx, url.searchParams.get('q') ?? '', url.searchParams.get('limit') ?? ''),
+        )
+        return
+      }
+      if (step === 'clone') {
+        send(200, await githubClone(ctx, await readPayload(req)))
+        return
+      }
+      if (step === 'config') {
+        const payload = await readPayload(req)
+        try {
+          send(200, { ok: true, config: await writeGithubConfig(payload) })
+        } catch (error) {
+          send(200, { ok: false, reason: 'invalid-config', detail: clipText(error && error.message ? error.message : error) })
+        }
+        return
+      }
+      send(404, { ok: false, reason: 'unknown-action' })
       return
     }
 
@@ -1362,7 +1984,7 @@ async function handle(ctx, req, res) {
         send(200, { ok: false, reason: state.reason ?? 'not-a-repository', detail: state.detail ?? '' })
         return
       }
-      send(200, await autoCommit(state.root, state, payload))
+      send(200, await autoCommit(state.root, state, await withGithubRuntime(ctx, payload)))
       return
     }
 
@@ -1388,7 +2010,10 @@ async function handle(ctx, req, res) {
         send(200, { ok: false, reason: 'detached', detail: 'HEAD is detached' })
         return
       }
-      const result = await pushCommitted(state.root, state.branch.trim(), normaliseCredentials(payload))
+      const github = await githubRuntime(ctx)
+      const result = await pushCommitted(state.root, state.branch.trim(), normaliseCredentials(payload), {
+        token: github.token,
+      })
       const failed = result.pushed !== true
       send(200, {
         ...result,

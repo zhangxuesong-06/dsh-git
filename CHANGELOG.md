@@ -3,6 +3,31 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.0] - 2026-11-23
+
+### 新增
+
+- **GitHub 登录**：面板顶部新增 GitHub 卡片，支持 **Personal Access Token** 或 **OAuth Device Flow**
+  （8 位码 + 浏览器授权）。token 存进 DSH 凭据库（grant 记录），任何路由都不返回它；也可用插件数据目录里
+  权限 0600 的兜底文件。
+- **以 GitHub 身份提交/推送**：登录后插件创建的提交使用 `<名字> <id+login@users.noreply.github.com>` 作作者与
+  提交者（提交面板可一键关掉）；推送用登录 token 经临时 askpass 认证，SSH 远端只在这一次推送里改写成 HTTPS，
+  remote 配置不动。
+- **从 GitHub 新建工作区**：卡片里搜索仓库或手填 `owner/repo`，克隆到 `~/dsh-workspaces/<owner>-<repo>`
+  （根目录可改），随后自动创建工作区并打开新会话；非空目标目录会被拒绝，不会覆盖已有文件。
+- **GitHub MCP**：随包附带一行 `@deepseek-ai/dsh-mcp-client`（官方远程 `https://api.githubcopilot.com/mcp/`），
+  授权头取 `DSH_GIT_BAR_GITHUB_TOKEN`；登录后写入 Harness 家目录 `.env`，**重启 DSH** 后会话里出现
+  `mcp__github__*` 工具，退出登录即清除。
+- 新增 8 条 `/github/*` 路由（status / login / logout / device/start / device/poll / repos / clone / config）。
+
+### 测试
+
+- `test/github.test.mjs`（53 项）：测试里用 mock `fetch` 驱动 GitHub API，覆盖 PAT 登录、坏 token、设备流
+  的 pending/slow-down/approved、仓库列表与过滤、克隆（本地 bare 仓库）、`target-exists`、配置校验、
+  以 GitHub 身份提交、关闭身份开关、带 token 的提交+推送、退出登录后拒绝克隆。
+- `test/contract.test.mjs` 增加 GitHub 契约：8 条路由、身份 helper、askpass 传递、SSH 改写、token 不进
+  argv、patch 里没有 token 字面量、MCP 行由变量 gate。
+
 ## [1.3.2] - 2026-11-22
 
 ### 修复

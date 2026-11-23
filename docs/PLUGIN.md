@@ -77,6 +77,14 @@
 | `POST /dsh-git-bar/clean` | 删除未跟踪文件：`git clean -f -- …`（只删文件）；已跟踪路径返回 `tracked-needs-discard` |
 | `POST /dsh-git-bar/resolve` | 冲突取一边：`{paths, side:'ours'|'theirs'}` → `git checkout --ours/--theirs -- …` 后 `git add`；非冲突路径返回 `not-conflicted`，缺 side 返回 `missing-side` |
 | `POST /dsh-git-bar/undo-commit` | 撤销上一次提交：`git reset --soft HEAD~1`（改动留在暂存区），返回 `{ok, undone:'<标题>', short}`；无父提交返回 `no-previous-commit` |
+| `GET /dsh-git-bar/github/status` | 登录状态与配置：`signedIn`、`account{login,name,id,avatarUrl,htmlUrl,email}`、`tokenKind`（`pat`/`device`）、`scopes`、`mcp{configured,envName}`、`config{cloneRoot,deviceClientId,useGithubIdentity}`。**不返回 token** |
+| `POST /dsh-git-bar/github/login` | body `{token}`：`GET /user` 校验 → 以 `{kind:'grant', payload:{token,tokenKind,account,scopes,connectedAt}}` 写入 `ctx.credentials`（key `dsh-git-bar/github-token`），同时把 token 写进 Harness 家目录 `.env` 供 MCP 行使用；坏 token `bad-credentials` |
+| `POST /dsh-git-bar/github/logout` | 删除 grant + 清 `.env` 里的 `DSH_GIT_BAR_GITHUB_TOKEN` |
+| `POST /dsh-git-bar/github/device/start` | 需先配置 `deviceClientId`（没有则 `missing-client-id`）。Host 调 `github.com/login/device/code`，把 `device_code` 留在内存（`Map`，id 为随机 12 字节），返回 `{id,userCode,verificationUri,interval,expiresAt}` |
+| `POST /dsh-git-bar/github/device/poll` | body `{id}`；按 GitHub 的 `interval` 做本地闸门（未到时间直接 `pending` + `retryAfter`），映射 `authorization_pending`/`slow_down`（间隔 +5s）/`expired_token`/`access_denied`；成功则同 login 落库并返回 `{state:'done',account}` |
+| `GET /dsh-git-bar/github/repos?q=&limit=` | `/user/repos?sort=updated&affiliation=owner,collaborator,organization_member`，最多 100 条，Host 侧按名称/描述过滤 |
+| `POST /dsh-git-bar/github/clone` | body `{repo,branch?,root?}`；`owner/repo` / `github.com/...` / 任意 URL（`file:` 也可，测试用）。目录名 `<owner>-<repo>`，目标非空即 `target-exists`；token 走 askpass 的 HTTPS 克隆；错误还包括 `not-signed-in`、`bad-repo`、`not-found`、`auth-failed`、`clone-failed` |
+| `POST /dsh-git-bar/github/config` | 改 `cloneRoot`/`deviceClientId`/`useGithubIdentity`（写到插件数据目录 `github.json`）；client id 非法返回 `invalid-config` |
 | `GET /dsh-git-bar/health` | 存活探针 |
 
 文件操作统一约束：只有 `POST`；`paths` 逐条过 `relativePath` 校验（拒绝绝对路径、盘符、`..`、`-` 开头），
@@ -85,6 +93,11 @@
 安全约束：`path` 必须是仓库内相对路径（拒绝绝对路径、盘符与 `..`）；`hash` 只接受十六进制；分支名必须来自
 `git for-each-ref` 的实际结果；所有 git 调用都是无 shell 的固定 argv，仓库根由 `git rev-parse --show-toplevel`
 解析，浏览器从不直接指定目录。
+
+GitHub 相关约束：token 只存在于 Host（凭据库 grant 记录 / 0600 兜底文件 / Harness `.env`），路由永不返回它；
+推送/克隆的 token 经临时 askpass 助手交给 git（不进 argv、不改 remote 配置，SSH 远端只在单条命令里用
+`url.https://github.com/.insteadOf` 改写）；提交身份用 noreply 地址且可在面板关闭；MCP 行由
+`DSH_GIT_BAR_GITHUB_TOKEN` 是否存在决定启用，patch 文件里没有任何 token 字面量。
 
 ## 右侧栏标签页（只有审查）
 

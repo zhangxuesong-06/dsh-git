@@ -72,6 +72,7 @@ conversation.session.header.utilities    会话 ID → ctx.sessions.get(id)
 | 11-22 | v1.2.0 | Host 新增 6 条文件操作路由（stage / unstage / discard / clean / resolve / undo-commit）与 `test/file-ops.test.mjs`；客户端接上文件行操作、冲突取一边、分组「全部暂存」、提交面板「撤销上次提交」 |
 | 11-22 | v1.3.0 / v1.3.1 | 图谱搜索（信息/作者/哈希）+ 加载更多 + 触摸常显；搜索词跨详情保留、Esc 清空搜索；GitHub 仓库改名 `dsh-git-bar` 并同步 `repository`/首页/安装地址 |
 | 11-22 | v1.3.2 | **修图谱时间显示 2001 年**：`collectGraph` 曾用 `--date=format:%m/%d %H:%M` 的 `%ad`（无年份）冒充 ISO，`Date.parse` 解析成 2001；改用 `%aI` 严格 ISO，并加回归断言 |
+| 11-23 | v1.4.0 | **GitHub 集成**：PAT + OAuth Device Flow 登录（token 进 DSH 凭据库 grant 记录）、以 GitHub 身份提交、token 经 askpass 推送（SSH 远端单条命令改写 HTTPS）、一键克隆仓库到 `~/dsh-workspaces` 并 `workspaces.create` + `uiWorkspace.openWorkspace` 打开新会话、官方远程 GitHub MCP（`dsh-mcp-client` 行由 `.env` 里的 token 变量 gate）；新增 8 条 `/github/*` 路由与 53 项测试 |
 
 ## 4. 关键决策（含理由）
 
@@ -99,6 +100,20 @@ conversation.session.header.utilities    会话 ID → ctx.sessions.get(id)
    `--hard`（会删掉改动）。只有一条提交时没有 `HEAD~1`，直接拒绝并提示。
 11. **文件操作先读 body 再跑 git**：请求体是流，若在 `await` 之后再挂监听，body 可能已经流完（测试里表现为
    请求永久挂起）。所以所有写操作路由的第一件事都是把 body 读完。
+12. **GitHub 登录走「两种都要」**：PAT 是零配置路径（立刻可用），Device Flow 体验更好但要求用户自建
+    OAuth App 提供 `client_id`（还要勾 Enable Device Flow），所以做成配置项而不是写死——没有 client id 时
+    `/github/device/start` 直接返回 `missing-client-id`，PAT 通路不受影响。
+13. **token 只进 Host**：存 `ctx.credentials` 的 grant 记录（`{kind:'grant', payload:{token,…}}`），这是凭据
+    服务里唯一适合「授权凭据」的空间（api-key 记录是给模型供应商用的）；凭据服务缺失时退回插件数据目录的
+    0600 JSON。路由永不返回 token，推送/克隆的认证走临时 askpass（不进 argv、不改 remote）。
+14. **提交身份用 noreply 地址**：`<id>+<login>@users.noreply.github.com` 在账号改名后仍有效，也不会把真实
+    邮箱写进提交历史；`useGithubIdentity` 可关，关掉就完全沿用仓库/全局 git 配置。
+15. **MCP 用「env 变量 gate 的声明式行」而不是运行时挂载**：Loader 的 `!!js` 是同步求值（`new Function`），
+    拿不到异步的凭据服务，所以登录时把 token 写进 Harness 家目录 `.env`（0600），patch 行用
+    `disabled: !!js !process.env.DSH_GIT_BAR_GITHUB_TOKEN` 控制是否挂载、header 用 `!!js` 模板读同一个变量。
+    代价是登录后要重启一次 DSH；好处是 token 从不进入 patch/设置文件，退出登录删一行即可。
+16. **克隆目录名固定 `<owner>-<repo>`**：避免不同 owner 的同名仓库撞车；目标已存在且非空直接 `target-exists`，
+    绝不覆盖用户已有目录；根目录可在卡片里改（默认 `~/dsh-workspaces`）。
 
 ## 5. 事故与根因（值得记住的坑）
 
@@ -169,6 +184,19 @@ URL 为准；会话 ID 也会随环境变化。
   - [x] 打磨项（1.3.1）：从搜索结果进详情再返回保留搜索词与已加载分页、搜索框内 Esc 先清空搜索、
         清空搜索即时生效（打字仍防抖）；
   - [ ] 剩余观察项：跨页泳道连线未重算、从详情返回滚动位置回顶部、大仓库虚拟滚动（观察后再定）。
+- **v1.4.0（GitHub 集成，已实现，待真机验证）**：
+  - [x] Host：`github/status|login|logout|device/start|device/poll|repos|clone|config` 八条路由；
+        token 存 `ctx.credentials` 的 grant 记录（`dsh-git-bar/github-token`），无该服务时退回 0600 文件；
+  - [x] 身份：`githubIdentityArgs()` → `<name> <id+login@users.noreply.github.com>`，`useGithubIdentity` 可关；
+  - [x] 推送：token 经临时 askpass，`git@github.com:` / `ssh://git@github.com/` 仅在单条命令里用
+        `url.https://github.com/.insteadOf` 改写；remote 配置不变；
+  - [x] 克隆：`parseGithubRepo` 接受 `owner/repo`、`github.com/...`、URL；目标目录非空即拒绝；
+  - [x] MCP：patch 增 `@deepseek-ai/dsh-mcp-client`（`serverName: github`），header 用 `!!js` 读
+        `process.env.DSH_GIT_BAR_GITHUB_TOKEN`，`disabled` 同变量取反；login/logout 维护 `~/.dsh/.env`；
+  - [x] `test/github.test.mjs`（53 项，mock `fetch`）+ `contract.test.mjs` 的 GitHub 契约（8 路由、askpass、
+        SSH 改写、patch 无 token 字面量）；
+  - [ ] 待用户用真实 GitHub 账号验证：PAT 登录、device flow（需自建 OAuth App 并勾 Enable Device Flow）、
+        真机克隆 + 打开新会话、重启后 `mcp__github__*` 工具是否出现。
 - **发布收尾**：
   - [x] GitHub 仓库已改名为 `dsh-git-bar`（2026-11-22，旧 URL 自动重定向），`repository`/`homepage`/`bugs`
         与 README 里的安装地址已在 1.3.1 同步更新；
@@ -187,6 +215,8 @@ URL 为准；会话 ID 也会随环境变化。
 | `push.test.mjs` | 有上游/无上游/无远端/远端领先/远端不可达五种推送路径与分类 |
 | `push-only.test.mjs` | `session-pending` 与"干净但有未推送提交→只推送"的降级逻辑 |
 | `commit-panel.test.mjs` | 自定义描述、仅提交、游离 HEAD 建分支、`/push` 路由、askpass 特殊字符与临时目录清理 |
+| `graph-search.test.mjs` | 图谱搜索（信息/作者/哈希/大小写/无结果）与 `skip` 分页、`limit` 夹取 |
+| `github.test.mjs` | GitHub：纯函数（仓库规格/身份/SSH 改写）、PAT 登录与坏 token、设备流 pending/slow-down/approved、仓库过滤、本地克隆与 `target-exists`、配置校验、GitHub 身份提交与开关、带 token 的提交+推送、退出登录后的拒绝 |
 | `brief.test.mjs` | `?brief=1` 不返回文件/提交但计数一致、`iso` 格式、干净树计数为 0 |
 | `contract.test.mjs` | 两个半边的静态契约（见上文路线图里的说明） |
 

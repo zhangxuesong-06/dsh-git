@@ -55,6 +55,24 @@ for (const route of ['state', 'diff', 'branches', 'switch', 'graph', 'commit', '
   check(`host: route "${route}" exists`, new RegExp(`action === '${route}'`).test(host), 'route missing')
 }
 
+// ── GitHub half: routes, identity, no secret in argv or patch ────────────
+for (const step of ['status', 'login', 'logout', 'device/start', 'device/poll', 'repos', 'clone', 'config']) {
+  check(`host: github "${step}" handled`, new RegExp(`step === '${step}'`).test(host), 'missing branch')
+}
+check('host: identity args derive from the account', /export function githubIdentityArgs/.test(host), 'missing identity helper')
+check('host: token push reuses the askpass helper', /createAskpass\(\{ username: 'x-access-token', password: grant\.token \}\)/.test(host), 'token not routed through askpass')
+check('host: ssh remotes are rewritten per push', /url\.https:\/\/github\.com\/\.insteadOf=git@github\.com:/.test(host), 'missing insteadOf rewrite')
+check(
+  'host: token never embedded in a remote URL',
+  !/https:\/\/[^'"\s`]*\$\{token\}/.test(host) && !/https:\/\/x-access-token:/.test(host),
+  'token in a URL',
+)
+check('host: token reaches git through the askpass env', /GIT_ASKPASS: helper\.path/.test(host) && /SSH_ASKPASS_REQUIRE: 'force'/.test(host), 'env delivery missing')
+check('host: grant prefers the credential store', /kind: 'grant', payload/.test(host) && /readRecord\(GITHUB_TOKEN_KEY\)/.test(host), 'credential seam unused')
+check('client: device flow is rate limited by the host', /device\/poll/.test(client) && /slow-down/.test(client), 'poll handling missing')
+check('client: PAT leaves the input after login', /setPat\(''\)/.test(client), 'token kept in state')
+check('client: clone opens a real workspace', /workspaces[\s\S]{0,200}?create\(\{ path/.test(client) && /openWorkspace\(/.test(client), 'workspace wiring missing')
+
 // ── manifest + locale metadata ───────────────────────────────────────────
 check('manifest: bundle patch declared', pkg.dsh && pkg.dsh.bundle && pkg.dsh.bundle.patch === './cordis.patch.yml', JSON.stringify(pkg.dsh && pkg.dsh.bundle))
 check('manifest: web client declared', pkg.dsh && pkg.dsh.client && pkg.dsh.client.platform === 'web', JSON.stringify(pkg.dsh && pkg.dsh.client))
@@ -65,10 +83,14 @@ check('manifest: files whitelist covers the runtime', ['index.js', 'client.js', 
 check('locale: zh meta', Boolean(zh.meta && zh.meta.title && zh.meta.description), JSON.stringify(zh))
 check('locale: en meta', Boolean(en.meta && en.meta.title && en.meta.description), JSON.stringify(en))
 
-// ── the patch file inserts exactly one row with our id ───────────────────
+// ── the patch file inserts our rows and never carries a secret ───────────
 const patch = read('cordis.patch.yml')
-check('patch: inserts one row', (patch.match(/- insert:/g) || []).length === 1, patch.trim())
+check('patch: inserts rows', (patch.match(/- insert:/g) || []).length === 1, patch.trim())
 check('patch: row id matches the package', new RegExp(`id:\\s*${pkg.name}`).test(patch), patch.trim())
+check('patch: ships the github MCP row', /id:\s*dsh-git-bar\/github-mcp/.test(patch) && /name:\s*'@deepseek-ai\/dsh-mcp-client'/.test(patch), patch.trim())
+check('patch: MCP row gated by the token variable', /disabled:\s*'!!js !process\.env\.DSH_GIT_BAR_GITHUB_TOKEN'/.test(patch), patch.trim())
+check('patch: MCP header reads the variable', /Authorization:\s*'!!js `Bearer \$\{process\.env\.DSH_GIT_BAR_GITHUB_TOKEN \?\? ""\}`'/.test(patch), patch.trim())
+check('patch: no token literal', !/gh[pousr]_[A-Za-z0-9]{10,}/.test(patch), 'secret in the patch')
 
 console.log(JSON.stringify(results, null, 2))
 const failed = results.filter((entry) => !entry.ok)

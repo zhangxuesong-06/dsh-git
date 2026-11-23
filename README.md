@@ -22,6 +22,10 @@
 | 点改动文件 | 在右侧栏「Git 审查」标签里打开差异，**面板保持打开**并自动让位，方便连续点下一个 |
 | 改动文件行操作 | 悬停或键盘聚焦出现一组小图标：**暂存 / 取消暂存 / 丢弃改动 / 删除未跟踪文件 / 复制相对路径**；冲突行是**用我方 / 用对方**；丢弃、删除都要行内二次确认（不用浏览器弹窗）。分组标题旁有「全部暂存」 |
 | 提交面板 | 底部还有「撤销上次提交」（`reset --soft`，改动退回暂存区，需确认） |
+| **GitHub 登录** | 面板顶部一张 GitHub 卡片：未登录可点「登录 GitHub」，支持 **Personal Access Token 粘贴** 或 **OAuth Device Flow**（显示 8 位码，浏览器授权后自动完成）；登录后显示头像与登录名，可退出 |
+| **以 GitHub 身份提交/推送** | 登录后插件创建的提交使用 `<名字> <id+login@users.noreply.github.com>` 作为作者与提交者；推送用登录 token 通过临时 askpass 助手认证（SSH 远端只在这一次推送里改写成 HTTPS，remote 配置不动）。提交面板显示「将以 `<login>` 身份提交」并可随时关掉 |
+| **从 GitHub 新建工作区** | 卡片里可搜索自己的仓库（或手填 `owner/repo`），点「克隆并打开」：Host 克隆到 `~/dsh-workspaces/<owner>-<repo>`（根目录可在卡片里改），随后自动建工作区并打开一个新会话 |
+| **GitHub MCP** | 登录后把 token 写进 Harness 家目录的 `.env`，随包附带的 `dsh-mcp-client` 行会连接 GitHub 官方远程 MCP（`https://api.githubcopilot.com/mcp/`），会话里出现 `mcp__github__*` 工具；**重启 DSH 后生效**，退出登录会清掉变量与连接 |
 | 右侧栏「开始」页 | 一张「代码审查」卡片：没选文件时列出现有改动，点一条即审查 |
 
 所有过渡（展开/收起、`最近提交` 展开、进入提交详情、进入/退出图谱、图谱行入场、确认条、悬停、计数变化）都是平滑动画，并且遵守系统 `prefers-reduced-motion`；只有「进入审查」这一刻是瞬时的。
@@ -32,10 +36,10 @@
 
 | 方式 | 输入 |
 | --- | --- |
-| npm 包（已发布） | `dsh-git-bar`（跟随 latest），或锁定版本 `dsh-git-bar@1.3.2` |
+| npm 包（已发布） | `dsh-git-bar`（跟随 latest），或锁定版本 `dsh-git-bar@1.4.0` |
 | GitHub 仓库 | `git+https://github.com/zhangxuesong-06/dsh-git-bar.git` |
 | 本地目录（开发） | `link:<仓库绝对路径>` |
-| 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.3.2.tgz` |
+| 离线包 | `file:<仓库绝对路径>/dsh-git-bar-1.4.0.tgz` |
 
 对应的工具调用：
 
@@ -93,6 +97,14 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 | `POST /dsh-git-bar/clean` | 删除未跟踪文件（`git clean -f`，只接受未跟踪路径；已跟踪返回 `tracked-needs-discard`） |
 | `POST /dsh-git-bar/resolve` | 冲突文件取一边：`{paths, side:'ours'\|'theirs'}`，取完自动标记解决；非冲突路径返回 `not-conflicted` |
 | `POST /dsh-git-bar/undo-commit` | 撤销上一次提交（`reset --soft HEAD~1`，改动保留在暂存区）；只有一条提交时返回 `no-previous-commit` |
+| `GET /dsh-git-bar/github/status` | 登录状态：`signedIn`、`account`（登录名/名字/ID/头像/主页/邮箱）、`tokenKind`（`pat` / `device`）、`scopes`、`mcp.configured`、`config`（`cloneRoot` / `deviceClientId` / `useGithubIdentity`）。**从不返回 token 本身** |
+| `POST /dsh-git-bar/github/login` | body `{token}`：用 `GET /user` 校验后以 **grant 记录**存进 DSH 凭据库（`dsh-git-bar/github-token`）；坏 token 返回 `bad-credentials`，网络失败返回 `network` |
+| `POST /dsh-git-bar/github/logout` | 删除 grant、清掉 Harness 家目录 `.env` 里的 token 变量 |
+| `POST /dsh-git-bar/github/device/start` | 未配置 `deviceClientId` 时返回 `missing-client-id`；否则向 `github.com/login/device/code` 申请，返回 `userCode`/`verificationUri`/`interval`/`expiresAt`，`device_code` 只留在 Host 内存 |
+| `POST /dsh-git-bar/github/device/poll` | body `{id}`：`state` 为 `pending`（含 `retryAfter`）/`slow-down`/`done`（附 `account`）；`expired`、`denied`、`unknown-flow`、`bad-credentials` 都是错误原因 |
+| `GET /dsh-git-bar/github/repos?q=&limit=` | 登录账户可推送的仓库（`/user/repos`，按更新时间倒序，最多 100 条），可按名称/描述过滤 |
+| `POST /dsh-git-bar/github/clone` | body `{repo, branch?, root?}`：`owner/repo` 或 URL；克隆到 `cloneRoot`（默认 `~/dsh-workspaces`，目录名 `<owner>-<repo>`），token 经临时 askpass 走 HTTPS。错误：`not-signed-in`/`bad-repo`/`target-exists`/`not-found`/`auth-failed`/`clone-failed` |
+| `POST /dsh-git-bar/github/config` | 改 `cloneRoot` / `deviceClientId` / `useGithubIdentity`；client id 非法时 `invalid-config` |
 | `GET /dsh-git-bar/health` | 存活探针 |
 
 安全约束：`path` 必须是仓库内相对路径（拒绝绝对路径、盘符、`..`）；`hash` 只接受十六进制；分支/标签名必须来自
@@ -101,6 +113,42 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 （没有任何后台定时提交，也不 force push）。推送时设置 `GIT_TERMINAL_PROMPT=0` 等变量避免卡在交互提示；一次性密码
 经 Host 写入临时 askpass 辅助程序交给 git（不出现在 argv 里），推送结束立即删除，不落盘、不保存。
 
+## GitHub 集成
+
+登录后插件才具备「以你的身份提交/推送」和「从 GitHub 克隆仓库当工作区」两项能力；不登录时所有 git 功能照旧（推送遇到需要凭据时会退回原来的一次性凭据面板）。
+
+### 登录
+
+- **Personal Access Token（最快）**：GitHub → Settings → Developer settings → Personal access tokens 建一个带 `repo` 权限的
+  token（私有仓库读写；只操作公开仓库也要它来推送），粘进卡片即可。token 只在这一次请求里经过浏览器，之后只存在于
+  Host 的凭据库里。
+- **OAuth Device Flow（不用手建 token）**：需要你先建一个 OAuth App：GitHub → Settings → Developer settings →
+  OAuth Apps → New OAuth App，**勾选「Enable Device Flow」**（回调地址随便填，device flow 用不到），然后把它的
+  **Client ID** 填进卡片（或 `POST /github/config {deviceClientId}`）。之后点「用浏览器登录」，面板会给出 8 位码与
+  `https://github.com/login/device` 链接，授权完成后面板自动变成已登录。
+
+### 安全边界
+
+- token 存进 **DSH 凭据服务**（`dsh-git-bar/github-token` 的 grant 记录）；该服务不可用时退回插件数据目录里的
+  `github-token.json`（权限 0600）。**任何路由都不返回 token**，浏览器只在登录那一次 POST 里见过它；
+- 推送认证走**临时 askpass 辅助程序**（写完即删），token 不出现在 argv；SSH 远端仅在这一条命令里通过
+  `url.https://github.com/.insteadOf` 改写成 HTTPS，仓库的 remote 配置不变；
+- 提交身份用 GitHub 的 noreply 地址（`<id>+<login>@users.noreply.github.com`），避免泄露真实邮箱；提交面板里可以关掉；
+- 登录后 token 也会写进 **Harness 家目录的 `.env`**（`~/.dsh/.env`，权限 0600）供 MCP 行读取；退出登录会删掉那一行。
+
+### 从 GitHub 新建工作区
+
+卡片里搜索仓库（或手填 `owner/repo`）→「克隆并打开」：克隆到 `cloneRoot/<owner>-<repo>`（默认 `~/dsh-workspaces`，
+root 可在卡片里改），然后调用 DSH 的 `workspaces.create({path})` + `uiWorkspace.openWorkspace(id)` 打开一个新会话。
+非空的目标目录会被拒绝（`target-exists`），不会覆盖你已有的文件。
+
+### GitHub MCP
+
+包里的 `cordis.patch.yml` 额外插入一行 `@deepseek-ai/dsh-mcp-client`（`serverName: github`，指向
+`https://api.githubcopilot.com/mcp/`），授权头从 `DSH_GIT_BAR_GITHUB_TOKEN` 读，**没有该变量时整行是 disabled**。
+所以：登录 → **重启一次 DSH** → 会话里出现 `mcp__github__*` 工具（建 issue、查 PR、搜代码等）；退出登录会清掉变量，
+下次启动即不再连接。不想用 MCP 的话，把它从 patch 里删掉即可，其余功能不受影响。
+
 ## 仓库结构
 
 仓库根目录就是 **npm 包本体**（这样 `npm publish` 与 `git+https://…` 两种安装都能直接工作）：
@@ -108,13 +156,14 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 ```
 .
 ├── package.json           # 包清单：dsh.bundle 补丁 + dsh.client（platform: web）+ scripts
-├── cordis.patch.yml       # 插入 id: dsh-git-bar 的 Host 行
-├── index.js               # Host 半边：会话目录 → git → HTTP 路由（含提交/推送）
-├── client.js              # 浏览器半边：胶囊 / 面板 / 图谱 / 提交面板 / 审查（纯 JS，仅 require('react')）
+├── cordis.patch.yml       # 插入 Host 行 + GitHub MCP 行（后者无 token 变量时 disabled）
+├── index.js               # Host 半边：会话目录 → git → HTTP 路由（含提交/推送/GitHub）
+├── client.js              # 浏览器半边：胶囊 / 面板 / 图谱 / 提交面板 / 审查 / GitHub 卡片（纯 JS，仅 require('react')）
 ├── locale/en.json         # 插件管理页显示名与描述
 ├── locale/zh.json
 ├── icon.svg               # 插件图标（原始绘制）
-├── test/*.test.mjs        # 离线自测：真实临时仓库 + mock ctx，覆盖提交/推送/游离 HEAD/凭据等
+├── scripts/sync-mirror.mjs # 发版后同步国内镜像并校验 integrity
+├── test/*.test.mjs        # 离线自测：真实临时仓库 + mock ctx + mock GitHub API
 ├── .github/workflows/ci.yml # CI：双平台 check + test，打 tag 时发布 npm
 ├── README.md              # 本文件（npm 页也会展示）
 ├── CHANGELOG.md           # 版本变化
@@ -128,9 +177,9 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 ## 开发与调试
 
 - 语法检查：`npm run check`（等价 `node --check index.js && node --check client.js`）。
-- 自测：`npm test`（`node --test`，5 个测试文件、约 12 秒）。测试会在临时目录里造真实 git 仓库
+- 自测：`npm test`（`node --test`，10 个测试文件、约 15 秒）。测试会在临时目录里造真实 git 仓库
   （含 bare 远端、冲突、游离 HEAD、无上游、凭据 askpass 等场景），用 mock 的 `ctx`/`req`/`res` 直接驱动
-  Host 路由，不需要启动 DSH。首次贡献代码前建议先跑一遍。
+  Host 路由，用 mock 的 `fetch` 驱动 GitHub 路由，不需要启动 DSH 也不需要联网。首次贡献代码前建议先跑一遍。
 - 打包预览：`npm pack --dry-run`（应只包含运行需要的 10 个文件，测试与文档不随包发布）。
 - 热重载：`plugin_manager action=set_plugin target=include:dsh-git-bar enabled=false` 再 `enabled=true`，Host 与浏览器两半都会换成磁盘上的最新文件（仅 `link:` 安装时跟随磁盘）。
 - 浏览器半边的约束：`window.__ModuleLoader__.load({ id, factory })` 形式（`id` 必须等于包名 `dsh-git-bar`）、只用
