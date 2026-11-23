@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
-import { apply, githubIdentityArgs, githubRewriteArgs, parseGithubRepo } from '../index.js'
+import { apply, githubIdentityArgs, githubRewriteArgs, parseGithubRepo, resolveDeviceClientId } from '../index.js'
 
 const results = []
 const check = (name, ok, detail) => results.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail) })
@@ -175,13 +175,26 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   await ask(repo, '/dsh-git-bar/github/config', 'POST', { deviceClientId: '', useGithubIdentity: true })
 }
 
-// ── 6b. with no app at all the browser tab gets a clear reason ───────────
+// ── 6b. the shipped app is always available, and its chain is pure ───────
 {
+  const shipped = await ask(repo, '/dsh-git-bar/github/status')
+  check('device: shipped app always available', shipped.device.ready === true && shipped.device.shipped === true, JSON.stringify(shipped.device))
+
+  check('device chain: profile app wins', resolveDeviceClientId('Iv1own', 'Iv1env', 'Iv1ship') === 'Iv1own', 'config')
+  check('device chain: env overrides the shipped app', resolveDeviceClientId('', 'Iv1env', 'Iv1ship') === 'Iv1env', 'env')
+  check('device chain: shipped app is the last resort', resolveDeviceClientId('', '', 'Iv1ship') === 'Iv1ship', 'shipped')
+  check('device chain: no app at all', resolveDeviceClientId('', '', '') === '', 'empty')
+  check('device chain: whitespace is empty', resolveDeviceClientId('  ', '  ', '  ') === '', 'whitespace')
+
   delete process.env.DSH_GIT_BAR_OAUTH_CLIENT_ID
-  const missing = await ask(repo, '/dsh-git-bar/github/device/start', 'POST', {})
-  check('device: missing client id without any app', missing.ok === false && missing.reason === 'missing-client-id', JSON.stringify(missing))
-  const status = await ask(repo, '/dsh-git-bar/github/status')
-  check('device: status reports not ready', status.device.ready === false && status.device.shipped === false, JSON.stringify(status.device))
+  let seenBody = ''
+  queued((url, init) => {
+    seenBody = String(init.body ?? '')
+    return respond({ device_code: 'device_secret_baked', user_code: 'BAKE-0001', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 })
+  })
+  const baked = await ask(repo, '/dsh-git-bar/github/device/start', 'POST', {})
+  check('device: baked app starts the flow', baked.ok === true && baked.userCode === 'BAKE-0001', JSON.stringify(baked))
+  check('device: baked client id sent', /client_id=[A-Za-z0-9]+/.test(seenBody) && !seenBody.includes(SHIPPED_CLIENT_ID), seenBody.slice(0, 120))
   process.env.DSH_GIT_BAR_OAUTH_CLIENT_ID = SHIPPED_CLIENT_ID
 }
 

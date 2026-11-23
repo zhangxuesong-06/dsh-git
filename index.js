@@ -1288,21 +1288,29 @@ const GITHUB_CLONE_TIMEOUT_MS = 300_000
  * Keep this empty until the project-owned app exists; `missing-client-id`
  * then tells the panel to explain the two options instead of failing silently.
  */
-const DEFAULT_DEVICE_CLIENT_ID = ''
+const DEFAULT_DEVICE_CLIENT_ID = 'Ov23liMkw1wzdh9gZdHU'
 /** Host-held device-flow attempts, keyed by an opaque id handed to the browser. */
 const deviceFlows = new Map()
 
-/** Default client id: a test/operator override first, then the shipped app. */
-function defaultDeviceClientId() {
-  const override = process.env.DSH_GIT_BAR_OAUTH_CLIENT_ID
-  if (typeof override === 'string' && override.trim() !== '') return override.trim()
-  return DEFAULT_DEVICE_CLIENT_ID
+/**
+ * Which OAuth App a device-flow attempt uses. Pure so the self-tests can cover
+ * the whole priority chain without rewriting the shipped constant.
+ * @param configClientId - the profile's own app from `github.json`
+ * @param envClientId - the operator/test override
+ * @param shippedClientId - the app baked into this release
+ * @returns the client id, or '' when no app is available at all
+ */
+export function resolveDeviceClientId(configClientId, envClientId, shippedClientId = DEFAULT_DEVICE_CLIENT_ID) {
+  const own = typeof configClientId === 'string' ? configClientId.trim() : ''
+  if (own !== '') return own
+  const env = typeof envClientId === 'string' ? envClientId.trim() : ''
+  if (env !== '') return env
+  return typeof shippedClientId === 'string' ? shippedClientId.trim() : ''
 }
 
 /** The client id a device-flow attempt uses: the profile's own app, else the shipped one. */
 function effectiveDeviceClientId(config) {
-  const own = config && typeof config.deviceClientId === 'string' ? config.deviceClientId.trim() : ''
-  return own !== '' ? own : defaultDeviceClientId()
+  return resolveDeviceClientId(config && config.deviceClientId, process.env.DSH_GIT_BAR_OAUTH_CLIENT_ID)
 }
 
 /** Directory this plugin owns for its own small state files. */
@@ -1610,7 +1618,7 @@ async function writeGithubEnvToken(token) {
 /** Everything the browser half may know about the current sign-in. */
 async function githubStatus(ctx) {
   const [config, grant] = await Promise.all([readGithubConfig(), readGithubGrant(ctx)])
-  const shipped = defaultDeviceClientId()
+  const shipped = DEFAULT_DEVICE_CLIENT_ID.trim()
   return {
     ok: true,
     signedIn: Boolean(grant && grant.token),
