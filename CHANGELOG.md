@@ -3,6 +3,17 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.4] - 2026-11-23
+
+### 新增
+
+- **克隆前先确认**：点克隆会先显示「将克隆到 `<路径>`」，可 **[确认克隆]** 或 **[修改目录]**（弹系统目录选择器）；
+  目录已存在且非空时会警告「会被拒绝」；未登录时提示「只能克隆公开仓库」。
+- **支持任意 git 地址**：`owner/repo`、`github.com/owner/repo`、GitHub 的 https/SSH 地址，以及 GitLab、Bitbucket
+  等任何 git URL 都可以粘贴克隆；GitHub 地址会归一化出 owner/name，其余按仓库名建目录。
+- **未登录也能克隆公开仓库**：不再强制先登录；只有私有仓库失败时才提示「需要登录才能克隆私有仓库」并可一键去登录。
+- 新增 `POST /github/clone/preview`（返回 root/folder/path/exists/signedIn），克隆失败新增 `needsSignIn` 标记。
+
 ## [1.4.3] - 2026-11-23
 
 ### 新增

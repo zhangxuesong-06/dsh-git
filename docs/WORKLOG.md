@@ -209,9 +209,12 @@ URL 为准；会话 ID 也会随环境变化。
   - [x] **v1.4.3 克隆体验**：后台克隆任务（`clone/status` 返回 state/percent/stage/path/result/reason）、
         客户端模块级 store 让面板关闭后继续轮询、目标路径预览、克隆根目录可改、失败重试；
   - [x] 并行测试误报修复：askpass 临时目录断言统计全机目录 → 目录名带 pid、只统计本进程（CI ubuntu 红的主因）；
+  - [x] **v1.4.4 克隆流程**：`clone/preview` 先给出目标路径/占用/登录状态，用户在确认区选「确认克隆」或
+        「修改目录」（`uiWorkspace.pickDirectory()`）；GitHub 的 https/SSH 地址归一化成 owner/name，
+        其它 git URL 原样克隆（folder 取仓库名）；**未登录可克隆公开仓库**，私有仓库失败带 `needsSignIn`；
   - [ ] 待用户用真实 GitHub 账号验证：真机克隆 + 打开新会话、重启后 `mcp__github__*` 工具是否出现。
-  - [ ] 历史作者整理（可选）：开发期 44 个提交作者是 `DSH Lead <lead@local>`，需 rebase + force push 才能改成
-        用户身份；**等用户明确同意**再执行（此后提交已改用仓库配置身份）。
+  - [-] 历史作者整理：开发期 44 个提交作者是 `DSH Lead <lead@local>`；**用户决定不改写历史**（不 force push），
+        此后的提交已改用仓库配置身份、插件创建的提交用 GitHub 身份。
 - **发布收尾**：
   - [x] GitHub 仓库已改名为 `dsh-git-bar`（2026-11-22，旧 URL 自动重定向），`repository`/`homepage`/`bugs`
         与 README 里的安装地址已在 1.3.1 同步更新；
