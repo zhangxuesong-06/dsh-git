@@ -128,6 +128,18 @@ window.__ModuleLoader__.load({
       githubPatRequired: '请粘贴访问令牌',
       githubUseBrowser: '用浏览器登录',
       githubDeviceHint: '在浏览器打开下方地址，输入验证码：',
+      githubDeviceUnavailable: '浏览器登录需要 OAuth App Client ID：可填自己的，或改用 PAT',
+      githubClientIdLabel: '自己的 OAuth App Client ID',
+      githubClientIdPlaceholder: 'Iv1.… 或 Ov23…',
+      githubClientIdHint: '留空表示使用内置应用；保存后即可用浏览器登录。',
+      githubClientIdCustom: '自定义',
+      githubClientIdActive: '已用自定义应用',
+      githubClientIdReset: '重置为内置应用',
+      githubClientIdSaved: '已保存，可点用浏览器登录',
+      githubSave: '保存',
+      githubSaving: '保存中…',
+      githubUsePat: '改用 PAT',
+      githubDeviceShipped: '使用内置应用（dsh-git-bar）授权',
       githubDeviceCode: '验证码',
       githubDeviceWaiting: '等待授权…',
       githubDeviceOpen: '打开验证页',
@@ -290,6 +302,18 @@ window.__ModuleLoader__.load({
       githubPatRequired: 'Paste a token first',
       githubUseBrowser: 'Sign in with browser',
       githubDeviceHint: 'Open the address below in a browser and enter the code:',
+      githubDeviceUnavailable: 'Browser sign-in needs an OAuth App client id: add your own or use a PAT',
+      githubClientIdLabel: 'OAuth App Client ID',
+      githubClientIdPlaceholder: 'Iv1.… or Ov23…',
+      githubClientIdHint: 'Leave empty to use the built-in app; saving makes browser sign-in available.',
+      githubClientIdCustom: 'Custom',
+      githubClientIdActive: 'Custom app in use',
+      githubClientIdReset: 'Reset to the built-in app',
+      githubClientIdSaved: 'Saved — browser sign-in is ready',
+      githubSave: 'Save',
+      githubSaving: 'Saving…',
+      githubUsePat: 'Use a PAT',
+      githubDeviceShipped: 'Uses the built-in app (dsh-git-bar)',
       githubDeviceCode: 'Code',
       githubDeviceWaiting: 'Waiting for authorization…',
       githubDeviceOpen: 'Open verification page',
@@ -4210,6 +4234,13 @@ window.__ModuleLoader__.load({
       var status = props.status && props.status.ok === true ? props.status : null
       var signedIn = Boolean(status && status.signedIn === true)
       var account = status && status.account && typeof status.account === 'object' ? status.account : null
+      var deviceInfo = status && status.device && typeof status.device === 'object' ? status.device : null
+      var deviceReady = deviceInfo ? deviceInfo.ready !== false : true
+      var deviceIsCustom = Boolean(deviceInfo && deviceInfo.custom === true)
+      var savedClientId = status && status.config && typeof status.config.deviceClientId === 'string' ? status.config.deviceClientId : ''
+      var shippedHint = deviceInfo && deviceReady && !deviceIsCustom
+        ? h('div', { className: 'gitbar-github-hint', key: 'dev-shipped' }, t('githubDeviceShipped'))
+        : null
 
       var expandedHook = useState(false)
       var expanded = expandedHook[0]
@@ -4241,6 +4272,15 @@ window.__ModuleLoader__.load({
       var reposHook = useState(null)
       var repos = reposHook[0]
       var setRepos = reposHook[1]
+      var clientIdHook = useState('')
+      var clientId = clientIdHook[0]
+      var setClientId = clientIdHook[1]
+      var clientFormHook = useState(false)
+      var clientFormOpen = clientFormHook[0]
+      var setClientFormOpen = clientFormHook[1]
+      var configPendingHook = useState(false)
+      var configPending = configPendingHook[0]
+      var setConfigPending = configPendingHook[1]
       var cloneResultHook = useState(null)
       var cloneResult = cloneResultHook[0]
       var setCloneResult = cloneResultHook[1]
@@ -4289,6 +4329,11 @@ window.__ModuleLoader__.load({
           deviceRef.current = null
         }
       }, [])
+
+      // Host never echoes the saved client id? It does via config.deviceClientId.
+      useEffect(function () {
+        setClientId(savedClientId)
+      }, [savedClientId])
 
       function flash(text) {
         try {
@@ -4578,6 +4623,25 @@ window.__ModuleLoader__.load({
           )
       }
 
+      function saveClientId(forceEmpty) {
+        if (configPending) return
+        var value = forceEmpty === true ? '' : toText(clientId).trim()
+        setConfigPending(true)
+        setError('')
+        send(githubUrl('/config', sessionId), { deviceClientId: value }, function (result) {
+          setConfigPending(false)
+          if (result.ok === true) {
+            setClientId(value)
+            setClientFormOpen(false)
+            if (typeof props.onReload === 'function') props.onReload()
+            flash(t('githubClientIdSaved'))
+            return
+          }
+          var detail = githubDetailText(result && result.detail)
+          setError(detail || t('githubSettingsFailed'))
+        })
+      }
+
       function cloneRepo() {
         var name = toText(repo).trim()
         if (!name) {
@@ -4686,6 +4750,82 @@ window.__ModuleLoader__.load({
 
         if (expanded) {
           var content = []
+          var showClientForm = !deviceReady || deviceIsCustom || clientFormOpen
+          var clientIdForm = showClientForm
+            ? [
+              h('div', { className: 'gitbar-github-hint', key: 'dev-client-label' }, t('githubClientIdLabel')),
+              h(
+                'div',
+                { className: 'gitbar-github-actions', key: 'dev-client' },
+                h('input', {
+                  type: 'text',
+                  className: 'gitbar-github-input',
+                  value: clientId,
+                  placeholder: t('githubClientIdPlaceholder'),
+                  'aria-label': t('githubClientIdLabel'),
+                  autoComplete: 'off',
+                  spellCheck: false,
+                  disabled: configPending,
+                  onChange: function (event) {
+                    setClientId(event && event.target ? event.target.value : '')
+                  }
+                }),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-btn gitbar-github-primary',
+                    disabled: configPending,
+                    onClick: function () {
+                      saveClientId(false)
+                    }
+                  },
+                  configPending ? t('githubSaving') : t('githubSave')
+                )
+              ),
+              h('div', { className: 'gitbar-github-hint', key: 'dev-client-hint' }, t('githubClientIdHint'))
+            ]
+            : null
+          var customActiveRow = deviceIsCustom
+            ? h(
+              'div',
+              { className: 'gitbar-github-actions', key: 'dev-custom-active' },
+              h('span', { className: 'gitbar-github-hint' }, t('githubClientIdActive')),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gitbar-btn gitbar-github-btn',
+                  disabled: configPending,
+                  onClick: function () {
+                    saveClientId(true)
+                  }
+                },
+                t('githubClientIdReset')
+              )
+            )
+            : null
+          var customToggleRow =
+            !deviceIsCustom && deviceInfo && deviceReady
+              ? h(
+                'div',
+                { className: 'gitbar-github-actions', key: 'dev-custom-toggle' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-btn gitbar-github-btn',
+                    'aria-expanded': clientFormOpen ? 'true' : 'false',
+                    onClick: function () {
+                      setClientFormOpen(function (value) {
+                        return !value
+                      })
+                    }
+                  },
+                  t('githubClientIdCustom')
+                )
+              )
+              : null
           if (error) {
             content.push(h('div', { className: 'gitbar-github-error', key: 'error', role: 'alert' }, error))
           }
@@ -4750,9 +4890,36 @@ window.__ModuleLoader__.load({
                   )
                 )
               )
+            } else if (!deviceReady) {
+              // No OAuth app to talk to: tell the user instead of failing at
+              // /device/start, and offer the token path.
+              content.push(
+                h('div', { className: 'gitbar-github-hint', key: 'dev-off' }, t('githubDeviceUnavailable')),
+                clientIdForm,
+                customActiveRow,
+                h(
+                  'div',
+                  { className: 'gitbar-github-actions', key: 'dev-off-actions' },
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-primary',
+                      onClick: function () {
+                        setMode('pat')
+                      }
+                    },
+                    t('githubUsePat')
+                  )
+                )
+              )
             } else if (!device) {
               content.push(
                 h('div', { className: 'gitbar-github-hint', key: 'dev-hint' }, t('githubDeviceHint')),
+                shippedHint,
+                customActiveRow,
+                customToggleRow,
+                clientIdForm,
                 h(
                   'div',
                   { className: 'gitbar-github-actions', key: 'dev-start' },
@@ -4788,6 +4955,7 @@ window.__ModuleLoader__.load({
                     )
                     : null
                 ),
+                shippedHint,
                 h('div', { className: 'gitbar-github-hint', key: 'dev-wait' }, t('githubDeviceWaiting')),
                 h(
                   'div',
