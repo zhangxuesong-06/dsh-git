@@ -163,14 +163,14 @@ const POST = '/dsh-git-bar/auto-commit?session=s1'
   check('askpass: git filled password verbatim', /password=s3cr&t\|x%! "q"/.test(out), out.replace(/\n/g, ' | ').slice(0, 160))
   rmSync(helper.dir, { recursive: true, force: true })
 
-  const before = readdirSync(tmpdir()).filter((name) => name.startsWith('dsh-git-bar-askpass-')).length
+  const before = readdirSync(tmpdir()).filter((name) => name.startsWith(`dsh-git-bar-askpass-${process.pid}-`)).length
   const { base, dir } = makeRepo(true)
   sh(dir, ['add', '-A'])
   sh(dir, ['commit', '-m', 'second'], { allowFailure: true })
   writeFileSync(join(dir, 'c.js'), 'three\n')
   sh(dir, ['remote', 'set-url', 'origin', join(base, 'missing.git')])
   const failing = await askWith(dir, POST, 'POST', { push: true, password: 'not-a-real-token', username: 'alice' })
-  const after = readdirSync(tmpdir()).filter((name) => name.startsWith('dsh-git-bar-askpass-')).length
+  const after = readdirSync(tmpdir()).filter((name) => name.startsWith(`dsh-git-bar-askpass-${process.pid}-`)).length
   check('askpass: push failed as expected', failing.ok === true && failing.pushed === false, `${failing.ok}/${failing.pushed}`)
   check('askpass: temp directory removed', after === before, `${before} -> ${after}`)
   rmSync(base, { recursive: true, force: true })

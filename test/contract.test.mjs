@@ -48,7 +48,7 @@ check('host: exports apply', /export function apply\s*\(/.test(host), 'missing a
 check('host: waits for webServer', /export const inject = \['webServer'\]/.test(host), 'missing inject list')
 check('host: prefix has no trailing slash', /const PREFIX = '\/dsh-git-bar'\r?\n/.test(host), 'prefix must be /dsh-git-bar without trailing slash')
 check('host: registers a prefix route', /kind:\s*'prefix'/.test(host), 'missing prefix registration')
-check('host: imports execFile only', /import \{ execFile \} from 'node:child_process'/.test(host), 'unexpected child_process import')
+check('host: imports execFile and spawn only', /import \{ execFile, spawn \} from 'node:child_process'/.test(host), 'unexpected child_process import')
 check('host: never enables a shell', !/shell:\s*true/.test(host) && !/\bexecSync\(/.test(host), 'found shell execution')
 check('host: all git arguments are fixed argv', !/git\([^)]*`[^`]*\$\{[^}]*\}`[^)]*\)\s*,\s*\['/.test(host), 'suspicious interpolation')
 for (const route of ['state', 'diff', 'branches', 'switch', 'graph', 'commit', 'commit-diff', 'auto-commit', 'push', 'health']) {

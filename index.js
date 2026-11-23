@@ -1021,7 +1021,9 @@ function isAuthFailure(detail) {
  * Exported for the self-tests only; the plugin itself never calls it directly.
  */
 export async function createAskpass(credentials) {
-  const dir = await mkdtemp(join(tmpdir(), 'dsh-git-bar-askpass-'))
+  // The pid keeps concurrent test processes (and parallel pushes) from counting
+  // each other's helper directories.
+  const dir = await mkdtemp(join(tmpdir(), `dsh-git-bar-askpass-${process.pid}-`))
   try {
     await writeFile(join(dir, 'username.txt'), credentials.username, 'utf8')
     await writeFile(join(dir, 'password.txt'), credentials.password, 'utf8')
