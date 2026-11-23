@@ -32,7 +32,6 @@ window.__ModuleLoader__.load({
 
     // ── constants ─────────────────────────────────────────────────────────
     var SLOT = 'conversation.session.header.utilities'
-    var OVERLAY_SLOT = 'shell.overlay'
     var HERO_SLOT = 'conversation.hero.options'
     var HERO_ORDER = 10
     var heroRegistered = false
@@ -1027,6 +1026,39 @@ window.__ModuleLoader__.load({
     })()
 
     var lastCapsuleSessionId = ''
+    // The capsule always lives in the session header (also on the hero page), so it
+    // is the safest host for a position:fixed overlay (hero rows animate transform).
+    var clonePanelHost = { capsule: false }
+
+    function ClonePanelHost(props) {
+      var t = props.t || translate
+      var openHook = useState(false)
+      var open = openHook[0]
+      var setOpen = openHook[1]
+
+      useEffect(function () {
+        var unsubscribe = gitbarGithubPanelStore.subscribe(function (next) {
+          setOpen(Boolean(next && next.open === true))
+        })
+        var initial = gitbarGithubPanelStore.get()
+        setOpen(Boolean(initial && initial.open === true))
+        return function () {
+          try {
+            unsubscribe()
+          } catch (error) {
+            /* ignore */
+          }
+        }
+      }, [])
+
+      if (!open) return null
+      var state = gitbarGithubPanelStore.get()
+      return h(GithubClonePanel, {
+        t: t,
+        sessionId: toText(state && state.sessionId) || lastCapsuleSessionId,
+        onClose: closeGithubClonePanel
+      })
+    }
 
     function openGithubClonePanel(sessionId) {
       gitbarGithubPanelStore.set({
@@ -1754,9 +1786,11 @@ window.__ModuleLoader__.load({
       '.gitbar-hero-clone:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.gitbar-hero-clone:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
       '.gitbar-hero-clone-icon{display:inline-flex;color:var(--dsw-alias-label-secondary)}',
-      '.gitbar-gp-overlay{position:fixed;inset:0;z-index:2147483001;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb, var(--dsw-alias-label-primary) 24%, transparent)}',
-      '.gitbar-gp{display:flex;flex-direction:column;width:min(540px,100%);max-height:min(78vh,640px);box-sizing:border-box;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 18px 48px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.45;overflow:hidden;animation:gitbar-gp-in 150ms cubic-bezier(0.2,0,0,1) both;text-align:left}',
-      '.gitbar-gp-head{display:flex;align-items:center;gap:8px;flex:0 0 auto;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
+      '.gitbar-hero-clone-wrap{display:inline-flex;align-items:center}',
+      '.gitbar-gp-overlay{position:fixed;inset:0;z-index:2147483001;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--dsw-alias-bg-mask-1, color-mix(in srgb, var(--dsw-alias-bg-base) 45%, transparent))}',
+      '.gitbar-gp{display:flex;flex-direction:column;width:min(520px,100%);max-height:min(78vh,620px);box-sizing:border-box;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 12px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 20%, transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.45;overflow:hidden;animation:gitbar-gp-in 150ms cubic-bezier(0.2,0,0,1) both;text-align:left}',
+      '.gitbar-gp-head{display:flex;align-items:center;gap:8px;flex:0 0 auto;height:32px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
+      '@media (max-width: 560px){.gitbar-gp{width:100%}}',
       '.gitbar-gp-title{flex:1 1 auto;min-width:0;font-weight:600;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.gitbar-gp-body{display:flex;flex-direction:column;gap:8px;flex:1 1 auto;min-height:0;overflow:auto;padding:10px;overscroll-behavior:contain}',
       '.gitbar-gp-account{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px}',
@@ -4586,20 +4620,17 @@ window.__ModuleLoader__.load({
       return null
     }
 
-    // ── shell.overlay host: the clone panel renders here, so it appears at once ──
-    function GithubCloneOverlay(props) {
+    // ── GitHub clone panel (independent overlay, opened from the hero slot) ──
+    function GithubCloneEntry(props) {
       var t = props.t || translate
-      var stateHook = useState(function () {
-        return gitbarGithubPanelStore.get()
-      })
-      var state = stateHook[0]
-      var setState = stateHook[1]
+      var openHook = useState(false)
+      var open = openHook[0]
+      var setOpen = openHook[1]
 
       useEffect(function () {
         var unsubscribe = gitbarGithubPanelStore.subscribe(function (next) {
-          setState(next)
+          if (!next || next.open !== true) setOpen(false)
         })
-        setState(gitbarGithubPanelStore.get())
         return function () {
           try {
             unsubscribe()
@@ -4609,21 +4640,18 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
-      if (!state || state.open !== true) return null
-      return h(GithubClonePanel, {
-        t: t,
-        sessionId: toText(state.sessionId),
+      function closeEntryPanel() {
+        setOpen(false)
+        try {
+          closeGithubClonePanel()
+        } catch (error) {
+          /* ignore */
+        }
+      }
 
-        onClose: closeGithubClonePanel,
-        onFlash: typeof props.onFlash === 'function' ? props.onFlash : undefined
-      })
-    }
-
-    // ── GitHub clone panel (independent overlay, opened from the hero slot) ──
-    function GithubCloneEntry(props) {
-      var t = props.t || translate
       try {
-        return h(
+        var hosted = clonePanelHost.capsule === true
+        var button = h(
           'button',
           {
             type: 'button',
@@ -4636,10 +4664,24 @@ window.__ModuleLoader__.load({
               } catch (error) {
                 /* ignore */
               }
+              setOpen(true)
             }
           },
           h('span', { className: 'gitbar-hero-clone-icon', 'aria-hidden': 'true' }, '⌥'),
           t('githubCloneEntry')
+        )
+        // The capsule host renders the overlay when it is mounted; only the
+        // (unlikely) no-capsule case falls back to rendering here.
+        if (!open || hosted) return button
+        return h(
+          'span',
+          { className: 'gitbar-hero-clone-wrap' },
+          button,
+          h(GithubClonePanel, {
+            t: t,
+            sessionId: toText(props.sessionId) || lastCapsuleSessionId,
+            onClose: closeEntryPanel
+          })
         )
       } catch (error) {
         return null
@@ -5912,7 +5954,7 @@ window.__ModuleLoader__.load({
                     onClick: function () {
                       setExpanded(false)
                       try {
-                        props.onOpenClonePanel()
+                        if (typeof props.onOpenClonePanel === 'function') props.onOpenClonePanel()
                       } catch (error2) {
                         /* ignore */
                       }
@@ -7352,9 +7394,11 @@ window.__ModuleLoader__.load({
       // 1. Mount/unmount bookkeeping: stop in-flight work and every timer.
       useEffect(function () {
         mountedRef.current = true
+        clonePanelHost.capsule = true
         var unwatchMotion = watchReducedMotion()
         return function () {
           mountedRef.current = false
+          clonePanelHost.capsule = false
           try {
             unwatchMotion()
           } catch (error) {
@@ -8060,7 +8104,8 @@ window.__ModuleLoader__.load({
           { className: 'gitbar-root', ref: rootRef },
           h('style', { key: 'gitbar-style' }, CSS),
           pill,
-          panel
+          panel,
+          h(ClonePanelHost, { key: 'clone-panel-host', t: t })
         )
       } catch (error) {
         // Last resort: keep a harmless, non-throwing pill in the header.
@@ -8094,32 +8139,6 @@ window.__ModuleLoader__.load({
             }
           )
         })
-
-        // shell.overlay: a root-level host so the clone panel appears instantly,
-        // independent of the header capsule or the hero page.
-        try {
-          ctx.slots.inject(OVERLAY_SLOT, function () {
-            return ctx.slots.register(
-              { name: OVERLAY_SLOT, id: ENTRY_ID + ":github-clone-panel", order: 50 },
-              function (slotProps) {
-                var overlayProps = {}
-                try {
-                  if (slotProps && typeof slotProps === 'object') {
-                    for (var overlayKey in slotProps) {
-                      if (Object.prototype.hasOwnProperty.call(slotProps, overlayKey)) overlayProps[overlayKey] = slotProps[overlayKey]
-                    }
-                  }
-                } catch (error) {
-                  overlayProps = {}
-                }
-                overlayProps.t = translate
-                return h(GithubCloneOverlay, overlayProps)
-              }
-            )
-          })
-        } catch (error) {
-          /* overlay registration is optional: the capsule fallback still works */
-        }
 
         // New-conversation hero: the official place next to the workspace picker.
         // List slots only: single slots are owned by the host and must not be taken over.

@@ -222,8 +222,12 @@ URL 为准；会话 ID 也会随环境变化。
         新会话页无上下文，要等一次重渲染）；接管两个 `directoryFlow` single 插槽，把「添加工作区…」变成
         「选择本地文件夹…（走原生 pick）/ 从 GitHub 克隆…（克隆完成后 onPicked 让框架自动建工作区）」；
         flow 上下文按钮文案「克隆并建立工作区」，注册失败退回胶囊兜底按钮。
-  - [ ] 待用户用真实 GitHub 账号验证：真机克隆 + 自动建工作区、重启后 `mcp__github__*` 工具是否出现、
-        `shell.overlay` 与 `directoryFlow` 注册的实际效果（single 插槽接管是本期最大风险点）。
+  - [x] **v1.4.8 面板宿主修正 + 配色**：`shell.overlay` 在新会话页（AppFrame 无会话挂载）不渲染，导致点按钮后要切一次
+        会话才出现；改为由**会话头部胶囊宿主**（`clonePanelHost` + `ClonePanelHost`）渲染，胶囊常驻并订阅 store，
+        点击即出现；hero 按钮只触发，胶囊未挂载才退回入口本地渲染。遮罩改用 `--dsw-alias-bg-mask-1`，
+        卡片尺寸/阴影/圆角/字号对齐胶囊面板（`bg-overlay` + `border-l2` + `min(520px,100%)`）。
+  - [ ] 待用户用真实 GitHub 账号验证：真机克隆 + 打开工作区、重启后 `mcp__github__*` 工具是否出现、
+        面板在 hero 页的即时渲染与主题观感。
   - [-] 历史作者整理：开发期 44 个提交作者是 `DSH Lead <lead@local>`；**用户决定不改写历史**（不 force push），
         此后的提交已改用仓库配置身份、插件创建的提交用 GitHub 身份。
 - **发布收尾**：

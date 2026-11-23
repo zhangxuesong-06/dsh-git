@@ -84,7 +84,7 @@ check('client: clone opens a real workspace', /workspaces[\s\S]{0,200}?create\(\
 for (const owned of ['conversation.hero.workspace', 'sidebar.workspaces', 'main.conversation']) {
   check(`client: never registers into "${owned}"`, !client.includes(owned), 'single slot referenced')
 }
-check('client: clone panel lives in shell.overlay', /shell\.overlay/.test(client), 'overlay registration missing')
+check('client: clone panel renders from the capsule host', /clonePanelHost/.test(client) && /ClonePanelHost/.test(client), 'panel host missing')
 check('client: clone entry lives in a list slot', /conversation\.hero\.options/.test(client), 'hero registration missing')
 
 // ── manifest + locale metadata ───────────────────────────────────────────
