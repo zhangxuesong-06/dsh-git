@@ -3,6 +3,28 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.3] - 2026-11-23
+
+### 新增
+
+- **克隆体验**：卡片里常驻显示克隆根目录与目标文件夹预览（`<root>\<owner>-<repo>`），可原地修改根目录；
+  克隆改为**后台任务**（`POST /github/clone {background:true}` + `GET /github/clone/status`），面板里显示真实的
+  git 百分比与阶段（计数/压缩/接收对象/解析差异）、目标路径；**关闭面板后任务继续**，重新打开能看到进度、
+  成功路径（点「打开工作区」才建会话）、失败原因与「重试」。
+
+### 修复
+
+- 并行跑测试时 askpass 临时目录断言会误报（统计了全机器的临时目录），CI 的 ubuntu 任务因此随机失败；
+  现在目录名带进程号、断言只统计本进程。
+
+## [1.4.2] - 2026-11-23
+
+### 修复
+
+- **系统代理下浏览器登录失败**：Host 的 GitHub 请求改用 Electron `net.fetch`（Chromium 网络栈，自动读取系统代理），
+  CLI 或测试环境自动回退 Node `fetch`。此前直连 `github.com` 超时（`fetch failed`），而 `api.github.com` 可用，
+  所以只有 device flow 受影响。
+
 ## [1.4.1] - 2026-11-23
 
 ### 新增

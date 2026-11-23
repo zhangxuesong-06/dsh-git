@@ -203,10 +203,15 @@ URL 为准；会话 ID 也会随环境变化。
   - [x] token 续期：grant 记 `refreshToken`/`expiresAt`（device flow 的 `expires_in`、PAT 的
         `github-authentication-token-expiration` 头），调用前临近过期自动刷新并整份替换轮换后的
         refresh token；刷新失败返回 `reauth-required`；
-  - [ ] **待办**：把项目 OAuth App 的 Client ID 填进 `DEFAULT_DEVICE_CLIENT_ID`（需用户在建 App 后提供），
-        否则用户点「浏览器登录」仍会收到 `missing-client-id`；
-  - [ ] 待用户用真实 GitHub 账号验证：PAT 登录、浏览器登录（内置 App）、真机克隆 + 打开新会话、
-        重启后 `mcp__github__*` 工具是否出现。
+  - [x] **v1.4.2 代理修复**：用户机器走系统代理（`127.0.0.1:7897`），`github.com` 直连超时但 `api.github.com` 可用，
+        导致 device flow 只有它失败。Host 改用 Electron `net.fetch`（Chromium 栈读系统代理），无 Electron 时回退
+        Node fetch；真机探针随后拿到真实 user code（`C85A-A237`），登录成功（`zhangxuesong-06`）；
+  - [x] **v1.4.3 克隆体验**：后台克隆任务（`clone/status` 返回 state/percent/stage/path/result/reason）、
+        客户端模块级 store 让面板关闭后继续轮询、目标路径预览、克隆根目录可改、失败重试；
+  - [x] 并行测试误报修复：askpass 临时目录断言统计全机目录 → 目录名带 pid、只统计本进程（CI ubuntu 红的主因）；
+  - [ ] 待用户用真实 GitHub 账号验证：真机克隆 + 打开新会话、重启后 `mcp__github__*` 工具是否出现。
+  - [ ] 历史作者整理（可选）：开发期 44 个提交作者是 `DSH Lead <lead@local>`，需 rebase + force push 才能改成
+        用户身份；**等用户明确同意**再执行（此后提交已改用仓库配置身份）。
 - **发布收尾**：
   - [x] GitHub 仓库已改名为 `dsh-git-bar`（2026-11-22，旧 URL 自动重定向），`repository`/`homepage`/`bugs`
         与 README 里的安装地址已在 1.3.1 同步更新；
