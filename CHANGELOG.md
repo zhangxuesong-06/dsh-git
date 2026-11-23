@@ -3,6 +3,19 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.7] - 2026-11-23
+
+### 修复
+
+- **回滚 v1.4.6 的「添加工作区」接管**：`conversation.hero.workspace.directoryFlow` 与
+  `sidebar.workspaces.directoryFlow` 是系统目录选择器占用的 **single 插槽**，我们注册进去会让
+  `@deepseek-ai/dsh-client-ui-directory-picker-native` 启动失败；Web 启动要求每个前端 entry 都激活，
+  于是一个 entry 失败就导致**整个界面、所有插件面板消失**。现已完全移除这两个注册。
+- 克隆入口回到 `conversation.hero.options`（新会话界面工作区选择器同一行右侧的「从 GitHub 克隆」按钮）；
+  克隆面板仍注册在 `shell.overlay`，点击**立即**出现（保留 v1.4.6 的渲染修复）。
+- 契约测试新增静态护栏：client.js 不得出现 `conversation.hero.workspace` / `sidebar.workspaces` /
+  `main.conversation` 等 single 插槽名，防止再次踩坑。
+
 ## [1.4.6] - 2026-11-23
 
 ### 变更

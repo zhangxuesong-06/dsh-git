@@ -33,8 +33,9 @@ window.__ModuleLoader__.load({
     // ── constants ─────────────────────────────────────────────────────────
     var SLOT = 'conversation.session.header.utilities'
     var OVERLAY_SLOT = 'shell.overlay'
-    var FLOW_SLOTS = ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']
-    var directoryFlowRegistered = false
+    var HERO_SLOT = 'conversation.hero.options'
+    var HERO_ORDER = 10
+    var heroRegistered = false
     var ENTRY_ID = 'dsh-git-bar'
     var NS = 'dshGitBar'
     var STATE_URL = '/dsh-git-bar/state'
@@ -157,14 +158,6 @@ window.__ModuleLoader__.load({
       githubCloneRoot: '克隆根目录',
       githubCloneRootChange: '修改',
       githubCloneTarget: '将克隆到',
-      githubFlowTitle: '创建工作区',
-      githubFlowSubtitle: '克隆完成后会自动建立工作区',
-      githubFlowLocal: '选择本地文件夹…',
-      githubFlowClone: '从 GitHub 克隆…',
-      githubFlowPickerMissing: '目录选择器不可用',
-      githubFlowBack: '返回',
-      githubFlowClose: '关闭',
-      githubCloneIntoWorkspace: '克隆并建立工作区',
       githubClonePanelTitle: '从 GitHub 克隆工作区',
       githubCloneEntry: '从 GitHub 克隆',
       githubAddressLabel: '仓库地址',
@@ -374,14 +367,6 @@ window.__ModuleLoader__.load({
       githubCloneRoot: 'Clone root',
       githubCloneRootChange: 'Change',
       githubCloneTarget: 'Will clone to',
-      githubFlowTitle: 'Create a workspace',
-      githubFlowSubtitle: 'A workspace is created automatically once the clone finishes',
-      githubFlowLocal: 'Choose a local folder…',
-      githubFlowClone: 'Clone from GitHub…',
-      githubFlowPickerMissing: 'Directory picker is unavailable',
-      githubFlowBack: 'Back',
-      githubFlowClose: 'Close',
-      githubCloneIntoWorkspace: 'Clone and create workspace',
       githubClonePanelTitle: 'Clone a workspace from GitHub',
       githubCloneEntry: 'Clone from GitHub',
       githubAddressLabel: 'Repository address',
@@ -1007,7 +992,7 @@ window.__ModuleLoader__.load({
 
     // ── github clone panel store (module level; opened from the hero slot) ──
     var gitbarGithubPanelStore = (function () {
-      var state = { open: false, sessionId: '', flow: null }
+      var state = { open: false, sessionId: '' }
       var listeners = typeof Set === 'function' ? new Set() : null
       function notify() {
         if (!listeners) return
@@ -1024,7 +1009,7 @@ window.__ModuleLoader__.load({
         return state
       }
       function set(next) {
-        state = next && typeof next === 'object' ? next : { open: false, sessionId: '', flow: null }
+        state = next && typeof next === 'object' ? next : { open: false, sessionId: '' }
         notify()
       }
       function subscribe(listener) {
@@ -1043,16 +1028,15 @@ window.__ModuleLoader__.load({
 
     var lastCapsuleSessionId = ''
 
-    function openGithubClonePanel(sessionId, flow) {
+    function openGithubClonePanel(sessionId) {
       gitbarGithubPanelStore.set({
         open: true,
-        sessionId: toText(sessionId) || lastCapsuleSessionId,
-        flow: flow && typeof flow === 'object' ? flow : null
+        sessionId: toText(sessionId) || lastCapsuleSessionId
       })
     }
 
     function closeGithubClonePanel() {
-      gitbarGithubPanelStore.set({ open: false, sessionId: '', flow: null })
+      gitbarGithubPanelStore.set({ open: false, sessionId: '' })
     }
 
     function isGithubPanelOpen() {
@@ -1770,18 +1754,6 @@ window.__ModuleLoader__.load({
       '.gitbar-hero-clone:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.gitbar-hero-clone:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
       '.gitbar-hero-clone-icon{display:inline-flex;color:var(--dsw-alias-label-secondary)}',
-      '.gitbar-flow-overlay{position:fixed;inset:0;z-index:2147482999;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb, var(--dsw-alias-label-primary) 24%, transparent)}',
-      '.gitbar-flow{display:flex;flex-direction:column;width:min(420px,100%);box-sizing:border-box;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 18px 48px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.45;overflow:hidden;animation:gitbar-gp-in 150ms cubic-bezier(0.2,0,0,1) both;text-align:left}',
-      '.gitbar-flow-head{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
-      '.gitbar-flow-title{flex:1 1 auto;min-width:0;font-weight:600;font-size:12.5px}',
-      '.gitbar-flow-body{display:flex;flex-direction:column;gap:8px;padding:10px}',
-      '.gitbar-flow-hint{font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
-      '.gitbar-flow-option{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer;transition:background-color 120ms ease}',
-      '.gitbar-flow-option:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2)}',
-      '.gitbar-flow-option:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
-      '.gitbar-flow-option:disabled{cursor:default;opacity:.5}',
-      '.gitbar-flow-option-icon{flex:0 0 auto;color:var(--dsw-alias-label-secondary)}',
-      '.gitbar-flow-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px}',
       '.gitbar-gp-overlay{position:fixed;inset:0;z-index:2147483001;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb, var(--dsw-alias-label-primary) 24%, transparent)}',
       '.gitbar-gp{display:flex;flex-direction:column;width:min(540px,100%);max-height:min(78vh,640px);box-sizing:border-box;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 18px 48px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.45;overflow:hidden;animation:gitbar-gp-in 150ms cubic-bezier(0.2,0,0,1) both;text-align:left}',
       '.gitbar-gp-head{display:flex;align-items:center;gap:8px;flex:0 0 auto;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
@@ -1805,7 +1777,7 @@ window.__ModuleLoader__.load({
       '.gitbar-gp-login{display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid var(--dsw-alias-border-l1)}',
       '@keyframes gitbar-gp-in{from{opacity:0;transform:translateY(-4px) scale(.99)}to{opacity:1;transform:none}}',
       '@keyframes gitbar-github-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}',
-      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-gp,.gitbar-gp-repo,.gitbar-hero-clone,.gitbar-flow,.gitbar-flow-option,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
+      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-gp,.gitbar-gp-repo,.gitbar-hero-clone,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
     // ── components ────────────────────────────────────────────────────────
@@ -4641,192 +4613,10 @@ window.__ModuleLoader__.load({
       return h(GithubClonePanel, {
         t: t,
         sessionId: toText(state.sessionId),
-        flow: state.flow && typeof state.flow === 'object' ? state.flow : null,
+
         onClose: closeGithubClonePanel,
         onFlash: typeof props.onFlash === 'function' ? props.onFlash : undefined
       })
-    }
-
-    // ── directoryFlow: replaces the native picker in the "add workspace" menu ──
-    function GithubDirectoryFlow(props) {
-      var t = props.t || translate
-      var open = props.open === true
-      var errorHook = useState('')
-      var error = errorHook[0]
-      var setError = errorHook[1]
-      var busyHook = useState(false)
-      var busy = busyHook[0]
-      var setBusy = busyHook[1]
-
-      function reportError(message) {
-        var text = toText(message) || t('error')
-        setError(text)
-        try {
-          if (typeof props.onError === 'function') props.onError(text)
-        } catch (error2) {
-          /* ignore */
-        }
-      }
-
-      function pickLocal() {
-        if (typeof props.pick !== 'function' || busy) return
-        setBusy(true)
-        setError('')
-        Promise.resolve()
-          .then(function () {
-            return props.pick()
-          })
-          .then(
-            function (picked) {
-              setBusy(false)
-              var path = toText(picked)
-              if (!path) {
-                try {
-                  if (typeof props.onCancel === 'function') props.onCancel()
-                } catch (error2) {
-                  /* ignore */
-                }
-                return
-              }
-              try {
-                if (typeof props.onPicked === 'function') props.onPicked(path)
-              } catch (error2) {
-                /* ignore */
-              }
-            },
-            function (failure) {
-              setBusy(false)
-              reportError(failure && failure.message ? failure.message : t('error'))
-            }
-          )
-      }
-
-      function openCloner() {
-        setError('')
-        openGithubClonePanel(props.sessionId, {
-          onPicked: function (path) {
-            try {
-              if (typeof props.onPicked === 'function') props.onPicked(path)
-            } catch (error2) {
-              /* ignore */
-            }
-          },
-          onCancel: function () {
-            try {
-              if (typeof props.onCancel === 'function') props.onCancel()
-            } catch (error2) {
-              /* ignore */
-            }
-          },
-          onError: reportError
-        })
-      }
-
-      function closeFlow() {
-        try {
-          if (typeof props.onCancel === 'function') props.onCancel()
-        } catch (error2) {
-          /* ignore */
-        }
-      }
-
-      if (!open) return null
-      try {
-        var pickerAvailable = typeof props.pick === 'function'
-        return h(
-          'div',
-          {
-            className: 'gitbar-flow-overlay',
-            role: 'presentation',
-            onMouseDown: function (event) {
-              try {
-                if (!event) return
-                if (event.target !== event.currentTarget) return
-                closeFlow()
-              } catch (error2) {
-                /* ignore */
-              }
-            }
-          },
-          h(
-            'div',
-            {
-              className: 'gitbar-flow',
-              role: 'dialog',
-              'aria-label': t('githubFlowTitle'),
-              'aria-modal': 'true',
-              onMouseDown: function (event) {
-                try {
-                  if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
-                } catch (error2) {
-                  /* ignore */
-                }
-              }
-            },
-            h(
-              'div',
-              { className: 'gitbar-flow-head' },
-              h('span', { className: 'gitbar-flow-title' }, t('githubFlowTitle')),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'gitbar-btn',
-                  title: t('githubFlowClose'),
-                  'aria-label': t('githubFlowClose'),
-                  onClick: closeFlow
-                },
-                '×'
-              )
-            ),
-            h(
-              'div',
-              { className: 'gitbar-flow-body' },
-              h('div', { className: 'gitbar-flow-hint' }, t('githubFlowSubtitle')),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'gitbar-flow-option',
-                  disabled: !pickerAvailable || busy,
-                  title: pickerAvailable ? t('githubFlowLocal') : t('githubFlowPickerMissing'),
-                  onClick: pickLocal
-                },
-                h('span', { className: 'gitbar-flow-option-icon', 'aria-hidden': 'true' }, '▣'),
-                t('githubFlowLocal')
-              ),
-              pickerAvailable ? null : h('div', { className: 'gitbar-flow-hint' }, t('githubFlowPickerMissing')),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'gitbar-flow-option',
-                  disabled: busy,
-                  onClick: openCloner
-                },
-                h('span', { className: 'gitbar-flow-option-icon', 'aria-hidden': 'true' }, '⎇'),
-                t('githubFlowClone')
-              ),
-              error ? h('div', { className: 'gitbar-gp-error', role: 'alert' }, error) : null,
-              h(
-                'div',
-                { className: 'gitbar-flow-actions' },
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn',
-                    onClick: closeFlow
-                  },
-                  t('cancel')
-                )
-              )
-            )
-          )
-        )
-      } catch (error2) {
-        return null
-      }
     }
 
     // ── GitHub clone panel (independent overlay, opened from the hero slot) ──
@@ -4859,7 +4649,6 @@ window.__ModuleLoader__.load({
     function GithubClonePanel(props) {
       var t = props.t || translate
       var sessionId = toText(props.sessionId)
-      var flow = props.flow && typeof props.flow === 'object' ? props.flow : null
 
       var statusHook = useState(null)
       var status = statusHook[0]
@@ -5530,19 +5319,10 @@ window.__ModuleLoader__.load({
                         className: 'gitbar-btn gitbar-github-primary',
                         disabled: pending === 'open',
                         onClick: function () {
-                          if (flow && typeof flow.onPicked === 'function') {
-                            try {
-                              flow.onPicked(jobPath)
-                            } catch (error2) {
-                              /* ignore */
-                            }
-                            if (typeof props.onClose === 'function') props.onClose()
-                            return
-                          }
                           openWorkspace(jobPath)
                         }
                       },
-                      flow ? t('githubCloneIntoWorkspace') : pending === 'open' ? t('githubCreating') : t('githubCreateWorkspace')
+                      pending === 'open' ? t('githubCreating') : t('githubCreateWorkspace')
                     )
                   )
                 )
@@ -5683,31 +5463,6 @@ window.__ModuleLoader__.load({
               'div',
               { className: 'gitbar-gp-head' },
               h('span', { className: 'gitbar-gp-title' }, t('githubClonePanelTitle')),
-              flow
-                ? h(
-                  'button',
-                  { type: 'button', className: 'gitbar-btn', onClick: close },
-                  t('githubFlowBack')
-                )
-                : null,
-              flow
-                ? h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn',
-                    onClick: function () {
-                      try {
-                        if (typeof flow.onCancel === 'function') flow.onCancel()
-                      } catch (error2) {
-                        /* ignore */
-                      }
-                      close()
-                    }
-                  },
-                  t('githubFlowClose')
-                )
-                : null,
               h(
                 'button',
                 {
@@ -8274,7 +8029,7 @@ window.__ModuleLoader__.load({
             onTogglePicker: onTogglePicker,
             onOpenGraph: onOpenGraph,
             github: githubStatus,
-            cloneEntry: directoryFlowRegistered !== true,
+            cloneEntry: heroRegistered !== true,
             onOpenClonePanel: function () {
               openGithubClonePanel(sessionRef.current)
             },
@@ -8366,38 +8121,33 @@ window.__ModuleLoader__.load({
           /* overlay registration is optional: the capsule fallback still works */
         }
 
-        // directoryFlow: the only official insertion point in the "add workspace" menu.
-        var flowRegisteredCount = 0
-        for (var flowAt = 0; flowAt < FLOW_SLOTS.length; flowAt += 1) {
-          try {
-            (function (slotName) {
-              ctx.slots.inject(slotName, function () {
-                return ctx.slots.register(
-                  { name: slotName, id: ENTRY_ID + ':directory-flow', order: 50 },
-                  function (slotProps) {
-                    var flowProps = {}
-                    try {
-                      if (slotProps && typeof slotProps === 'object') {
-                        for (var flowKey in slotProps) {
-                          if (Object.prototype.hasOwnProperty.call(slotProps, flowKey)) flowProps[flowKey] = slotProps[flowKey]
-                        }
-                      }
-                    } catch (error) {
-                      flowProps = {}
+        // New-conversation hero: the official place next to the workspace picker.
+        // List slots only: single slots are owned by the host and must not be taken over.
+        try {
+          ctx.slots.inject(HERO_SLOT, function () {
+            return ctx.slots.register(
+              { name: HERO_SLOT, id: ENTRY_ID + ':github-clone', order: HERO_ORDER },
+              function (slotProps) {
+                var heroProps = {}
+                try {
+                  if (slotProps && typeof slotProps === 'object') {
+                    for (var heroKey in slotProps) {
+                      if (Object.prototype.hasOwnProperty.call(slotProps, heroKey)) heroProps[heroKey] = slotProps[heroKey]
                     }
-                    flowProps.t = translate
-                    flowProps.sessionId = toText(flowProps.sessionId)
-                    return h(GithubDirectoryFlow, flowProps)
                   }
-                )
-              })
-            })(FLOW_SLOTS[flowAt])
-            flowRegisteredCount += 1
-          } catch (error) {
-            /* try the next slot */
-          }
+                } catch (error) {
+                  heroProps = {}
+                }
+                heroProps.t = translate
+                heroProps.sessionId = toText(heroProps.sessionId)
+                return h(GithubCloneEntry, heroProps)
+              }
+            )
+          })
+          heroRegistered = true
+        } catch (error) {
+          heroRegistered = false
         }
-        directoryFlowRegistered = flowRegisteredCount > 0
 
         // Stop the background clone poller with the plugin.
         try {

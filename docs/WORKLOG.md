@@ -119,6 +119,7 @@ conversation.session.header.utilities    会话 ID → ctx.sessions.get(id)
 
 | 事故 | 根因 | 处理 |
 | --- | --- | --- |
+| **v1.4.6 让 DSH 启动失败、所有插件面板消失** | 我们把组件注册进 `conversation.hero.workspace.directoryFlow` / `sidebar.workspaces.directoryFlow`——它们是被系统目录选择器占用的 **single 插槽**。第二个注册让 `@deepseek-ai/dsh-client-ui-directory-picker-native` 这个前端 entry 激活失败，而 Web 启动要求「所有 entry 都激活」（`web boot: 1 entry did not activate`），于是整个前端启动失败。启动失败后 profile 被恢复流程重写：`dsh.profile.bundles` 从 13 项缩到 8 项（memory/remote-control/bridge/robot-uart/plugin-market/git-bar 全丢），`cordis.patch.yml` 也被覆盖（留下了 `.bak-1795440874397`） | 1) 从崩溃日志定位到 native picker entry；2) 回滚两个 single 插槽注册（v1.4.7），入口回到 list 插槽 `conversation.hero.options`、面板留在 `shell.overlay`；3) 手工用备份恢复 profile 的 `bundles` 与 `cordis.patch.yml`（原文件另存 `.bak-lead-*`）；4) 契约测试加护栏：client.js 出现 `conversation.hero.workspace` / `sidebar.workspaces` / `main.conversation` 即失败。**规则：只注册 list 插槽，single 插槽属于内置 UI。** |
 | 路由 404、胶囊不显示 | (a) 缺 `export const inject = ['webServer']`；(b) prefix 写成 `/dsh-git-bar/`（宿主匹配规则是 `pathname === prefix \|\| startsWith(prefix + '/')`，带尾斜杠只匹配自己） | 补 inject；prefix 去掉尾斜杠 |
 | 客户端注册不上 | 槽位注册选项里写了 `locale: NS`（不是合法选项），导致注册被拒 | 移除该字段，locale 改用 `ctx.locale.register` + `bind` |
 | 图谱不能滚动 | `.gitbar-graph` 在 auto-height 的 flex body 里写了 `height:100%` | 改 `flex: 1 1 auto; min-height: 0`，容器 `overflow: hidden` |

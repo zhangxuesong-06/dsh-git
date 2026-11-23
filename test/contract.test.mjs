@@ -77,6 +77,16 @@ check('client: device flow is rate limited by the host', /device\/poll/.test(cli
 check('client: PAT leaves the input after login', /setPat\(''\)/.test(client), 'token kept in state')
 check('client: clone opens a real workspace', /workspaces[\s\S]{0,200}?create\(\{ path/.test(client) && /openWorkspace\(/.test(client), 'workspace wiring missing')
 
+// Single slots belong to the shipped UI. A second registration shadows the
+// shipped entry or makes it fail to activate, and one failed web-boot entry
+// takes every plugin down with it (the v1.4.6 incident), so the client must
+// stay on list slots only.
+for (const owned of ['conversation.hero.workspace', 'sidebar.workspaces', 'main.conversation']) {
+  check(`client: never registers into "${owned}"`, !client.includes(owned), 'single slot referenced')
+}
+check('client: clone panel lives in shell.overlay', /shell\.overlay/.test(client), 'overlay registration missing')
+check('client: clone entry lives in a list slot', /conversation\.hero\.options/.test(client), 'hero registration missing')
+
 // ── manifest + locale metadata ───────────────────────────────────────────
 check('manifest: bundle patch declared', pkg.dsh && pkg.dsh.bundle && pkg.dsh.bundle.patch === './cordis.patch.yml', JSON.stringify(pkg.dsh && pkg.dsh.bundle))
 check('manifest: web client declared', pkg.dsh && pkg.dsh.client && pkg.dsh.client.platform === 'web', JSON.stringify(pkg.dsh && pkg.dsh.client))
