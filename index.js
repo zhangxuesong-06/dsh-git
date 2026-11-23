@@ -12,7 +12,7 @@ import { execFile, spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { readFile, mkdtemp, writeFile, rm as rmPath, chmod, mkdir, readdir } from 'node:fs/promises'
 import { tmpdir, homedir } from 'node:os'
-import { basename, isAbsolute, join, resolve as resolvePath } from 'node:path'
+import { isAbsolute, join, resolve as resolvePath } from 'node:path'
 
 /**
  * Every route this plugin owns. The route table matches a prefix either
@@ -1488,20 +1488,73 @@ export function githubIdentityArgs(account) {
   return ['-c', `user.name=${name === '' ? login : name}`, '-c', `user.email=${email}`]
 }
 
+/** GitHub URL shapes that still name an owner and a repository. */
+const GITHUB_URL_PATTERNS = [
+  /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i,
+  /^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/i,
+  /^ssh:\/\/git@github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/i,
+]
+
 /**
- * Accept `owner/name`, `github.com/owner/name`, or a concrete URL. A URL is
- * passed through untouched so the tests and unusual remotes keep working.
+ * Accept `owner/name`, `github.com/owner/name`, a GitHub URL (https, `git@`,
+ * `ssh://`), or any other concrete git URL. GitHub shapes keep owner and name so
+ * the target folder and metadata stay meaningful; everything else is passed
+ * through untouched, which lets users clone a repository they do not own.
  */
 export function parseGithubRepo(spec) {
   const text = String(spec ?? '').trim()
   if (text === '') return null
-  if (/^(?:file:|git@|ssh:|https?:|[A-Za-z]:[\\/]|\/)/.test(text)) return { kind: 'url', url: text }
+  for (const pattern of GITHUB_URL_PATTERNS) {
+    const found = text.match(pattern)
+    if (found) return { kind: 'github', owner: found[1], name: found[2] }
+  }
+  if (/^(?:file:|git@|ssh:|git:|https?:|[A-Za-z]:[\\/]|\/)/.test(text)) return { kind: 'url', url: text }
   const match = text.replace(/^github\.com\//i, '').match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/)
   if (!match) return null
   const owner = match[1]
   const name = match[2]
   if (owner === '.' || name === '.' || name === '..') return null
   return { kind: 'github', owner, name }
+}
+
+/** Target folder name for a parsed repository spec. */
+export function cloneFolderFor(parsed) {
+  if (parsed.kind === 'github') return `${parsed.owner}-${parsed.name}`.replace(/[\\/:*?"<>|]/g, '-')
+  const tail = String(parsed.url).replace(/[/\\]+$/, '').replace(/\.git$/, '')
+  const base = tail.split(/[/:]/).filter(Boolean).pop() ?? ''
+  return (base || 'repository').replace(/[\\/:*?"<>|]/g, '-')
+}
+
+/** Absolute clone root: the request's, else the profile's, else the default. */
+function cloneRootFor(payload, config) {
+  const requested =
+    typeof payload.root === 'string' && payload.root.trim() !== '' ? payload.root.trim() : config.cloneRoot
+  return isAbsolute(requested) ? resolvePath(requested) : join(homedir(), requested)
+}
+
+/**
+ * Where a clone would land, without cloning. The panel shows this before the
+ * user confirms, including whether the destination is already occupied.
+ */
+async function githubClonePreview(ctx, payload = {}) {
+  const parsed = parseGithubRepo(payload.repo)
+  if (!parsed) return { ok: false, reason: 'bad-repo' }
+  const config = await readGithubConfig()
+  const root = cloneRootFor(payload, config)
+  const folder = cloneFolderFor(parsed)
+  const path = join(root, folder)
+  const existing = await readdir(path).catch(() => null)
+  const access = await githubAccessToken(ctx)
+  return {
+    ok: true,
+    repo: parsed.kind === 'github' ? `${parsed.owner}/${parsed.name}` : parsed.url,
+    kind: parsed.kind,
+    root,
+    folder,
+    path,
+    exists: existing !== null && existing.length > 0,
+    signedIn: Boolean(access.token),
+  }
 }
 
 /** One GitHub REST call; failures become `{ ok: false, reason }` rather than throwing. */
@@ -1961,19 +2014,17 @@ function startCloneJob(ctx, payload) {
  * already holds files is refused instead of merged into.
  */
 async function githubClone(ctx, payload = {}, job = null) {
-  const access = await githubAccessToken(ctx)
-  if (!access.token) return { ok: false, reason: access.reason ?? 'not-signed-in', detail: access.detail ?? '' }
   const parsed = parseGithubRepo(payload.repo)
   if (!parsed) return { ok: false, reason: 'bad-repo' }
+  // Public repositories clone anonymously; a private one needs a token and
+  // fails with `auth-failed`, which the panel turns into "sign in first".
+  const access = await githubAccessToken(ctx)
+  const token = typeof access.token === 'string' ? access.token : ''
   const config = await readGithubConfig()
-  const requestedRoot = typeof payload.root === 'string' && payload.root.trim() !== '' ? payload.root.trim() : config.cloneRoot
-  const root = isAbsolute(requestedRoot) ? resolvePath(requestedRoot) : join(homedir(), requestedRoot)
+  const root = cloneRootFor(payload, config)
   await mkdir(root, { recursive: true })
 
-  const folder =
-    parsed.kind === 'github'
-      ? `${parsed.owner}-${parsed.name}`.replace(/[\\/:*?"<>|]/g, '-')
-      : basename(parsed.url.replace(/\.git$/, '')) || 'repository'
+  const folder = cloneFolderFor(parsed)
   const target = join(root, folder)
   if (job) {
     job.root = root
@@ -1991,14 +2042,18 @@ async function githubClone(ctx, payload = {}, job = null) {
     parsed.kind === 'github' ? `${GITHUB_WEB}/${parsed.owner}/${parsed.name}.git` : parsed.url
   let helper = null
   try {
-    helper = await createAskpass({ username: 'x-access-token', password: access.token })
+    if (token !== '') helper = await createAskpass({ username: 'x-access-token', password: token })
     const env = {
       ...NETWORK_ENV,
       GIT_TERMINAL_PROMPT: '0',
-      GIT_ASKPASS: helper.path,
       GCM_INTERACTIVE: 'never',
-      SSH_ASKPASS: helper.path,
-      SSH_ASKPASS_REQUIRE: 'force',
+      ...(helper
+        ? {
+            GIT_ASKPASS: helper.path,
+            SSH_ASKPASS: helper.path,
+            SSH_ASKPASS_REQUIRE: 'force',
+          }
+        : {}),
     }
     const args = ['clone', '--progress']
     const branch = typeof payload.branch === 'string' ? payload.branch.trim() : ''
@@ -2011,12 +2066,13 @@ async function githubClone(ctx, payload = {}, job = null) {
       const detail = clipText(cloned.detail)
       return {
         ok: false,
-        reason: /Authentication failed|could not read Username|terminal prompts disabled/i.test(detail)
+        reason: /Authentication failed|could not read Username|terminal prompts disabled|403|401|Permission denied/i.test(detail)
           ? 'auth-failed'
           : /not found|Repository not found|does not appear to be a git repository/i.test(detail)
             ? 'not-found'
             : 'clone-failed',
         detail,
+        needsSignIn: token === '',
       }
     }
   } finally {
@@ -2030,8 +2086,8 @@ async function githubClone(ctx, payload = {}, job = null) {
 
   let defaultBranch = ''
   let isPrivate = false
-  if (parsed.kind === 'github') {
-    const info = await githubRequest(`/repos/${parsed.owner}/${parsed.name}`, { token: access.token })
+  if (parsed.kind === 'github' && token !== '') {
+    const info = await githubRequest(`/repos/${parsed.owner}/${parsed.name}`, { token })
     if (info.ok && info.data) {
       defaultBranch = asText(info.data.default_branch)
       isPrivate = info.data.private === true
@@ -2168,6 +2224,10 @@ async function handle(ctx, req, res) {
           200,
           await githubRepos(ctx, url.searchParams.get('q') ?? '', url.searchParams.get('limit') ?? ''),
         )
+        return
+      }
+      if (step === 'clone/preview') {
+        send(200, await githubClonePreview(ctx, await readPayload(req)))
         return
       }
       if (step === 'clone') {

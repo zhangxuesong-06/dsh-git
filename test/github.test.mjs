@@ -1,6 +1,6 @@
 // Offline checks for the GitHub half of the Host routes (index.js).
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
@@ -97,8 +97,11 @@ const TOKEN = 'ghp_secret_token_value'
 // ── 1. pure helpers ──────────────────────────────────────────────────────
 check('repo spec: owner/name', JSON.stringify(parseGithubRepo('octo/alpha')) === JSON.stringify({ kind: 'github', owner: 'octo', name: 'alpha' }), JSON.stringify(parseGithubRepo('octo/alpha')))
 check('repo spec: github.com prefix', parseGithubRepo('github.com/octo/alpha.git')?.kind === 'github', 'prefix')
-check('repo spec: https url passes through', parseGithubRepo('https://github.com/octo/alpha').kind === 'url', 'url')
-check('repo spec: ssh url passes through', parseGithubRepo('git@github.com:octo/alpha.git').kind === 'url', 'ssh')
+check('repo spec: https github url keeps owner/name', JSON.stringify(parseGithubRepo('https://github.com/octo/alpha.git')) === JSON.stringify({ kind: 'github', owner: 'octo', name: 'alpha' }), JSON.stringify(parseGithubRepo('https://github.com/octo/alpha.git')))
+check('repo spec: ssh github url keeps owner/name', JSON.stringify(parseGithubRepo('git@github.com:octo/alpha.git')) === JSON.stringify({ kind: 'github', owner: 'octo', name: 'alpha' }), JSON.stringify(parseGithubRepo('git@github.com:octo/alpha.git')))
+check('repo spec: ssh:// github url keeps owner/name', parseGithubRepo('ssh://git@github.com/octo/alpha.git')?.kind === 'github', 'ssh://')
+check('repo spec: foreign url passes through', parseGithubRepo('https://gitlab.com/group/project.git')?.kind === 'url', 'gitlab')
+check('repo spec: foreign ssh url passes through', parseGithubRepo('git@bitbucket.org:team/repo.git')?.kind === 'url', 'bitbucket')
 check('repo spec: rejects garbage', parseGithubRepo('not a repo') === null && parseGithubRepo('') === null, 'garbage')
 check('identity: name + noreply email', JSON.stringify(githubIdentityArgs(USER)) === JSON.stringify(['-c', 'user.name=Octo Cat', '-c', 'user.email=42+octo@users.noreply.github.com']), JSON.stringify(githubIdentityArgs(USER)))
 check('identity: empty without account', githubIdentityArgs(null).length === 0, 'empty')
@@ -194,6 +197,29 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
 
   const unknown = await ask(repo, '/dsh-git-bar/github/clone/status?id=nope')
   check('clone job: unknown id', unknown.ok === false && unknown.reason === 'unknown-job', JSON.stringify(unknown))
+}
+
+// ── 5c. clone preview names the destination before cloning ───────────────
+{
+  const previewRoot = mkdtempSync(join(tmpdir(), 'dshgit-gh-preview-'))
+  const preview = await ask(repo, '/dsh-git-bar/github/clone/preview', 'POST', { repo: 'octo/alpha', root: previewRoot })
+  check('preview: path resolved', preview.ok === true && preview.path === join(previewRoot, 'octo-alpha'), JSON.stringify(preview))
+  check('preview: not occupied yet', preview.exists === false, String(preview.exists))
+  check('preview: reports the sign-in state', preview.signedIn === true, String(preview.signedIn))
+
+  mkdirSync(join(previewRoot, 'octo-alpha'))
+  writeFileSync(join(previewRoot, 'octo-alpha', 'README.md'), 'x\n')
+  const occupied = await ask(repo, '/dsh-git-bar/github/clone/preview', 'POST', { repo: 'octo/alpha', root: previewRoot })
+  check('preview: occupied destination flagged', occupied.exists === true, String(occupied.exists))
+
+  const foreign = await ask(repo, '/dsh-git-bar/github/clone/preview', 'POST', {
+    repo: 'https://gitlab.com/group/project.git',
+    root: previewRoot,
+  })
+  check('preview: foreign url gets a folder', foreign.ok === true && foreign.folder === 'project' && foreign.kind === 'url', JSON.stringify(foreign))
+
+  const badPreview = await ask(repo, '/dsh-git-bar/github/clone/preview', 'POST', { repo: '%%%' })
+  check('preview: bad spec', badPreview.ok === false && badPreview.reason === 'bad-repo', JSON.stringify(badPreview))
 }
 
 // ── 6. config patch ──────────────────────────────────────────────────────
@@ -380,8 +406,26 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   const status = await ask(repo, '/dsh-git-bar/github/status')
   check('logout: signed out', status.signedIn === false && status.account === null, JSON.stringify(status))
 
-  const cloneWithout = await ask(repo, '/dsh-git-bar/github/clone', 'POST', { repo: 'octo/alpha' })
-  check('clone: refuses when signed out', cloneWithout.ok === false && cloneWithout.reason === 'not-signed-in', JSON.stringify(cloneWithout))
+  // Public repositories clone without signing in; a private one fails and asks
+  // for a sign-in instead of pretending the user is unauthorized.
+  {
+    const { bare } = makeBare()
+    const anonymousRoot = mkdtempSync(join(tmpdir(), 'dshgit-gh-anon-'))
+    const anonymous = await ask(repo, '/dsh-git-bar/github/clone', 'POST', {
+      repo: `file://${bare.replace(/\\/g, '/')}`,
+      root: anonymousRoot,
+    })
+    check('clone: works without sign-in', anonymous.ok === true && existsSync(join(anonymous.path, '.git')), JSON.stringify(anonymous))
+  }
+  const blocked = await ask(repo, '/dsh-git-bar/github/clone', 'POST', {
+    repo: 'http://127.0.0.1:9/private.git',
+    root: mkdtempSync(join(tmpdir(), 'dshgit-gh-anon2-')),
+  })
+  check(
+    'clone: failure without sign-in asks for it',
+    blocked.ok === false && blocked.needsSignIn === true && blocked.reason !== 'not-signed-in',
+    JSON.stringify(blocked),
+  )
   const reposWithout = await ask(repo, '/dsh-git-bar/github/repos')
   check('repos: refuses when signed out', reposWithout.ok === false && reposWithout.reason === 'not-signed-in', JSON.stringify(reposWithout))
 }
