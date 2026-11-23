@@ -1355,7 +1355,43 @@ async function writeGithubConfig(patch) {
   return next
 }
 
-/** The credential seam, when this composition provides it. */
+/** The Node fetch captured before anything could replace it (the self-tests do). */
+const nodeFetch = typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : null
+let electronFetchPromise = null
+
+/**
+ * fetch that honours the desktop app's network stack.
+ *
+ * Node's fetch dials directly: behind a system proxy (the common Windows setup,
+ * and the only way to reach `github.com` on many networks) every request times
+ * out. Electron's `net.fetch` runs on Chromium's stack, which reads the system
+ * proxy settings, so the Host half prefers it and falls back to Node fetch when
+ * the module or the API is unavailable (CLI runs, tests).
+ */
+function electronFetch() {
+  if (electronFetchPromise) return electronFetchPromise
+  electronFetchPromise = (async () => {
+    try {
+      const mod = await import('electron')
+      const net = (mod && mod.net) ?? (mod && mod.default && mod.default.net)
+      if (net && typeof net.fetch === 'function') return (url, init) => net.fetch(url, init)
+    } catch {
+      // Not running inside Electron, or `net` is not exposed: use Node fetch.
+    }
+    return null
+  })()
+  return electronFetchPromise
+}
+
+/** One HTTP call for the GitHub integration, proxy-aware and abortable. */
+async function githubFetch(url, init) {
+  // A replaced global fetch means a test harness owns the network.
+  if (typeof globalThis.fetch === 'function' && globalThis.fetch !== nodeFetch) return globalThis.fetch(url, init)
+  const viaElectron = await electronFetch()
+  if (viaElectron) return viaElectron(url, init)
+  if (nodeFetch) return nodeFetch(url, init)
+  throw new Error('no fetch implementation is available')
+}
 function credentialsService(ctx) {
   try {
     return ctx.get('credentials')
@@ -1481,7 +1517,7 @@ async function githubRequest(path, options = {}) {
   }
   let response
   try {
-    response = await fetch(`${GITHUB_API}${path}`, init)
+    response = await githubFetch(`${GITHUB_API}${path}`, init)
   } catch (error) {
     return { ok: false, reason: 'network', detail: clipText(error && error.message ? error.message : error) }
   }
@@ -1530,7 +1566,7 @@ async function githubRefreshGrant(ctx, grant) {
   }
   let response
   try {
-    response = await fetch(`${GITHUB_WEB}/login/oauth/access_token`, {
+    response = await githubFetch(`${GITHUB_WEB}/login/oauth/access_token`, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -1667,7 +1703,7 @@ async function githubDeviceStart() {
   if (clientId === '') return { ok: false, reason: 'missing-client-id' }
   let response
   try {
-    response = await fetch(`${GITHUB_WEB}/login/device/code`, {
+    response = await githubFetch(`${GITHUB_WEB}/login/device/code`, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ client_id: clientId, scope: 'repo read:user' }).toString(),
@@ -1710,7 +1746,7 @@ async function githubDevicePoll(ctx, id) {
   flow.nextPollAt = Date.now() + flow.interval * 1000
   let response
   try {
-    response = await fetch(`${GITHUB_WEB}/login/oauth/access_token`, {
+    response = await githubFetch(`${GITHUB_WEB}/login/oauth/access_token`, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
