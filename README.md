@@ -122,10 +122,10 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 - **Personal Access Token（最快）**：GitHub → Settings → Developer settings → Personal access tokens 建一个带 `repo` 权限的
   token（私有仓库读写；只操作公开仓库也要它来推送），粘进卡片即可。token 只在这一次请求里经过浏览器，之后只存在于
   Host 的凭据库里。
-- **OAuth Device Flow（不用手建 token）**：需要你先建一个 OAuth App：GitHub → Settings → Developer settings →
-  OAuth Apps → New OAuth App，**勾选「Enable Device Flow」**（回调地址随便填，device flow 用不到），然后把它的
-  **Client ID** 填进卡片（或 `POST /github/config {deviceClientId}`）。之后点「用浏览器登录」，面板会给出 8 位码与
-  `https://github.com/login/device` 链接，授权完成后面板自动变成已登录。
+- **OAuth Device Flow（不用手建 token）**：插件内置了本项目自己的 OAuth App Client ID，装好就能点「用浏览器登录」——
+  面板给出 8 位码与 `https://github.com/login/device` 链接，输入码、授权（`repo` + `read:user`）即可。
+  Client ID 是公开信息（device flow 不用 client secret），所以随包分发是安全的；如果你更想用自己的 OAuth App，
+  在 GitHub → Settings → Developer settings → OAuth Apps 新建并**勾选 Enable Device Flow**，把 Client ID 填进卡片即可覆盖内置值。
 
 ### 安全边界
 

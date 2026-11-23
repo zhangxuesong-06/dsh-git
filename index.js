@@ -1278,8 +1278,32 @@ const GITHUB_TIMEOUT_MS = 20_000
 const GITHUB_DEVICE_TTL_MS = 15 * 60_000
 const GITHUB_REPO_LIMIT = 100
 const GITHUB_CLONE_TIMEOUT_MS = 300_000
+/**
+ * Client id of the OAuth App this project ships for device-flow sign-in.
+ *
+ * A device-flow client id is public by design: the flow exchanges it for a
+ * user code and never uses a client secret, so baking one into a distributed
+ * plugin is how every desktop tool offers "sign in with GitHub". Users can
+ * still point the plugin at their own OAuth App through `deviceClientId`.
+ * Keep this empty until the project-owned app exists; `missing-client-id`
+ * then tells the panel to explain the two options instead of failing silently.
+ */
+const DEFAULT_DEVICE_CLIENT_ID = ''
 /** Host-held device-flow attempts, keyed by an opaque id handed to the browser. */
 const deviceFlows = new Map()
+
+/** Default client id: a test/operator override first, then the shipped app. */
+function defaultDeviceClientId() {
+  const override = process.env.DSH_GIT_BAR_OAUTH_CLIENT_ID
+  if (typeof override === 'string' && override.trim() !== '') return override.trim()
+  return DEFAULT_DEVICE_CLIENT_ID
+}
+
+/** The client id a device-flow attempt uses: the profile's own app, else the shipped one. */
+function effectiveDeviceClientId(config) {
+  const own = config && typeof config.deviceClientId === 'string' ? config.deviceClientId.trim() : ''
+  return own !== '' ? own : defaultDeviceClientId()
+}
 
 /** Directory this plugin owns for its own small state files. */
 function githubDataDir() {
@@ -1521,6 +1545,7 @@ async function writeGithubEnvToken(token) {
 /** Everything the browser half may know about the current sign-in. */
 async function githubStatus(ctx) {
   const [config, grant] = await Promise.all([readGithubConfig(), readGithubGrant(ctx)])
+  const shipped = defaultDeviceClientId()
   return {
     ok: true,
     signedIn: Boolean(grant && grant.token),
@@ -1529,6 +1554,11 @@ async function githubStatus(ctx) {
     connectedAt: grant && typeof grant.connectedAt === 'number' ? grant.connectedAt : null,
     scopes: grant && Array.isArray(grant.scopes) ? grant.scopes : null,
     mcp: { configured: Boolean(process.env[GITHUB_MCP_ENV]), envName: GITHUB_MCP_ENV },
+    device: {
+      ready: effectiveDeviceClientId(config) !== '',
+      custom: config.deviceClientId !== '',
+      shipped: shipped !== '',
+    },
     config,
   }
 }
@@ -1555,13 +1585,14 @@ async function githubLogin(ctx, token) {
 /** Begin an OAuth device-flow attempt; the device code never leaves the Host. */
 async function githubDeviceStart() {
   const config = await readGithubConfig()
-  if (config.deviceClientId === '') return { ok: false, reason: 'missing-client-id' }
+  const clientId = effectiveDeviceClientId(config)
+  if (clientId === '') return { ok: false, reason: 'missing-client-id' }
   let response
   try {
     response = await fetch(`${GITHUB_WEB}/login/device/code`, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ client_id: config.deviceClientId, scope: 'repo read:user' }).toString(),
+      body: new URLSearchParams({ client_id: clientId, scope: 'repo read:user' }).toString(),
       signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
     })
   } catch (error) {
@@ -1574,7 +1605,9 @@ async function githubDeviceStart() {
   const id = randomBytes(12).toString('hex')
   const interval = Math.max(1, Number(data.interval) || 5)
   const expiresAt = Date.now() + (Number(data.expires_in) || 900) * 1000
-  deviceFlows.set(id, { deviceCode: data.device_code, interval, expiresAt, nextPollAt: Date.now() + interval * 1000 })
+  // Keep the client id with the attempt so a later config edit cannot make the
+  // token exchange disagree with the code request that produced it.
+  deviceFlows.set(id, { clientId, deviceCode: data.device_code, interval, expiresAt, nextPollAt: Date.now() + interval * 1000 })
   return {
     ok: true,
     id,
@@ -1597,14 +1630,13 @@ async function githubDevicePoll(ctx, id) {
     return { ok: true, state: 'pending', retryAfter: Math.max(1, Math.ceil((flow.nextPollAt - Date.now()) / 1000)) }
   }
   flow.nextPollAt = Date.now() + flow.interval * 1000
-  const config = await readGithubConfig()
   let response
   try {
     response = await fetch(`${GITHUB_WEB}/login/oauth/access_token`, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_id: config.deviceClientId,
+        client_id: flow.clientId,
         device_code: flow.deviceCode,
         grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       }).toString(),

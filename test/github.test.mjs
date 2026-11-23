@@ -13,6 +13,10 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
 const dataDir = mkdtempSync(join(tmpdir(), 'dshgit-gh-data-'))
 process.env.DSH_GIT_BAR_DATA_DIR = dataDir
 process.env.GIT_TERMINAL_PROMPT = '0'
+// Stand in for the OAuth App the project ships, so the browser flow is
+// exercisable without the real client id.
+const SHIPPED_CLIENT_ID = 'Iv1shippedAppClient01'
+process.env.DSH_GIT_BAR_OAUTH_CLIENT_ID = SHIPPED_CLIENT_ID
 
 // ── mocked GitHub API ────────────────────────────────────────────────────
 const realFetch = globalThis.fetch
@@ -171,18 +175,44 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   await ask(repo, '/dsh-git-bar/github/config', 'POST', { deviceClientId: '', useGithubIdentity: true })
 }
 
-// ── 7. device flow: pending, then approved ───────────────────────────────
+// ── 6b. with no app at all the browser tab gets a clear reason ───────────
 {
+  delete process.env.DSH_GIT_BAR_OAUTH_CLIENT_ID
   const missing = await ask(repo, '/dsh-git-bar/github/device/start', 'POST', {})
-  check('device: needs a client id', missing.ok === false && missing.reason === 'missing-client-id', JSON.stringify(missing))
+  check('device: missing client id without any app', missing.ok === false && missing.reason === 'missing-client-id', JSON.stringify(missing))
+  const status = await ask(repo, '/dsh-git-bar/github/status')
+  check('device: status reports not ready', status.device.ready === false && status.device.shipped === false, JSON.stringify(status.device))
+  process.env.DSH_GIT_BAR_OAUTH_CLIENT_ID = SHIPPED_CLIENT_ID
+}
 
+// ── 7a. shipped client id (device flow works for every user) ─────────────
+{
+  const before = await ask(repo, '/dsh-git-bar/github/status')
+  check('device: shipped id makes the browser flow ready', before.device.shipped === true && before.device.ready === true, JSON.stringify(before.device))
+  check('device: profile has no custom app', before.device.custom === false, JSON.stringify(before.device))
+
+  let seenBody = ''
+  queued((url, init) => {
+    seenBody = String(init.body ?? '')
+    return respond({ device_code: 'device_secret_shipped', user_code: 'WXYZ-0001', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 })
+  })
+  const shipped = await ask(repo, '/dsh-git-bar/github/device/start', 'POST', {})
+  check('device: starts with the shipped id', shipped.ok === true && shipped.userCode === 'WXYZ-0001', JSON.stringify(shipped))
+  check('device: shipped id sent to GitHub', seenBody.includes(`client_id=${SHIPPED_CLIENT_ID}`), seenBody.slice(0, 120))
+}
+
+// ── 7b. a profile-supplied app overrides the shipped one ─────────────────
+{
   await ask(repo, '/dsh-git-bar/github/config', 'POST', { deviceClientId: 'Iv1device0001' })
-  queued(() =>
-    respond({ device_code: 'device_secret', user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 1 }),
-  )
+  let seenBody = ''
+  queued((url, init) => {
+    seenBody = String(init.body ?? '')
+    return respond({ device_code: 'device_secret', user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 1 })
+  })
   const started = await ask(repo, '/dsh-git-bar/github/device/start', 'POST', {})
   check('device: start returns a code', started.ok === true && started.userCode === 'ABCD-1234', JSON.stringify(started))
-  check('device: device secret stays host-side', !JSON.stringify(started).includes('device_secret'), 'leak')
+  check('device: custom app wins', seenBody.includes('client_id=Iv1device0001'), seenBody.slice(0, 120))
+  check('device: device secret stays host-side', !JSON.stringify(started).includes('device_secret"'), 'leak')
   check('device: verification uri', started.verificationUri === 'https://github.com/login/device', started.verificationUri)
 
   const gated = await ask(repo, '/dsh-git-bar/github/device/poll', 'POST', { id: started.id })
@@ -264,6 +294,7 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
 }
 
 globalThis.fetch = realFetch
+delete process.env.DSH_GIT_BAR_OAUTH_CLIENT_ID
 rmSync(dataDir, { recursive: true, force: true })
 delete process.env.DSH_GIT_BAR_DATA_DIR
 

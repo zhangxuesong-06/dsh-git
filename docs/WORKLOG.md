@@ -193,10 +193,15 @@ URL 为准；会话 ID 也会随环境变化。
   - [x] 克隆：`parseGithubRepo` 接受 `owner/repo`、`github.com/...`、URL；目标目录非空即拒绝；
   - [x] MCP：patch 增 `@deepseek-ai/dsh-mcp-client`（`serverName: github`），header 用 `!!js` 读
         `process.env.DSH_GIT_BAR_GITHUB_TOKEN`，`disabled` 同变量取反；login/logout 维护 `~/.dsh/.env`；
-  - [x] `test/github.test.mjs`（53 项，mock `fetch`）+ `contract.test.mjs` 的 GitHub 契约（8 路由、askpass、
+  - [x] `test/github.test.mjs`（59 项，mock `fetch`）+ `contract.test.mjs` 的 GitHub 契约（8 路由、askpass、
         SSH 改写、patch 无 token 字面量）；
-  - [ ] 待用户用真实 GitHub 账号验证：PAT 登录、device flow（需自建 OAuth App 并勾 Enable Device Flow）、
-        真机克隆 + 打开新会话、重启后 `mcp__github__*` 工具是否出现。
+  - [x] 内置 OAuth App client id 通路：`DEFAULT_DEVICE_CLIENT_ID`（发布者建一次、随包分发）+ 环境变量
+        `DSH_GIT_BAR_OAUTH_CLIENT_ID`（测试/运维覆盖）+ 配置 `deviceClientId`（用户自建 App 覆盖）；
+        `/github/status` 多返回 `device{ready,custom,shipped}`，panel 可据此决定是否展示浏览器登录；
+  - [ ] **待办**：把项目 OAuth App 的 Client ID 填进 `DEFAULT_DEVICE_CLIENT_ID`（需用户在建 App 后提供），
+        否则用户点「浏览器登录」仍会收到 `missing-client-id`；
+  - [ ] 待用户用真实 GitHub 账号验证：PAT 登录、浏览器登录（内置 App）、真机克隆 + 打开新会话、
+        重启后 `mcp__github__*` 工具是否出现。
 - **发布收尾**：
   - [x] GitHub 仓库已改名为 `dsh-git-bar`（2026-11-22，旧 URL 自动重定向），`repository`/`homepage`/`bugs`
         与 README 里的安装地址已在 1.3.1 同步更新；
