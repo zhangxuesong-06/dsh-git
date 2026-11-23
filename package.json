@@ -1,6 +1,6 @@
 {
   "name": "dsh-git-bar",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "description": "Git capsule for the DeepSeek Harness Web GUI: branch and working-tree changes in the session header, a commit graph with branch/tag checkout, and per-file diff review in the right sidebar.",
   "license": "MIT",
   "type": "module",

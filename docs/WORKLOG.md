@@ -217,8 +217,12 @@ URL 为准；会话 ID 也会随环境变化。
         轮询移到插件模块层，面板关闭后继续；hero 注册失败时退回胶囊里的兜底入口。
         **为什么不在「添加工作区…」菜单里**：那个弹层是 ui-workspace 内部菜单，没有插件扩展点；
         `conversation.hero.options` 是同一行里官方提供的最近位置（`directoryFlow` 是 single 且会顶掉系统目录选择器，故不用）。
-  - [ ] 待用户用真实 GitHub 账号验证：真机克隆 + 打开新会话、重启后 `mcp__github__*` 工具是否出现、
-        `conversation.hero.options` 上入口的实际位置。
+  - [x] **v1.4.6 入口进「添加工作区」**：面板改注册到 `shell.overlay`，点击**立即**出现（此前挂在胶囊子树里、
+        新会话页无上下文，要等一次重渲染）；接管两个 `directoryFlow` single 插槽，把「添加工作区…」变成
+        「选择本地文件夹…（走原生 pick）/ 从 GitHub 克隆…（克隆完成后 onPicked 让框架自动建工作区）」；
+        flow 上下文按钮文案「克隆并建立工作区」，注册失败退回胶囊兜底按钮。
+  - [ ] 待用户用真实 GitHub 账号验证：真机克隆 + 自动建工作区、重启后 `mcp__github__*` 工具是否出现、
+        `shell.overlay` 与 `directoryFlow` 注册的实际效果（single 插槽接管是本期最大风险点）。
   - [-] 历史作者整理：开发期 44 个提交作者是 `DSH Lead <lead@local>`；**用户决定不改写历史**（不 force push），
         此后的提交已改用仓库配置身份、插件创建的提交用 GitHub 身份。
 - **发布收尾**：
