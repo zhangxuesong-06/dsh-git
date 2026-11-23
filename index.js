@@ -1481,6 +1481,8 @@ async function githubRequest(path, options = {}) {
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value !== '')
+  // Expiring personal access tokens report their deadline through this header.
+  const tokenExpiration = response.headers.get('github-authentication-token-expiration') ?? ''
   const text = await response.text().catch(() => '')
   let data = null
   try {
@@ -1499,7 +1501,70 @@ async function githubRequest(path, options = {}) {
             : 'http-error'
     return { ok: false, reason, status: response.status, detail: clipText((data && data.message) ?? text), scopes }
   }
-  return { ok: true, data, scopes }
+  return { ok: true, data, scopes, tokenExpiration }
+}
+
+/** Whether a stored grant is close enough to its deadline to refresh first. */
+function githubGrantExpiring(grant) {
+  if (!grant || typeof grant.expiresAt !== 'number' || !Number.isFinite(grant.expiresAt)) return false
+  return grant.expiresAt - Date.now() < 60_000
+}
+
+/**
+ * Trade a stored refresh token for a fresh access token. GitHub rotates the
+ * refresh token on every use, so the new pair replaces the whole grant.
+ */
+async function githubRefreshGrant(ctx, grant) {
+  const config = await readGithubConfig()
+  const clientId = effectiveDeviceClientId(config)
+  if (!grant || typeof grant.refreshToken !== 'string' || grant.refreshToken === '' || clientId === '') {
+    return { ok: false, reason: 'reauth-required' }
+  }
+  let response
+  try {
+    response = await fetch(`${GITHUB_WEB}/login/oauth/access_token`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        grant_type: 'refresh_token',
+        refresh_token: grant.refreshToken,
+      }).toString(),
+      signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
+    })
+  } catch (error) {
+    return { ok: false, reason: 'network', detail: clipText(error && error.message ? error.message : error) }
+  }
+  const data = await response.json().catch(() => null)
+  if (!response.ok || !data || typeof data.access_token !== 'string' || data.access_token === '') {
+    return { ok: false, reason: 'reauth-required', detail: clipText((data && data.error_description) ?? `HTTP ${response.status}`) }
+  }
+  const next = {
+    ...grant,
+    token: data.access_token,
+    tokenKind: 'device',
+    refreshToken: typeof data.refresh_token === 'string' && data.refresh_token !== '' ? data.refresh_token : grant.refreshToken,
+    expiresAt: Number.isFinite(Number(data.expires_in)) ? Date.now() + Number(data.expires_in) * 1000 : grant.expiresAt,
+    scopes: data.scope ? String(data.scope).split(',').map((value) => value.trim()).filter(Boolean) : grant.scopes,
+    refreshedAt: Date.now(),
+  }
+  await writeGithubGrant(ctx, next)
+  await writeGithubEnvToken(next.token)
+  return { ok: true, grant: next }
+}
+
+/**
+ * The access token for one API call, refreshed when the grant is near its
+ * deadline. Returns `{ token }` or `{ reason }` so callers can answer
+ * `reauth-required` instead of failing with a bare 401.
+ */
+async function githubAccessToken(ctx) {
+  const grant = await readGithubGrant(ctx)
+  if (!grant) return { reason: 'not-signed-in' }
+  if (!githubGrantExpiring(grant)) return { grant, token: grant.token }
+  const refreshed = await githubRefreshGrant(ctx, grant)
+  if (!refreshed.ok) return { reason: refreshed.reason ?? 'reauth-required', detail: refreshed.detail ?? '' }
+  return { grant: refreshed.grant, token: refreshed.grant.token }
 }
 
 /**
@@ -1553,6 +1618,9 @@ async function githubStatus(ctx) {
     tokenKind: (grant && grant.tokenKind) || null,
     connectedAt: grant && typeof grant.connectedAt === 'number' ? grant.connectedAt : null,
     scopes: grant && Array.isArray(grant.scopes) ? grant.scopes : null,
+    expiresAt: grant && typeof grant.expiresAt === 'number' ? grant.expiresAt : null,
+    expired: Boolean(grant && typeof grant.expiresAt === 'number' && grant.expiresAt <= Date.now()),
+    refreshable: Boolean(grant && typeof grant.refreshToken === 'string' && grant.refreshToken !== ''),
     mcp: { configured: Boolean(process.env[GITHUB_MCP_ENV]), envName: GITHUB_MCP_ENV },
     device: {
       ready: effectiveDeviceClientId(config) !== '',
@@ -1571,12 +1639,14 @@ async function githubLogin(ctx, token) {
   }
   const account = githubAccountOf(verified.data)
   if (!account) return { ok: false, reason: 'bad-credentials' }
+  const expiresAt = Date.parse(verified.tokenExpiration ?? '')
   await writeGithubGrant(ctx, {
     token,
     tokenKind: 'pat',
     account,
     scopes: verified.scopes,
     connectedAt: Date.now(),
+    ...(Number.isFinite(expiresAt) ? { expiresAt } : {}),
   })
   await writeGithubEnvToken(token)
   return githubStatus(ctx)
@@ -1676,6 +1746,8 @@ async function githubDevicePoll(ctx, id) {
     account,
     scopes: verified.scopes,
     connectedAt: Date.now(),
+    ...(typeof data.refresh_token === 'string' && data.refresh_token !== '' ? { refreshToken: data.refresh_token } : {}),
+    ...(Number.isFinite(Number(data.expires_in)) ? { expiresAt: Date.now() + Number(data.expires_in) * 1000 } : {}),
   })
   await writeGithubEnvToken(data.access_token)
   deviceFlows.delete(id)
@@ -1684,12 +1756,12 @@ async function githubDevicePoll(ctx, id) {
 
 /** Repositories the signed-in account can push to, newest first. */
 async function githubRepos(ctx, query, limit) {
-  const grant = await readGithubGrant(ctx)
-  if (!grant) return { ok: false, reason: 'not-signed-in' }
+  const access = await githubAccessToken(ctx)
+  if (!access.token) return { ok: false, reason: access.reason ?? 'not-signed-in', detail: access.detail ?? '' }
   const size = Math.min(GITHUB_REPO_LIMIT, Math.max(1, Number(limit) || 50))
   const result = await githubRequest(
     `/user/repos?sort=updated&direction=desc&per_page=${size}&affiliation=owner,collaborator,organization_member`,
-    { token: grant.token },
+    { token: access.token },
   )
   if (!result.ok) return { ok: false, reason: result.reason, detail: result.detail ?? '' }
   const needle = String(query ?? '').trim().toLowerCase()
@@ -1720,8 +1792,8 @@ async function githubRepos(ctx, query, limit) {
  * already holds files is refused instead of merged into.
  */
 async function githubClone(ctx, payload = {}) {
-  const grant = await readGithubGrant(ctx)
-  if (!grant) return { ok: false, reason: 'not-signed-in' }
+  const access = await githubAccessToken(ctx)
+  if (!access.token) return { ok: false, reason: access.reason ?? 'not-signed-in', detail: access.detail ?? '' }
   const parsed = parseGithubRepo(payload.repo)
   if (!parsed) return { ok: false, reason: 'bad-repo' }
   const config = await readGithubConfig()
@@ -1744,7 +1816,7 @@ async function githubClone(ctx, payload = {}) {
     parsed.kind === 'github' ? `${GITHUB_WEB}/${parsed.owner}/${parsed.name}.git` : parsed.url
   let helper = null
   try {
-    helper = await createAskpass({ username: 'x-access-token', password: grant.token })
+    helper = await createAskpass({ username: 'x-access-token', password: access.token })
     const env = {
       ...NETWORK_ENV,
       GIT_TERMINAL_PROMPT: '0',
@@ -1778,7 +1850,7 @@ async function githubClone(ctx, payload = {}) {
   let defaultBranch = ''
   let isPrivate = false
   if (parsed.kind === 'github') {
-    const info = await githubRequest(`/repos/${parsed.owner}/${parsed.name}`, { token: grant.token })
+    const info = await githubRequest(`/repos/${parsed.owner}/${parsed.name}`, { token: access.token })
     if (info.ok && info.data) {
       defaultBranch = asText(info.data.default_branch)
       isPrivate = info.data.private === true
@@ -1800,13 +1872,14 @@ async function githubClone(ctx, payload = {}) {
 
 /** The sign-in facts a commit or push needs, resolved once per request. */
 async function githubRuntime(ctx) {
-  const [config, grant] = await Promise.all([readGithubConfig(), readGithubGrant(ctx)])
-  const account = (grant && grant.account) || null
+  const config = await readGithubConfig()
+  const access = await githubAccessToken(ctx)
+  const account = (access.grant && access.grant.account) || null
   return {
     config,
-    grant,
+    grant: access.grant ?? null,
     account,
-    token: (grant && grant.token) || '',
+    token: access.token ?? '',
     identity: config.useGithubIdentity && account ? githubIdentityArgs(account) : [],
   }
 }

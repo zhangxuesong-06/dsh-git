@@ -3,6 +3,23 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.1] - 2026-11-23
+
+### 新增
+
+- **浏览器登录开箱即用**：插件内置项目自己的 OAuth App Client ID（device flow 的 client id 是公开信息，
+  不需要 client secret），装好就能点「用浏览器登录」——面板给出 8 位码与链接，授权即登录，不必人人自建 App。
+- **自定义 Client ID**：想用自己的 OAuth App 时，可在卡片里填写并保存（`POST /github/config`），保存后即时生效，
+  也可一键「重置为内置应用」。
+- **token 自动续期**：device flow 返回的 `refresh_token` 与过期时间会存进 grant；调用前发现临近过期会自动换新
+  （GitHub 每次刷新都会轮换 refresh token，插件整份替换）。刷新失败时接口返回 `reauth-required`，面板提示重新登录。
+  带过期时间的 PAT 也会记录到期时间。
+
+### 修复
+
+- 浏览器登录在缺少 OAuth App 时不再是一个报错死路：面板改为显示说明 + 「改用 PAT」入口，且不会发出任何
+  `/device/start` 请求；`/github/status` 增加 `device{ready,custom,shipped}` 供面板判断。
+
 ## [1.4.0] - 2026-11-23
 
 ### 新增

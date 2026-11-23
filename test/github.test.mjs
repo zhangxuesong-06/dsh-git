@@ -1,6 +1,6 @@
 // Offline checks for the GitHub half of the Host routes (index.js).
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
@@ -235,6 +235,61 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
 
   const unknown = await ask(repo, '/dsh-git-bar/github/device/poll', 'POST', { id: 'nope' })
   check('device: unknown flow', unknown.ok === false && unknown.reason === 'unknown-flow', JSON.stringify(unknown))
+}
+
+// ── 7c. expiring grants refresh automatically ────────────────────────────
+{
+  const grantFile = join(dataDir, 'github-token.json')
+  const seed = (patch) =>
+    writeFileSync(
+      grantFile,
+      JSON.stringify({
+        token: 'gho_expired',
+        tokenKind: 'device',
+        account: { login: 'octo', name: 'Octo Cat', id: 42, avatarUrl: '', htmlUrl: '', email: '' },
+        scopes: ['repo', 'read:user'],
+        connectedAt: Date.now() - 9 * 3600_000,
+        refreshToken: 'ghr_old',
+        expiresAt: Date.now() - 1000,
+        ...patch,
+      }),
+      'utf8',
+    )
+  seed({})
+
+  const status = await ask(repo, '/dsh-git-bar/github/status')
+  check('refresh: status reports the dead token', status.expired === true && status.refreshable === true, JSON.stringify(status))
+
+  queued(() => respond({ access_token: 'gho_fresh', refresh_token: 'ghr_new', expires_in: 3600, scope: 'repo, read:user' }))
+  queued(() => respond([]))
+  const repos = await ask(repo, '/dsh-git-bar/github/repos')
+  check('refresh: call succeeds after refresh', repos.ok === true && Array.isArray(repos.repos), JSON.stringify(repos))
+  const stored = JSON.parse(readFileSync(grantFile, 'utf8'))
+  check('refresh: new access token stored', stored.token === 'gho_fresh', stored.token)
+  check('refresh: rotated refresh token stored', stored.refreshToken === 'ghr_new', stored.refreshToken)
+  check('refresh: new deadline stored', typeof stored.expiresAt === 'number' && stored.expiresAt > Date.now(), String(stored.expiresAt))
+
+  seed({})
+  queued(() => respond({ error: 'bad_refresh_token', error_description: 'The refresh token passed is incorrect or expired.' }, { status: 400 }))
+  const dead = await ask(repo, '/dsh-git-bar/github/repos')
+  check('refresh: dead refresh token asks for re-auth', dead.ok === false && dead.reason === 'reauth-required', JSON.stringify(dead))
+
+  // Restore a healthy grant for the identity/push checks below.
+  seed({ refreshToken: undefined, expiresAt: undefined, token: 'gho_healthy' })
+}
+
+// ── 7d. expiring personal access tokens record their deadline ────────────
+{
+  const soon = new Date(Date.now() + 20 * 3600_000).toUTCString()
+  queued(() => respond(USER, { headers: { 'github-authentication-token-expiration': soon } }))
+  const login = await ask(repo, '/dsh-git-bar/github/login', 'POST', { token: 'ghp_expiring_token' })
+  check('pat: expiring token accepted', login.ok === true && login.signedIn === true, JSON.stringify(login))
+  check('pat: deadline recorded', typeof login.expiresAt === 'number' && login.expired === false, JSON.stringify(login))
+
+  // Back to the device grant the later checks expect.
+  const grantFile = join(dataDir, 'github-token.json')
+  const current = JSON.parse(readFileSync(grantFile, 'utf8'))
+  writeFileSync(grantFile, JSON.stringify({ ...current, tokenKind: 'device', token: 'gho_healthy' }), 'utf8')
 }
 
 // ── 8. commits use the signed-in identity ────────────────────────────────

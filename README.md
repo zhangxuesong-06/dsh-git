@@ -131,6 +131,8 @@ conversation.session.header          会话 ID → ctx.sessions.get(id)
 
 - token 存进 **DSH 凭据服务**（`dsh-git-bar/github-token` 的 grant 记录）；该服务不可用时退回插件数据目录里的
   `github-token.json`（权限 0600）。**任何路由都不返回 token**，浏览器只在登录那一次 POST 里见过它；
+- 浏览器登录拿到的 token 如果带过期时间（GitHub 的「Expire user access tokens」或带过期日的 PAT），
+  插件会在调用前自动用 `refresh_token` 续期；续期失败时接口返回 `reauth-required`，面板提示重新登录；
 - 推送认证走**临时 askpass 辅助程序**（写完即删），token 不出现在 argv；SSH 远端仅在这一条命令里通过
   `url.https://github.com/.insteadOf` 改写成 HTTPS，仓库的 remote 配置不变；
 - 提交身份用 GitHub 的 noreply 地址（`<id>+<login>@users.noreply.github.com`），避免泄露真实邮箱；提交面板里可以关掉；

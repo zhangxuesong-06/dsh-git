@@ -198,6 +198,11 @@ URL 为准；会话 ID 也会随环境变化。
   - [x] 内置 OAuth App client id 通路：`DEFAULT_DEVICE_CLIENT_ID`（发布者建一次、随包分发）+ 环境变量
         `DSH_GIT_BAR_OAUTH_CLIENT_ID`（测试/运维覆盖）+ 配置 `deviceClientId`（用户自建 App 覆盖）；
         `/github/status` 多返回 `device{ready,custom,shipped}`，panel 可据此决定是否展示浏览器登录；
+  - [x] 客户端（v1.4.1）：没有可用 App 时降级为说明 + 「改用 PAT」且不再发 `/device/start`；卡片里可填/保存
+        自定义 Client ID（`invalid-config` 行内显示）、可「重置为内置应用」；内置 App 时显示「使用内置应用」小字；
+  - [x] token 续期：grant 记 `refreshToken`/`expiresAt`（device flow 的 `expires_in`、PAT 的
+        `github-authentication-token-expiration` 头），调用前临近过期自动刷新并整份替换轮换后的
+        refresh token；刷新失败返回 `reauth-required`；
   - [ ] **待办**：把项目 OAuth App 的 Client ID 填进 `DEFAULT_DEVICE_CLIENT_ID`（需用户在建 App 后提供），
         否则用户点「浏览器登录」仍会收到 `missing-client-id`；
   - [ ] 待用户用真实 GitHub 账号验证：PAT 登录、浏览器登录（内置 App）、真机克隆 + 打开新会话、
