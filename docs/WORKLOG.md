@@ -212,7 +212,13 @@ URL 为准；会话 ID 也会随环境变化。
   - [x] **v1.4.4 克隆流程**：`clone/preview` 先给出目标路径/占用/登录状态，用户在确认区选「确认克隆」或
         「修改目录」（`uiWorkspace.pickDirectory()`）；GitHub 的 https/SSH 地址归一化成 owner/name，
         其它 git URL 原样克隆（folder 取仓库名）；**未登录可克隆公开仓库**，私有仓库失败带 `needsSignIn`；
-  - [ ] 待用户用真实 GitHub 账号验证：真机克隆 + 打开新会话、重启后 `mcp__github__*` 工具是否出现。
+  - [x] **v1.4.5 克隆入口搬家**：胶囊 GitHub 卡片只留登录/账户；新会话行注册 `conversation.hero.options`
+        放「从 GitHub 克隆」入口，打开独立面板（搜索仓库/任意 URL → preview 确认 → 后台进度 → 创建并打开工作区）；
+        轮询移到插件模块层，面板关闭后继续；hero 注册失败时退回胶囊里的兜底入口。
+        **为什么不在「添加工作区…」菜单里**：那个弹层是 ui-workspace 内部菜单，没有插件扩展点；
+        `conversation.hero.options` 是同一行里官方提供的最近位置（`directoryFlow` 是 single 且会顶掉系统目录选择器，故不用）。
+  - [ ] 待用户用真实 GitHub 账号验证：真机克隆 + 打开新会话、重启后 `mcp__github__*` 工具是否出现、
+        `conversation.hero.options` 上入口的实际位置。
   - [-] 历史作者整理：开发期 44 个提交作者是 `DSH Lead <lead@local>`；**用户决定不改写历史**（不 force push），
         此后的提交已改用仓库配置身份、插件创建的提交用 GitHub 身份。
 - **发布收尾**：

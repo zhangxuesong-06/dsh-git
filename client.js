@@ -32,6 +32,9 @@ window.__ModuleLoader__.load({
 
     // ── constants ─────────────────────────────────────────────────────────
     var SLOT = 'conversation.session.header.utilities'
+    var HERO_SLOT = 'conversation.hero.options'
+    var HERO_ORDER = 10
+    var heroRegistered = false
     var ENTRY_ID = 'dsh-git-bar'
     var NS = 'dshGitBar'
     var STATE_URL = '/dsh-git-bar/state'
@@ -154,6 +157,16 @@ window.__ModuleLoader__.load({
       githubCloneRoot: '克隆根目录',
       githubCloneRootChange: '修改',
       githubCloneTarget: '将克隆到',
+      githubClonePanelTitle: '从 GitHub 克隆工作区',
+      githubCloneEntry: '从 GitHub 克隆',
+      githubAddressLabel: '仓库地址',
+      githubAddressPlaceholder: 'owner/repo 或任意 git 地址',
+      githubPreviewAction: '预览',
+      githubCreateWorkspace: '创建并打开工作区',
+      githubCreating: '创建中…',
+      githubClonePanelSignInHint: '未登录也可以克隆公开仓库；搜索仓库或克隆私有仓库需要登录',
+      githubPanelSignIn: '登录',
+      githubPanelLoginHint: '也可以到状态栏的 Git 胶囊中用浏览器登录',
       githubClonePreview: '将克隆到',
       githubCloneExists: '该目录已存在且非空，克隆会被拒绝',
       githubCloneAnonymous: '未登录：只能克隆公开仓库，私有仓库需要登录',
@@ -353,6 +366,16 @@ window.__ModuleLoader__.load({
       githubCloneRoot: 'Clone root',
       githubCloneRootChange: 'Change',
       githubCloneTarget: 'Will clone to',
+      githubClonePanelTitle: 'Clone a workspace from GitHub',
+      githubCloneEntry: 'Clone from GitHub',
+      githubAddressLabel: 'Repository address',
+      githubAddressPlaceholder: 'owner/repo or any git URL',
+      githubPreviewAction: 'Preview',
+      githubCreateWorkspace: 'Create and open workspace',
+      githubCreating: 'Creating…',
+      githubClonePanelSignInHint: 'Public repositories can be cloned without signing in; search or private repos need sign-in',
+      githubPanelSignIn: 'Sign in',
+      githubPanelLoginHint: 'You can also sign in with the browser from the Git capsule in the status bar',
       githubClonePreview: 'Will clone to',
       githubCloneExists: 'That directory already exists and is not empty; cloning will be refused',
       githubCloneAnonymous: 'Not signed in: only public repositories can be cloned; private ones need sign-in',
@@ -966,6 +989,148 @@ window.__ModuleLoader__.load({
       return { get: get, set: set, subscribe: subscribe }
     })()
 
+    // ── github clone panel store (module level; opened from the hero slot) ──
+    var gitbarGithubPanelStore = (function () {
+      var state = { open: false, sessionId: '' }
+      var listeners = typeof Set === 'function' ? new Set() : null
+      function notify() {
+        if (!listeners) return
+        var snapshot = state
+        listeners.forEach(function (listener) {
+          try {
+            listener(snapshot)
+          } catch (error) {
+            /* ignore */
+          }
+        })
+      }
+      function get() {
+        return state
+      }
+      function set(next) {
+        state = next && typeof next === 'object' ? next : { open: false, sessionId: '' }
+        notify()
+      }
+      function subscribe(listener) {
+        if (!listeners || typeof listener !== 'function') return function () {}
+        listeners.add(listener)
+        return function () {
+          try {
+            listeners.delete(listener)
+          } catch (error) {
+            /* ignore */
+          }
+        }
+      }
+      return { get: get, set: set, subscribe: subscribe }
+    })()
+
+    var lastCapsuleSessionId = ''
+
+    function openGithubClonePanel(sessionId) {
+      gitbarGithubPanelStore.set({ open: true, sessionId: toText(sessionId) || lastCapsuleSessionId })
+    }
+
+    function closeGithubClonePanel() {
+      gitbarGithubPanelStore.set({ open: false, sessionId: '' })
+    }
+
+    // Background clone polling lives here (not in a component) so closing the
+    // panel or the popover never stops it; it stops itself on done/failed.
+    var clonePollTimer = null
+    var clonePollAbort = null
+
+    function stopClonePolling() {
+      try {
+        if (clonePollTimer !== null) clearTimeout(clonePollTimer)
+      } catch (error) {
+        /* ignore */
+      }
+      clonePollTimer = null
+      try {
+        if (clonePollAbort) clonePollAbort()
+      } catch (error) {
+        /* ignore */
+      }
+      clonePollAbort = null
+    }
+
+    function scheduleClonePoll() {
+      var job = gitbarCloneStore.get()
+      if (!job || !toText(job.id)) {
+        stopClonePolling()
+        return
+      }
+      if (job.state === 'done' || job.state === 'failed') {
+        stopClonePolling()
+        return
+      }
+      if (clonePollTimer !== null) return
+      clonePollTimer = setTimeout(pollCloneJob, CLONE_POLL_MS)
+    }
+
+    function pollCloneJob() {
+      clonePollTimer = null
+      var job = gitbarCloneStore.get()
+      if (!job || !toText(job.id)) return
+      if (job.state === 'done' || job.state === 'failed') return
+      clonePollAbort = requestJson(
+        withQuery(GITHUB_CLONE_STATUS_URL, [
+          { key: 'session', value: toText(job.session) },
+          { key: 'id', value: toText(job.id) }
+        ]),
+        null,
+        function (result) {
+          clonePollAbort = null
+          var now = gitbarCloneStore.get()
+          if (!now || toText(now.id) !== toText(job.id)) return
+          if (result && result.ok === true) {
+            var percent = toNumber(result.percent)
+            gitbarCloneStore.set({
+              id: toText(result.id) || now.id,
+              session: toText(now.session),
+              repo: toText(result.repo) || now.repo,
+              root: toText(result.root) || now.root,
+              path: toText(result.path) || now.path,
+              folder: toText(result.folder) || now.folder,
+              state: toText(result.state) || now.state,
+              percent: percent === null ? (toNumber(now.percent) === null ? 0 : now.percent) : percent,
+              stage: toText(result.stage) || now.stage,
+              startedAt: now.startedAt,
+              result: result.result && typeof result.result === 'object' ? result.result : now.result,
+              reason: toText(result.reason),
+              detail: toText(result.detail),
+              needsSignIn: result.needsSignIn === true || now.needsSignIn === true
+            })
+            return
+          }
+          if (toText(result && result.reason) === 'unknown-job') {
+            gitbarCloneStore.set({
+              id: now.id,
+              session: toText(now.session),
+              repo: now.repo,
+              root: now.root,
+              path: now.path,
+              state: 'failed',
+              percent: now.percent,
+              stage: now.stage,
+              startedAt: now.startedAt,
+              result: null,
+              reason: 'unknown-job',
+              detail: '',
+              needsSignIn: now.needsSignIn === true
+            })
+            return
+          }
+          scheduleClonePoll()
+        }
+      )
+    }
+
+    gitbarCloneStore.subscribe(function () {
+      scheduleClonePoll()
+    })
+
     /** owner-name, matching the Host's clone folder rule. */
     function cloneFolderName(repo) {
       var name = toText(repo).trim().replace(/^https?:\/\/github\.com\//i, '')
@@ -1576,8 +1741,34 @@ window.__ModuleLoader__.load({
       '.gitbar-clone-meta{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-clone-done{font-size:11px;color:var(--dsw-alias-state-success-primary)}',
       '.gitbar-clone-error{font-size:11px;color:var(--dsw-alias-state-error-primary);white-space:pre-wrap}',
+      '.gitbar-hero-clone{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;transition:background-color 120ms ease}',
+      '.gitbar-hero-clone:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.gitbar-hero-clone:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-hero-clone-icon{display:inline-flex;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-gp-overlay{position:fixed;inset:0;z-index:2147483001;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb, var(--dsw-alias-label-primary) 24%, transparent)}',
+      '.gitbar-gp{display:flex;flex-direction:column;width:min(540px,100%);max-height:min(78vh,640px);box-sizing:border-box;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 18px 48px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.45;overflow:hidden;animation:gitbar-gp-in 150ms cubic-bezier(0.2,0,0,1) both;text-align:left}',
+      '.gitbar-gp-head{display:flex;align-items:center;gap:8px;flex:0 0 auto;padding:8px 10px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
+      '.gitbar-gp-title{flex:1 1 auto;min-width:0;font-weight:600;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.gitbar-gp-body{display:flex;flex-direction:column;gap:8px;flex:1 1 auto;min-height:0;overflow:auto;padding:10px;overscroll-behavior:contain}',
+      '.gitbar-gp-account{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px}',
+      '.gitbar-gp-account-name{font-weight:600}',
+      '.gitbar-gp-hint{font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-gp-search{display:flex;align-items:center;gap:6px}',
+      '.gitbar-gp-address{display:flex;align-items:center;gap:6px}',
+      '.gitbar-gp-label{flex:0 0 auto;font-size:11px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-gp-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}',
+      '.gitbar-gp-error{font-size:11px;color:var(--dsw-alias-state-error-primary);white-space:pre-wrap}',
+      '.gitbar-gp-empty{font-size:11px;color:var(--dsw-alias-label-secondary);padding:2px 0}',
+      '.gitbar-gp-repos{display:flex;flex-direction:column;max-height:150px;overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--dsw-alias-border-l1);border-radius:6px}',
+      '.gitbar-gp-repo{display:flex;align-items:center;gap:6px;min-width:0;padding:3px 7px;border:none;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;text-align:left;cursor:pointer}',
+      '.gitbar-gp-repo:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.gitbar-gp-repo-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.gitbar-gp-repo-desc{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-gp-tag{flex:0 0 auto;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;font-size:9.5px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-gp-login{display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid var(--dsw-alias-border-l1)}',
+      '@keyframes gitbar-gp-in{from{opacity:0;transform:translateY(-4px) scale(.99)}to{opacity:1;transform:none}}',
       '@keyframes gitbar-github-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}',
-      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
+      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-gp,.gitbar-gp-repo,.gitbar-hero-clone,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
     // ── components ────────────────────────────────────────────────────────
@@ -4384,6 +4575,889 @@ window.__ModuleLoader__.load({
       return null
     }
 
+    // ── GitHub clone panel (independent overlay, opened from the hero slot) ──
+    function GithubCloneEntry(props) {
+      var t = props.t || translate
+      try {
+        return h(
+          'button',
+          {
+            type: 'button',
+            className: 'gitbar-hero-clone',
+            title: t('githubCloneEntry'),
+            'aria-label': t('githubCloneEntry'),
+            onClick: function () {
+              try {
+                openGithubClonePanel(props.sessionId)
+              } catch (error) {
+                /* ignore */
+              }
+            }
+          },
+          h('span', { className: 'gitbar-hero-clone-icon', 'aria-hidden': 'true' }, '⌥'),
+          t('githubCloneEntry')
+        )
+      } catch (error) {
+        return null
+      }
+    }
+
+    function GithubClonePanel(props) {
+      var t = props.t || translate
+      var sessionId = toText(props.sessionId)
+
+      var statusHook = useState(null)
+      var status = statusHook[0]
+      var setStatus = statusHook[1]
+      var statusLoadingHook = useState(true)
+      var statusLoading = statusLoadingHook[0]
+      var setStatusLoading = statusLoadingHook[1]
+      var errorHook = useState('')
+      var error = errorHook[0]
+      var setError = errorHook[1]
+      var addressHook = useState('')
+      var address = addressHook[0]
+      var setAddress = addressHook[1]
+      var previewHook = useState(null)
+      var preview = previewHook[0]
+      var setPreview = previewHook[1]
+      var previewPendingHook = useState(false)
+      var previewPending = previewPendingHook[0]
+      var setPreviewPending = previewPendingHook[1]
+      var dirPendingHook = useState(false)
+      var dirPending = dirPendingHook[0]
+      var setDirPending = dirPendingHook[1]
+      var rootEditHook = useState(false)
+      var rootEdit = rootEditHook[0]
+      var setRootEdit = rootEditHook[1]
+      var rootDraftHook = useState('')
+      var rootDraft = rootDraftHook[0]
+      var setRootDraft = rootDraftHook[1]
+      var rePreviewHook = useState('')
+      var rePreviewRepo = rePreviewHook[0]
+      var setRePreviewRepo = rePreviewHook[1]
+      var repoQueryHook = useState('')
+      var repoQuery = repoQueryHook[0]
+      var setRepoQuery = repoQueryHook[1]
+      var reposHook = useState(null)
+      var repos = reposHook[0]
+      var setRepos = reposHook[1]
+      var pendingHook = useState('')
+      var pending = pendingHook[0]
+      var setPending = pendingHook[1]
+      var loginOpenHook = useState(false)
+      var loginOpen = loginOpenHook[0]
+      var setLoginOpen = loginOpenHook[1]
+      var loginPatHook = useState('')
+      var loginPat = loginPatHook[0]
+      var setLoginPat = loginPatHook[1]
+      var loginPendingHook = useState(false)
+      var loginPending = loginPendingHook[0]
+      var setLoginPending = loginPendingHook[1]
+      var jobHook = useState(function () {
+        return gitbarCloneStore.get()
+      })
+      var job = jobHook[0]
+      var setJob = jobHook[1]
+      var alive = useRef(true)
+      var requestAbort = useRef(null)
+      var reposAbort = useRef(null)
+      var searchTimer = useRef(null)
+
+      var signedIn = Boolean(status && status.ok === true && status.signedIn === true)
+      var account = status && status.account && typeof status.account === 'object' ? status.account : null
+      var cloneRoot = status && status.config && typeof status.config.cloneRoot === 'string' ? status.config.cloneRoot : ''
+
+      useEffect(function () {
+        var unsubscribe = gitbarCloneStore.subscribe(function (next) {
+          setJob(next)
+        })
+        setJob(gitbarCloneStore.get())
+        return function () {
+          try {
+            unsubscribe()
+          } catch (error2) {
+            /* ignore */
+          }
+        }
+      }, [])
+
+      useEffect(function () {
+        alive.current = true
+        return function () {
+          alive.current = false
+          try {
+            if (requestAbort.current) requestAbort.current()
+          } catch (error2) {
+            /* ignore */
+          }
+          requestAbort.current = null
+          try {
+            if (reposAbort.current) reposAbort.current()
+          } catch (error2) {
+            /* ignore */
+          }
+          reposAbort.current = null
+          try {
+            if (searchTimer.current !== null) clearTimeout(searchTimer.current)
+          } catch (error2) {
+            /* ignore */
+          }
+          searchTimer.current = null
+        }
+      }, [])
+
+      function flash(text) {
+        try {
+          if (typeof props.onFlash === 'function') props.onFlash(toText(text))
+        } catch (error2) {
+          /* ignore */
+        }
+      }
+
+      function copyText(value) {
+        var text = toText(value)
+        if (!text) return
+        try {
+          if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            var written = navigator.clipboard.writeText(text)
+            if (written && typeof written.then === 'function') {
+              written.then(
+                function () {
+                  flash(t('copiedPath'))
+                },
+                function () {
+                  flash(t('copyFailed'))
+                }
+              )
+            } else {
+              flash(t('copiedPath'))
+            }
+            return
+          }
+        } catch (error2) {
+          /* ignore */
+        }
+        flash(t('copyFailed'))
+      }
+
+      function send(url, body, done) {
+        try {
+          if (requestAbort.current) requestAbort.current()
+        } catch (error2) {
+          /* ignore */
+        }
+        requestAbort.current = requestJson(url, { method: 'POST', body: JSON.stringify(body || {}) }, function (result) {
+          if (!alive.current) return
+          requestAbort.current = null
+          done(result && typeof result === 'object' ? result : {})
+        })
+      }
+
+      function loadStatus() {
+        setStatusLoading(true)
+        try {
+          if (requestAbort.current) requestAbort.current()
+        } catch (error2) {
+          /* ignore */
+        }
+        requestAbort.current = requestJson(withQuery(GITHUB_STATUS_URL, [{ key: 'session', value: sessionId }]), null, function (result) {
+          if (!alive.current) return
+          requestAbort.current = null
+          setStatusLoading(false)
+          if (result && result.ok === true) setStatus(result)
+          else setStatus({ ok: false })
+        })
+      }
+
+      useEffect(function () {
+        loadStatus()
+        return undefined
+      }, [sessionId])
+
+      function loadRepos() {
+        var query = toText(repoQuery).trim()
+        setRepos({ loading: true })
+        try {
+          if (reposAbort.current) reposAbort.current()
+        } catch (error2) {
+          /* ignore */
+        }
+        reposAbort.current = requestJson(
+          withQuery(GITHUB_REPOS_URL, [
+            { key: 'session', value: sessionId },
+            { key: 'q', value: query },
+            { key: 'limit', value: String(GITHUB_REPO_LIMIT) }
+          ]),
+          null,
+          function (result) {
+            if (!alive.current) return
+            reposAbort.current = null
+            if (result && result.ok === true) {
+              setRepos({ ok: true, repos: result.repos && typeof result.repos.length === 'number' ? result.repos : [] })
+              return
+            }
+            var detail = githubDetailText(result && result.detail) || toText(result && result.reason) || t('error')
+            setRepos({ ok: false, error: toText(t('githubReposFailed')).replace('{detail}', detail) })
+          }
+        )
+      }
+
+      useEffect(function () {
+        if (!signedIn) return undefined
+        try {
+          if (searchTimer.current !== null) clearTimeout(searchTimer.current)
+        } catch (error2) {
+          /* ignore */
+        }
+        searchTimer.current = setTimeout(function () {
+          searchTimer.current = null
+          if (!alive.current) return
+          loadRepos()
+        }, GITHUB_SEARCH_DEBOUNCE_MS)
+        return function () {
+          try {
+            if (searchTimer.current !== null) clearTimeout(searchTimer.current)
+          } catch (error2) {
+            /* ignore */
+          }
+          searchTimer.current = null
+        }
+      }, [signedIn, repoQuery])
+
+      function requestPreview(repoOverride) {
+        var name = toText(repoOverride !== undefined && repoOverride !== null ? repoOverride : address).trim()
+        if (!name) {
+          setError(t('githubRepoRequired'))
+          return
+        }
+        setPreviewPending(true)
+        setError('')
+        setPreview(null)
+        send(githubUrl('/clone/preview', sessionId), { repo: name }, function (result) {
+          setPreviewPending(false)
+          if (result.ok !== true) {
+            setError(toText(result.reason) === 'bad-repo' ? t('githubBadRepo') : cloneReasonText(t, result.reason, result.detail))
+            return
+          }
+          setAddress(toText(result.repo) || name)
+          setPreview({
+            repo: toText(result.repo) || name,
+            kind: toText(result.kind),
+            root: toText(result.root),
+            folder: toText(result.folder),
+            path: toText(result.path),
+            exists: result.exists === true,
+            signedIn: result.signedIn === true
+          })
+        })
+      }
+
+      function startClone(repoName) {
+        var name = toText(repoName).trim()
+        if (!name) return
+        setPending('clone')
+        setError('')
+        setPreview(null)
+        send(githubUrl('/clone', sessionId), { repo: name, background: true }, function (result) {
+          setPending('')
+          if (result.ok !== true) {
+            setError(cloneReasonText(t, result.reason, result.detail))
+            return
+          }
+          setAddress(name)
+          if (toText(result.id)) {
+            gitbarCloneStore.set({
+              id: toText(result.id),
+              session: sessionId,
+              repo: toText(result.repo) || name,
+              root: toText(result.root),
+              path: toText(result.path),
+              folder: toText(result.folder),
+              state: toText(result.state) || 'queued',
+              percent: 0,
+              stage: 'starting',
+              startedAt: Date.now(),
+              result: null,
+              reason: '',
+              detail: '',
+              needsSignIn: result.needsSignIn === true
+            })
+            return
+          }
+          flash(t('githubCloneDone'))
+        })
+      }
+
+      function saveRootValue(value, repoToPreview) {
+        setPending('config')
+        setError('')
+        send(githubUrl('/config', sessionId), { cloneRoot: toText(value).trim() }, function (result) {
+          setPending('')
+          if (result.ok === true) {
+            setRootEdit(false)
+            loadStatus()
+            flash(t('githubSaved'))
+            if (repoToPreview) requestPreview(repoToPreview)
+            return
+          }
+          setError(githubDetailText(result && result.detail) || t('githubSettingsFailed'))
+        })
+      }
+
+      function fallbackRootEdit(repoName) {
+        setRePreviewRepo(toText(repoName))
+        setRootDraft(preview ? toText(preview.root) : cloneRoot)
+        setRootEdit(true)
+      }
+
+      function changeDir() {
+        if (!preview || dirPending) return
+        var repoName = toText(preview.repo)
+        setError('')
+        var ui = props.services && props.services.uiWorkspace ? props.services.uiWorkspace : resolveUiWorkspace()
+        if (ui && typeof ui.pickDirectory === 'function') {
+          setDirPending(true)
+          Promise.resolve()
+            .then(function () {
+              return ui.pickDirectory()
+            })
+            .then(
+              function (picked) {
+                if (!alive.current) return
+                setDirPending(false)
+                var chosen = toText(picked).trim()
+                if (!chosen) return
+                saveRootValue(chosen, repoName)
+              },
+              function () {
+                if (!alive.current) return
+                setDirPending(false)
+                fallbackRootEdit(repoName)
+              }
+            )
+          return
+        }
+        fallbackRootEdit(repoName)
+      }
+
+      function openWorkspace(path) {
+        if (!path) return
+        var services =
+          props.services && props.services.workspaces && props.services.uiWorkspace
+            ? props.services
+            : resolveWorkspaceServices()
+        if (!services || !services.workspaces || typeof services.workspaces.create !== 'function' || !services.uiWorkspace || typeof services.uiWorkspace.openWorkspace !== 'function') {
+          copyText(path)
+          flash(t('githubClonePathCopied'))
+          return
+        }
+        setPending('open')
+        Promise.resolve()
+          .then(function () {
+            return services.workspaces.create({ path: path })
+          })
+          .then(function (workspace) {
+            var id = workspace && (workspace.id || workspace.workspaceId) ? workspace.id || workspace.workspaceId : ''
+            if (!id) throw new Error('no-workspace-id')
+            return Promise.resolve(services.uiWorkspace.openWorkspace(id))
+          })
+          .then(
+            function () {
+              if (!alive.current) return
+              setPending('')
+              flash(t('githubWorkspaceOpened'))
+              if (typeof props.onClose === 'function') props.onClose()
+            },
+            function () {
+              if (!alive.current) return
+              setPending('')
+              copyText(path)
+              flash(t('githubClonePathCopied'))
+            }
+          )
+      }
+
+      function loginWithPat() {
+        var token = toText(loginPat).trim()
+        if (!token) return
+        setLoginPending(true)
+        setError('')
+        send(githubUrl('/login', sessionId), { token: token }, function (result) {
+          setLoginPending(false)
+          setLoginPat('')
+          if (result.ok !== true) {
+            var detail = githubDetailText(result && result.detail)
+            setError(
+              toText(result.reason) === 'bad-credentials'
+                ? t('githubBadCredentials')
+                : toText(t('githubLoginFailed')).replace('{detail}', detail || toText(result.reason) || t('error'))
+            )
+            return
+          }
+          setLoginOpen(false)
+          setStatus(result)
+          flash(t('githubSignedIn'))
+        })
+      }
+
+      function close() {
+        if (typeof props.onClose === 'function') props.onClose()
+      }
+
+      try {
+        var body = []
+        if (error) body.push(h('div', { className: 'gitbar-gp-error', key: 'error', role: 'alert' }, error))
+
+        if (statusLoading && !status) {
+          body.push(h('div', { className: 'gitbar-gp-empty', key: 'loading' }, t('loading')))
+        } else if (status && status.ok !== true) {
+          body.push(
+            h('div', { className: 'gitbar-gp-empty', key: 'status-error' }, t('error')),
+            h(
+              'div',
+              { className: 'gitbar-gp-actions', key: 'status-retry' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gitbar-btn',
+                  onClick: function () {
+                    loadStatus()
+                  }
+                },
+                t('refresh')
+              )
+            )
+          )
+        } else if (status) {
+          if (signedIn) {
+            body.push(
+              h(
+                'div',
+                { className: 'gitbar-gp-account', key: 'account' },
+                h('span', { className: 'gitbar-gp-account-name' }, toText(account && account.login) || t('github')),
+                h('span', { className: 'gitbar-gp-hint' }, t('githubSignedIn'))
+              ),
+              h(
+                'div',
+                { className: 'gitbar-gp-search', key: 'search' },
+                h('input', {
+                  type: 'text',
+                  className: 'gitbar-github-input',
+                  value: repoQuery,
+                  placeholder: t('githubReposPlaceholder'),
+                  'aria-label': t('githubReposPlaceholder'),
+                  autoComplete: 'off',
+                  spellCheck: false,
+                  disabled: pending === 'clone',
+                  onChange: function (event) {
+                    setRepoQuery(event && event.target ? event.target.value : '')
+                  }
+                })
+              )
+            )
+            if (repos && repos.loading === true) {
+              body.push(h('div', { className: 'gitbar-gp-empty', key: 'repos-loading' }, t('loading')))
+            } else if (repos && repos.ok === false) {
+              body.push(h('div', { className: 'gitbar-gp-error', key: 'repos-error' }, repos.error))
+            } else if (repos && repos.ok === true) {
+              var repoRows = []
+              var list = repos.repos && typeof repos.repos.length === 'number' ? repos.repos : []
+              for (var repoAt = 0; repoAt < list.length; repoAt += 1) {
+                var entry = list[repoAt] && typeof list[repoAt] === 'object' ? list[repoAt] : {}
+                var fullName = toText(entry.fullName)
+                if (!fullName) continue
+                repoRows.push(
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-gp-repo',
+                      key: 'repo-' + fullName,
+                      title: fullName,
+                      onClick: function (boundName) {
+                        return function () {
+                          setAddress(boundName)
+                          requestPreview(boundName)
+                        }
+                      }(fullName)
+                    },
+                    h('span', { className: 'gitbar-gp-repo-name' }, fullName),
+                    entry.private === true ? h('span', { className: 'gitbar-gp-tag' }, t('githubPrivate')) : null,
+                    toText(entry.description) ? h('span', { className: 'gitbar-gp-repo-desc' }, toText(entry.description)) : null
+                  )
+                )
+              }
+              body.push(
+                repoRows.length > 0
+                  ? h('div', { className: 'gitbar-gp-repos', key: 'repos' }, repoRows)
+                  : h('div', { className: 'gitbar-gp-empty', key: 'repos-empty' }, t('githubReposEmpty'))
+              )
+            }
+          } else {
+            body.push(
+              h(
+                'div',
+                { className: 'gitbar-gp-account', key: 'account' },
+                h('span', { className: 'gitbar-gp-account-name' }, t('github')),
+                h('span', { className: 'gitbar-gp-hint' }, t('githubClonePanelSignInHint')),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-btn',
+                    onClick: function () {
+                      setLoginOpen(function (value) {
+                        return !value
+                      })
+                    }
+                  },
+                  t('githubGoSignIn')
+                )
+              )
+            )
+          }
+
+          // Repository address input: works signed out and for any git URL.
+          body.push(
+            h(
+              'div',
+              { className: 'gitbar-gp-address', key: 'address' },
+              h('span', { className: 'gitbar-gp-label' }, t('githubAddressLabel')),
+              h('input', {
+                type: 'text',
+                className: 'gitbar-github-input',
+                value: address,
+                placeholder: t('githubAddressPlaceholder'),
+                'aria-label': t('githubAddressLabel'),
+                autoComplete: 'off',
+                spellCheck: false,
+                disabled: pending === 'clone' || previewPending,
+                onChange: function (event) {
+                  setAddress(event && event.target ? event.target.value : '')
+                },
+                onKeyDown: function (event) {
+                  try {
+                    if (!event) return
+                    if (event.key !== 'Enter' && event.keyCode !== 13) return
+                    if (typeof event.preventDefault === 'function') event.preventDefault()
+                    requestPreview()
+                  } catch (error2) {
+                    /* ignore */
+                  }
+                }
+              }),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gitbar-btn gitbar-github-primary',
+                  disabled: pending === 'clone' || previewPending || toText(address).trim() === '',
+                  onClick: function () {
+                    requestPreview()
+                  }
+                },
+                previewPending ? t('loading') : t('githubPreviewAction')
+              )
+            )
+          )
+
+          if (previewPending) {
+            body.push(h('div', { className: 'gitbar-gp-empty', key: 'preview-loading' }, t('loading')))
+          } else if (preview) {
+            body.push(
+              h(
+                'div',
+                { className: 'gitbar-clone', key: 'preview' },
+                h(
+                  'div',
+                  { className: 'gitbar-clone-row' },
+                  h('span', { className: 'gitbar-clone-label' }, t('githubClonePreview')),
+                  h('span', { className: 'gitbar-clone-value', title: preview.path }, preview.path),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-btn',
+                      title: t('copyPath'),
+                      'aria-label': t('copyPath'),
+                      onClick: function () {
+                        copyText(preview.path)
+                      }
+                    },
+                    '⧉'
+                  )
+                ),
+                preview.exists ? h('div', { className: 'gitbar-clone-error' }, t('githubCloneExists')) : null,
+                preview.signedIn === false ? h('div', { className: 'gitbar-gp-hint' }, t('githubCloneAnonymous')) : null,
+                rectRootEditor(rootEdit, rootDraft, setRootDraft, pending, setRootEdit, function () {
+                  saveRootValue(rootDraft, rePreviewRepo)
+                  setRePreviewRepo('')
+                }),
+                h(
+                  'div',
+                  { className: 'gitbar-gp-actions' },
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-primary',
+                      disabled: pending === 'clone' || dirPending,
+                      onClick: function () {
+                        startClone(preview.repo)
+                      }
+                    },
+                    t('githubCloneConfirm')
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn',
+                      disabled: dirPending,
+                      onClick: changeDir
+                    },
+                    t('githubCloneChangeDir')
+                  )
+                )
+              )
+            )
+          }
+
+          if (job && toText(job.id)) {
+            var jobState = toText(job.state)
+            var jobPath = toText(job.path) || cloneJoinPath(cloneRoot, cloneFolderName(job.repo))
+            if (jobState === 'done') {
+              body.push(
+                h(
+                  'div',
+                  { className: 'gitbar-clone', key: 'job' },
+                  h(
+                    'div',
+                    { className: 'gitbar-clone-row' },
+                    h('span', { className: 'gitbar-clone-done' }, t('githubCloneDone')),
+                    h('span', { className: 'gitbar-clone-value', title: jobPath }, jobPath)
+                  ),
+                  h(
+                    'div',
+                    { className: 'gitbar-gp-actions' },
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'gitbar-btn gitbar-github-primary',
+                        disabled: pending === 'open',
+                        onClick: function () {
+                          openWorkspace(jobPath)
+                        }
+                      },
+                      pending === 'open' ? t('githubCreating') : t('githubCreateWorkspace')
+                    )
+                  )
+                )
+              )
+            } else if (jobState === 'failed') {
+              body.push(
+                h(
+                  'div',
+                  { className: 'gitbar-clone', key: 'job' },
+                  job.needsSignIn === true
+                    ? h('div', { className: 'gitbar-clone-error' }, t('githubCloneNeedsSignIn'))
+                    : h('div', { className: 'gitbar-clone-error' }, cloneReasonText(t, job.reason, job.detail)),
+                  h(
+                    'div',
+                    { className: 'gitbar-gp-actions' },
+                    job.needsSignIn === true
+                      ? h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'gitbar-btn gitbar-github-primary',
+                          onClick: function () {
+                            setLoginOpen(true)
+                          }
+                        },
+                        t('githubGoSignIn')
+                      )
+                      : null,
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'gitbar-btn',
+                        disabled: previewPending,
+                        onClick: function () {
+                          requestPreview(toText(job.repo))
+                        }
+                      },
+                      t('githubCloneRetry')
+                    )
+                  )
+                )
+              )
+            } else {
+              var rawPercent = toNumber(job.percent)
+              var clonePercent = rawPercent === null ? 0 : Math.max(0, Math.min(100, rawPercent))
+              body.push(
+                h(
+                  'div',
+                  { className: 'gitbar-clone', key: 'job' },
+                  h(
+                    'div',
+                    { className: 'gitbar-clone-row' },
+                    h(
+                      'span',
+                      { className: 'gitbar-clone-meta' },
+                      cloneStageText(t, job.stage || jobState) + (clonePercent > 0 ? ' ' + clonePercent + '%' : '…')
+                    ),
+                    h('span', { className: 'gitbar-spacer' }),
+                    h('span', { className: 'gitbar-clone-value', title: jobPath }, jobPath)
+                  ),
+                  h('div', { className: 'gitbar-clone-bar' }, h('span', { className: 'gitbar-clone-fill', style: { width: clonePercent + '%' } }))
+                )
+              )
+            }
+          }
+
+          if (loginOpen) {
+            body.push(
+              h(
+                'div',
+                { className: 'gitbar-gp-login', key: 'login' },
+                h('div', { className: 'gitbar-github-hint' }, t('githubPatHint')),
+                h(
+                  'div',
+                  { className: 'gitbar-gp-actions' },
+                  h('input', {
+                    type: 'password',
+                    className: 'gitbar-github-input',
+                    value: loginPat,
+                    placeholder: 'ghp_…',
+                    'aria-label': t('githubPatLabel'),
+                    autoComplete: 'off',
+                    spellCheck: false,
+                    disabled: loginPending,
+                    onChange: function (event) {
+                      setLoginPat(event && event.target ? event.target.value : '')
+                    }
+                  }),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-primary',
+                      disabled: loginPending || toText(loginPat).trim() === '',
+                      onClick: loginWithPat
+                    },
+                    t('githubPanelSignIn')
+                  )
+                ),
+                h('div', { className: 'gitbar-github-hint' }, t('githubPanelLoginHint'))
+              )
+            )
+          }
+        }
+
+        return h(
+          'div',
+          {
+            className: 'gitbar-gp-overlay',
+            role: 'presentation',
+            onMouseDown: function (event) {
+              try {
+                if (!event) return
+                if (event.target !== event.currentTarget) return
+                close()
+              } catch (error2) {
+                /* ignore */
+              }
+            }
+          },
+          h(
+            'div',
+            {
+              className: 'gitbar-gp',
+              role: 'dialog',
+              'aria-label': t('githubClonePanelTitle'),
+              'aria-modal': 'true',
+              onMouseDown: function (event) {
+                try {
+                  if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
+                } catch (error2) {
+                  /* ignore */
+                }
+              }
+            },
+            h(
+              'div',
+              { className: 'gitbar-gp-head' },
+              h('span', { className: 'gitbar-gp-title' }, t('githubClonePanelTitle')),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gitbar-btn',
+                  title: t('close'),
+                  'aria-label': t('close'),
+                  onClick: close
+                },
+                '×'
+              )
+            ),
+            h('div', { className: 'gitbar-gp-body' }, body)
+          )
+        )
+      } catch (error2) {
+        return null
+      }
+    }
+
+    /** Inline clone-root editor shown inside the confirm area. */
+    function rectRootEditor(t, rootEdit, rootDraft, setRootDraft, pending, setRootEdit, onSave) {
+      if (!rootEdit) return null
+      return h(
+        'div',
+        { className: 'gitbar-gp-address' },
+        h('span', { className: 'gitbar-gp-label' }, t('githubCloneRoot')),
+        h('input', {
+          type: 'text',
+          className: 'gitbar-github-input',
+          value: rootDraft,
+          placeholder: '/path/to/clones',
+          'aria-label': t('githubCloneRoot'),
+          autoComplete: 'off',
+          spellCheck: false,
+          disabled: pending === 'config',
+          onChange: function (event) {
+            setRootDraft(event && event.target ? event.target.value : '')
+          }
+        }),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'gitbar-btn',
+            disabled: pending === 'config',
+            onClick: function () {
+              setRootEdit(false)
+            }
+          },
+          t('cancel')
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'gitbar-btn gitbar-github-primary',
+            disabled: pending === 'config',
+            onClick: onSave
+          },
+          pending === 'config' ? t('githubSaving') : t('githubSave')
+        )
+      )
+    }
+
     function GitHubSection(props) {
       var t = props.t || translate
       var sessionId = toText(props.sessionId)
@@ -4394,7 +5468,6 @@ window.__ModuleLoader__.load({
       var deviceReady = deviceInfo ? deviceInfo.ready !== false : true
       var deviceIsCustom = Boolean(deviceInfo && deviceInfo.custom === true)
       var savedClientId = status && status.config && typeof status.config.deviceClientId === 'string' ? status.config.deviceClientId : ''
-      var cloneRoot = status && status.config && typeof status.config.cloneRoot === 'string' ? status.config.cloneRoot : ''
       var shippedHint = deviceInfo && deviceReady && !deviceIsCustom
         ? h('div', { className: 'gitbar-github-hint', key: 'dev-shipped' }, t('githubDeviceShipped'))
         : null
@@ -4420,55 +5493,20 @@ window.__ModuleLoader__.load({
       var deviceStateHook = useState('')
       var deviceState = deviceStateHook[0]
       var setDeviceState = deviceStateHook[1]
-      var repoQueryHook = useState('')
-      var repoQuery = repoQueryHook[0]
-      var setRepoQuery = repoQueryHook[1]
-      var repoHook = useState('')
-      var repo = repoHook[0]
-      var setRepo = repoHook[1]
-      var reposHook = useState(null)
-      var repos = reposHook[0]
-      var setRepos = reposHook[1]
       var clientIdHook = useState('')
       var clientId = clientIdHook[0]
       var setClientId = clientIdHook[1]
       var clientFormHook = useState(false)
       var clientFormOpen = clientFormHook[0]
       var setClientFormOpen = clientFormHook[1]
-      var previewHook = useState(null)
-      var preview = previewHook[0]
-      var setPreview = previewHook[1]
-      var previewPendingHook = useState(false)
-      var previewPending = previewPendingHook[0]
-      var setPreviewPending = previewPendingHook[1]
-      var dirPendingHook = useState(false)
-      var dirPending = dirPendingHook[0]
-      var setDirPending = dirPendingHook[1]
-      var rePreviewHook = useState('')
-      var rePreviewRepo = rePreviewHook[0]
-      var setRePreviewRepo = rePreviewHook[1]
-      var rootEditHook = useState(false)
-      var rootEdit = rootEditHook[0]
-      var setRootEdit = rootEditHook[1]
-      var rootDraftHook = useState('')
-      var rootDraft = rootDraftHook[0]
-      var setRootDraft = rootDraftHook[1]
-      var rootPendingHook = useState(false)
-      var rootPending = rootPendingHook[0]
-      var setRootPending = rootPendingHook[1]
       var configPendingHook = useState(false)
       var configPending = configPendingHook[0]
       var setConfigPending = configPendingHook[1]
-      var cloneResultHook = useState(null)
-      var cloneResult = cloneResultHook[0]
-      var setCloneResult = cloneResultHook[1]
       var alive = useRef(true)
       var requestAbort = useRef(null)
-      var reposAbort = useRef(null)
       var deviceAbort = useRef(null)
       var deviceTimer = useRef(null)
       var deviceRef = useRef(null)
-      var searchTimer = useRef(null)
 
       useEffect(function () {
         alive.current = true
@@ -4481,12 +5519,6 @@ window.__ModuleLoader__.load({
           }
           requestAbort.current = null
           try {
-            if (reposAbort.current) reposAbort.current()
-          } catch (error2) {
-            /* ignore */
-          }
-          reposAbort.current = null
-          try {
             if (deviceAbort.current) deviceAbort.current()
           } catch (error2) {
             /* ignore */
@@ -4498,24 +5530,14 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
           deviceTimer.current = null
-          try {
-            if (searchTimer.current !== null) clearTimeout(searchTimer.current)
-          } catch (error2) {
-            /* ignore */
-          }
-          searchTimer.current = null
           deviceRef.current = null
         }
       }, [])
 
-      // Host never echoes the saved client id? It does via config.deviceClientId.
+      // Host echoes the saved client id via config.deviceClientId.
       useEffect(function () {
         setClientId(savedClientId)
       }, [savedClientId])
-
-      useEffect(function () {
-        if (!rootEdit) setRootDraft(cloneRoot)
-      }, [cloneRoot, rootEdit])
 
       function flash(text) {
         try {
@@ -4558,15 +5580,6 @@ window.__ModuleLoader__.load({
         if (safe === 'bad-credentials') reason = t('githubBadCredentials')
         if (safe === 'network') reason = t('githubNetworkError')
         return toText(t('githubLoginFailed')).replace('{detail}', reason || t('error'))
-      }
-
-      function cloneErrorText(result) {
-        var safe = toText(result && result.reason)
-        if (safe === 'not-signed-in') return t('githubNotSignedIn')
-        if (safe === 'bad-repo') return t('githubBadRepo')
-        if (safe === 'target-exists') return t('githubTargetExists')
-        var detail = githubDetailText(result && result.detail) || safe || t('error')
-        return toText(t('githubCloneFailed')).replace('{detail}', detail)
       }
 
       function stopDevice() {
@@ -4681,7 +5694,7 @@ window.__ModuleLoader__.load({
         setError('')
         send(githubUrl('/login', sessionId), { token: token }, function (result) {
           setPending('')
-          // The token is one-shot: never keep it in component state.
+          // One-shot token: never keep it in component state.
           setPat('')
           if (result.ok === true) {
             setExpanded(false)
@@ -4700,10 +5713,6 @@ window.__ModuleLoader__.load({
         send(githubUrl('/logout', sessionId), {}, function (result) {
           setPending('')
           setExpanded(false)
-          setCloneResult(null)
-          setRepos(null)
-          setRepo('')
-          setRepoQuery('')
           setPat('')
           stopDevice()
           if (result.ok === true && typeof props.onStatus === 'function') {
@@ -4712,97 +5721,6 @@ window.__ModuleLoader__.load({
             props.onReload()
           }
         })
-      }
-
-      function loadRepos() {
-        var query = toText(repoQuery).trim()
-        setRepos({ loading: true })
-        try {
-          if (reposAbort.current) reposAbort.current()
-        } catch (error2) {
-          /* ignore */
-        }
-        reposAbort.current = requestJson(
-          withQuery(GITHUB_REPOS_URL, [
-            { key: 'session', value: sessionId },
-            { key: 'q', value: query },
-            { key: 'limit', value: String(GITHUB_REPO_LIMIT) }
-          ]),
-          null,
-          function (result) {
-            if (!alive.current) return
-            reposAbort.current = null
-            if (result && result.ok === true) {
-              setRepos({ ok: true, repos: result.repos && typeof result.repos.length === 'number' ? result.repos : [] })
-              return
-            }
-            var detail = githubDetailText(result && result.detail) || toText(result && result.reason) || t('error')
-            setRepos({ ok: false, error: toText(t('githubReposFailed')).replace('{detail}', detail) })
-          }
-        )
-      }
-
-      useEffect(function () {
-        if (!expanded || !signedIn) return undefined
-        try {
-          if (searchTimer.current !== null) clearTimeout(searchTimer.current)
-        } catch (error2) {
-          /* ignore */
-        }
-        searchTimer.current = setTimeout(function () {
-          searchTimer.current = null
-          if (!alive.current) return
-          loadRepos()
-        }, GITHUB_SEARCH_DEBOUNCE_MS)
-        return function () {
-          try {
-            if (searchTimer.current !== null) clearTimeout(searchTimer.current)
-          } catch (error2) {
-            /* ignore */
-          }
-          searchTimer.current = null
-        }
-      }, [expanded, signedIn, repoQuery])
-
-      function copyClonedPath(path) {
-        try {
-          if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-            var written = navigator.clipboard.writeText(path)
-            if (written && typeof written.then === 'function') written.then(function () {}, function () {})
-          }
-        } catch (error2) {
-          /* ignore */
-        }
-        flash(t('githubClonePathCopied'))
-      }
-
-      function openClonedWorkspace(path) {
-        if (!path) return
-        var services = props.services && typeof props.services === 'object' ? props.services : resolveWorkspaceServices()
-        if (!services || !services.workspaces || typeof services.workspaces.create !== 'function' || !services.uiWorkspace || typeof services.uiWorkspace.openWorkspace !== 'function') {
-          copyClonedPath(path)
-          return
-        }
-        Promise.resolve()
-          .then(function () {
-            return services.workspaces.create({ path: path })
-          })
-          .then(function (workspace) {
-            var id = workspace && (workspace.id || workspace.workspaceId) ? workspace.id || workspace.workspaceId : ''
-            if (!id) throw new Error('no-workspace-id')
-            return Promise.resolve(services.uiWorkspace.openWorkspace(id))
-          })
-          .then(
-            function () {
-              if (!alive.current) return
-              setExpanded(false)
-              flash(t('githubWorkspaceOpened'))
-            },
-            function () {
-              if (!alive.current) return
-              copyClonedPath(path)
-            }
-          )
       }
 
       function saveClientId(forceEmpty) {
@@ -4824,156 +5742,6 @@ window.__ModuleLoader__.load({
         })
       }
 
-      function saveRootValue(value, repoToPreview) {
-        if (rootPending) return
-        setRootPending(true)
-        setError('')
-        send(githubUrl('/config', sessionId), { cloneRoot: toText(value).trim() }, function (result) {
-          setRootPending(false)
-          if (result.ok === true) {
-            setRootEdit(false)
-            if (typeof props.onReload === 'function') props.onReload()
-            flash(t('githubSaved'))
-            if (repoToPreview) requestPreview(repoToPreview)
-            return
-          }
-          setError(githubDetailText(result && result.detail) || t('githubSettingsFailed'))
-        })
-      }
-
-      function saveCloneRoot() {
-        if (rootPending) return
-        var repoToPreview = rePreviewRepo
-        setRePreviewRepo('')
-        saveRootValue(rootDraft, repoToPreview)
-      }
-
-      function copyText(value) {
-        var text = toText(value)
-        if (!text) return
-        try {
-          if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-            var written = navigator.clipboard.writeText(text)
-            if (written && typeof written.then === 'function') {
-              written.then(function () { flash(t('copiedPath')) }, function () { flash(t('copyFailed')) })
-            } else {
-              flash(t('copiedPath'))
-            }
-            return
-          }
-        } catch (error) {
-          /* ignore */
-        }
-        flash(t('copyFailed'))
-      }
-
-      function fallbackRootEdit(repoName) {
-        setRePreviewRepo(toText(repoName))
-        setRootDraft(preview ? toText(preview.root) : cloneRoot)
-        setRootEdit(true)
-      }
-
-      function changeCloneDir() {
-        if (!preview || dirPending) return
-        var repoName = toText(preview.repo)
-        setError('')
-        var ui = props.services && props.services.uiWorkspace ? props.services.uiWorkspace : resolveUiWorkspace()
-        if (ui && typeof ui.pickDirectory === 'function') {
-          setDirPending(true)
-          Promise.resolve()
-            .then(function () {
-              return ui.pickDirectory()
-            })
-            .then(
-              function (picked) {
-                if (!alive.current) return
-                setDirPending(false)
-                var chosen = toText(picked).trim()
-                if (!chosen) return
-                saveRootValue(chosen, repoName)
-              },
-              function () {
-                if (!alive.current) return
-                setDirPending(false)
-                fallbackRootEdit(repoName)
-              }
-            )
-          return
-        }
-        fallbackRootEdit(repoName)
-      }
-
-      /** Preview first: the actual clone starts only after 确认克隆. */
-      function requestPreview(repoOverride) {
-        var name = toText(repoOverride !== undefined && repoOverride !== null ? repoOverride : repo).trim()
-        if (!name) {
-          setError(t('githubRepoRequired'))
-          return
-        }
-        setPreviewPending(true)
-        setError('')
-        setPreview(null)
-        send(githubUrl('/clone/preview', sessionId), { repo: name }, function (result) {
-          setPreviewPending(false)
-          if (result.ok !== true) {
-            setError(toText(result.reason) === 'bad-repo' ? t('githubBadRepo') : cloneErrorText(result))
-            return
-          }
-          setRepo(toText(result.repo) || name)
-          setPreview({
-            repo: toText(result.repo) || name,
-            kind: toText(result.kind),
-            root: toText(result.root),
-            folder: toText(result.folder),
-            path: toText(result.path),
-            exists: result.exists === true,
-            signedIn: result.signedIn === true
-          })
-        })
-      }
-
-      function startClone(repoName) {
-        var name = toText(repoName).trim()
-        if (!name) return
-        var body = { repo: name, background: true }
-        setPending('clone')
-        setError('')
-        setPreview(null)
-        setCloneResult(null)
-        send(githubUrl('/clone', sessionId), body, function (result) {
-          setPending('')
-          if (result.ok !== true) {
-            setError(cloneErrorText(result))
-            return
-          }
-          setRepo(name)
-          if (toText(result.id)) {
-            if (typeof props.onCloneStart === 'function') {
-              props.onCloneStart({
-                id: toText(result.id),
-                repo: toText(result.repo) || name,
-                root: toText(result.root),
-                path: toText(result.path),
-                folder: toText(result.folder),
-                state: toText(result.state) || 'queued',
-                percent: 0,
-                stage: 'starting',
-                startedAt: Date.now(),
-                result: null,
-                reason: '',
-                detail: '',
-                needsSignIn: result.needsSignIn === true
-              })
-            }
-            return
-          }
-          // Legacy synchronous response (tests only).
-          var path = toText(result.path)
-          setCloneResult({ path: path, folder: toText(result.folder), branch: toText(result.branch) })
-          openClonedWorkspace(path)
-        })
-      }
-
       try {
         if (!status) return null
         var avatarText = signedIn && account ? (toText(account.login).slice(0, 1) || 'G').toUpperCase() : 'GH'
@@ -4988,8 +5756,8 @@ window.__ModuleLoader__.load({
           {
             type: 'button',
             className: 'gitbar-github-caret',
-            title: expanded ? t('close') : signedIn ? t('githubNewWorkspace') : t('githubSignIn'),
-            'aria-label': expanded ? t('close') : signedIn ? t('githubNewWorkspace') : t('githubSignIn'),
+            title: expanded ? t('close') : t('githubSignIn'),
+            'aria-label': expanded ? t('close') : t('githubSignIn'),
             'aria-expanded': expanded ? 'true' : 'false',
             onClick: function () {
               setExpanded(function (value) {
@@ -5045,11 +5813,7 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'gitbar-github-row', key: 'row' },
             avatar,
-            h(
-              'span',
-              { className: 'gitbar-github-name', title: loginName || t('github') },
-              loginName || t('github')
-            ),
+            h('span', { className: 'gitbar-github-name', title: loginName || t('github') }, loginName || t('github')),
             signedIn && loginRealName && loginRealName !== loginName
               ? h('span', { className: 'gitbar-github-meta', title: loginRealName }, loginRealName)
               : null,
@@ -5061,342 +5825,33 @@ window.__ModuleLoader__.load({
 
         if (expanded) {
           var content = []
-          var showClientForm = !deviceReady || deviceIsCustom || clientFormOpen
-          var clientIdForm = showClientForm
-            ? [
-              h('div', { className: 'gitbar-github-hint', key: 'dev-client-label' }, t('githubClientIdLabel')),
-              h(
-                'div',
-                { className: 'gitbar-github-actions', key: 'dev-client' },
-                h('input', {
-                  type: 'text',
-                  className: 'gitbar-github-input',
-                  value: clientId,
-                  placeholder: t('githubClientIdPlaceholder'),
-                  'aria-label': t('githubClientIdLabel'),
-                  autoComplete: 'off',
-                  spellCheck: false,
-                  disabled: configPending,
-                  onChange: function (event) {
-                    setClientId(event && event.target ? event.target.value : '')
-                  }
-                }),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn gitbar-github-primary',
-                    disabled: configPending,
-                    onClick: function () {
-                      saveClientId(false)
-                    }
-                  },
-                  configPending ? t('githubSaving') : t('githubSave')
-                )
-              ),
-              h('div', { className: 'gitbar-github-hint', key: 'dev-client-hint' }, t('githubClientIdHint'))
-            ]
-            : null
-          var customActiveRow = deviceIsCustom
-            ? h(
-              'div',
-              { className: 'gitbar-github-actions', key: 'dev-custom-active' },
-              h('span', { className: 'gitbar-github-hint' }, t('githubClientIdActive')),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'gitbar-btn gitbar-github-btn',
-                  disabled: configPending,
-                  onClick: function () {
-                    saveClientId(true)
-                  }
-                },
-                t('githubClientIdReset')
-              )
-            )
-            : null
-          var customToggleRow =
-            !deviceIsCustom && deviceInfo && deviceReady
-              ? h(
-                'div',
-                { className: 'gitbar-github-actions', key: 'dev-custom-toggle' },
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn gitbar-github-btn',
-                    'aria-expanded': clientFormOpen ? 'true' : 'false',
-                    onClick: function () {
-                      setClientFormOpen(function (value) {
-                        return !value
-                      })
-                    }
-                  },
-                  t('githubClientIdCustom')
-                )
-              )
-              : null
-          var cloneJob = props.clone && typeof props.clone === 'object' ? props.clone : null
-          var cloneJobId = cloneJob ? toText(cloneJob.id) : ''
-          var cloneJobState = cloneJob ? toText(cloneJob.state) : ''
-          var cloneRunning = cloneJobId !== '' && cloneJobState !== 'done' && cloneJobState !== 'failed'
-          var previewFolder = cloneFolderName(toText(repo) || (cloneJob ? toText(cloneJob.repo) : ''))
-          var previewPath = cloneJoinPath(cloneRoot, previewFolder)
-          var rootRow = h(
-            'div',
-            { className: 'gitbar-clone-row', key: 'root' },
-            h('span', { className: 'gitbar-clone-label' }, t('githubCloneRoot')),
-            rootEdit
-              ? h('input', {
-                type: 'text',
-                className: 'gitbar-github-input',
-                value: rootDraft,
-                placeholder: '/path/to/clones',
-                'aria-label': t('githubCloneRoot'),
-                autoComplete: 'off',
-                spellCheck: false,
-                disabled: rootPending,
-                onChange: function (event) {
-                  setRootDraft(event && event.target ? event.target.value : '')
-                }
-              })
-              : h('span', { className: 'gitbar-clone-value', title: cloneRoot }, cloneRoot || '—'),
-            rootEdit
-              ? h(
-                'span',
-                { className: 'gitbar-github-actions' },
-                h('button', { type: 'button', className: 'gitbar-btn gitbar-github-primary', disabled: rootPending, onClick: saveCloneRoot }, t('githubSave')),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn',
-                    onClick: function () {
-                      setRootEdit(false)
-                      setRootDraft(cloneRoot)
-                    }
-                  },
-                  t('cancel')
-                )
-              )
-              : h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'gitbar-btn gitbar-github-btn',
-                  onClick: function () {
-                    setRootDraft(cloneRoot)
-                    setRootEdit(true)
-                  }
-                },
-                t('githubCloneRootChange')
-              )
-          )
-          var previewRow = h(
-            'div',
-            { className: 'gitbar-clone-row', key: 'preview' },
-            h('span', { className: 'gitbar-clone-label' }, t('githubCloneTarget')),
-            h('span', { className: 'gitbar-clone-value', title: previewPath }, previewPath || '—')
-          )
-          var cloneJobNode = null
-          if (cloneJobId) {
-            var cloneJobPath = toText(cloneJob.path) || previewPath
-            if (cloneJobState === 'done') {
-              cloneJobNode = h(
-                'div',
-                { className: 'gitbar-clone', key: 'clone' },
-                h(
-                  'div',
-                  { className: 'gitbar-clone-row' },
-                  h('span', { className: 'gitbar-clone-done' }, t('githubCloneDone')),
-                  h('span', { className: 'gitbar-clone-value', title: cloneJobPath }, cloneJobPath)
-                ),
-                h(
-                  'div',
-                  { className: 'gitbar-github-actions' },
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'gitbar-btn gitbar-github-primary',
-                      onClick: function () {
-                        openClonedWorkspace(cloneJobPath)
-                      }
-                    },
-                    t('githubOpenWorkspace')
-                  )
-                )
-              )
-            } else if (cloneJobState === 'failed') {
-              cloneJobNode = h(
-                'div',
-                { className: 'gitbar-clone', key: 'clone' },
-                cloneJob.needsSignIn === true
-                  ? h('div', { className: 'gitbar-clone-error' }, t('githubCloneNeedsSignIn'))
-                  : h('div', { className: 'gitbar-clone-error' }, cloneReasonText(t, cloneJob.reason, cloneJob.detail)),
-                cloneJob.needsSignIn === true
-                  ? h(
-                    'div',
-                    { className: 'gitbar-github-actions' },
-                    h(
-                      'button',
-                      {
-                        type: 'button',
-                        className: 'gitbar-btn gitbar-github-primary',
-                        onClick: function () {
-                          setExpanded(true)
-                          setMode('pat')
-                          setError('')
-                          if (signedIn) logout()
-                        }
-                      },
-                      t('githubGoSignIn')
-                    )
-                  )
-                  : null,
-                h(
-                  'div',
-                  { className: 'gitbar-github-actions' },
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'gitbar-btn gitbar-github-primary',
-                      disabled: pending === 'clone',
-                      onClick: function () {
-                        setRepo(toText(cloneJob.repo))
-                        requestPreview(toText(cloneJob.repo))
-                      }
-                    },
-                    t('githubCloneRetry')
-                  )
-                )
-              )
-            } else {
-              var rawPercent = toNumber(cloneJob.percent)
-              var clonePercent = rawPercent === null ? 0 : Math.max(0, Math.min(100, rawPercent))
-              cloneJobNode = h(
-                'div',
-                { className: 'gitbar-clone', key: 'clone' },
-                h(
-                  'div',
-                  { className: 'gitbar-clone-row' },
-                  h(
-                    'span',
-                    { className: 'gitbar-clone-meta' },
-                    cloneStageText(t, cloneJob.stage || cloneJobState) + (clonePercent > 0 ? ' ' + clonePercent + '%' : '…')
-                  ),
-                  h('span', { className: 'gitbar-spacer' }),
-                  h('span', { className: 'gitbar-clone-value', title: cloneJobPath }, cloneJobPath)
-                ),
-                h(
-                  'div',
-                  { className: 'gitbar-clone-bar' },
-                  h('span', { className: 'gitbar-clone-fill', style: { width: clonePercent + '%' } })
-                )
-              )
-            }
-          }
-          var previewNode = null
-          if (previewPending) {
-            previewNode = h('div', { className: 'gitbar-github-empty', key: 'preview-loading' }, t('loading'))
-          } else if (preview) {
-            previewNode = h(
-              'div',
-              { className: 'gitbar-clone', key: 'preview-confirm' },
-              h(
-                'div',
-                { className: 'gitbar-clone-row' },
-                h('span', { className: 'gitbar-clone-label' }, t('githubClonePreview')),
-                h('span', { className: 'gitbar-clone-value', title: preview.path }, preview.path),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn gitbar-github-btn',
-                    title: t('copyPath'),
-                    'aria-label': t('copyPath'),
-                    onClick: function () {
-                      copyText(preview.path)
-                    }
-                  },
-                  '⧉'
-                )
-              ),
-              preview.exists
-                ? h('div', { className: 'gitbar-clone-error' }, t('githubCloneExists'))
-                : null,
-              preview.signedIn === false
-                ? h('div', { className: 'gitbar-github-hint' }, t('githubCloneAnonymous'))
-                : null,
-              h(
-                'div',
-                { className: 'gitbar-github-actions' },
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn gitbar-github-primary',
-                    disabled: pending === 'clone' || dirPending,
-                    onClick: function () {
-                      startClone(preview.repo)
-                    }
-                  },
-                  t('githubCloneConfirm')
-                ),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn',
-                    disabled: dirPending,
-                    onClick: changeCloneDir
-                  },
-                  t('githubCloneChangeDir')
-                )
-              )
-            )
-          }
-          var cloneTitle = h('div', { className: 'gitbar-github-hint', key: 'clone-title' }, t('githubNewWorkspace'))
-          var manualRow = h(
-            'div',
-            { className: 'gitbar-github-actions', key: 'clone' },
-            h('input', {
-              type: 'text',
-              className: 'gitbar-github-input',
-              value: repo,
-              placeholder: 'owner/repo',
-              'aria-label': t('githubClone'),
-              autoComplete: 'off',
-              spellCheck: false,
-              disabled: pending === 'clone',
-              onChange: function (event) {
-                setRepo(event && event.target ? event.target.value : '')
-              }
-            }),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'gitbar-btn gitbar-github-primary',
-                disabled: pending === 'clone' || previewPending || cloneRunning || toText(repo).trim() === '',
-                onClick: function () {
-                  requestPreview()
-                }
-              },
-              previewPending ? t('loading') : pending === 'clone' ? t('githubCloning') : t('githubClone')
-            )
-          )
-          var legacyRow = cloneResult && cloneResult.path
-            ? h(
-              'div',
-              { className: 'gitbar-github-path', key: 'cloned', title: cloneResult.path },
-              h('span', null, cloneResult.path)
-            )
-            : null
           if (error) {
             content.push(h('div', { className: 'gitbar-github-error', key: 'error', role: 'alert' }, error))
+          }
+          // Fallback entry when conversation.hero.options is unavailable.
+          if (props.cloneEntry === true && typeof props.onOpenClonePanel === 'function') {
+            content.push(
+              h(
+                'div',
+                { className: 'gitbar-github-actions', key: 'clone-entry' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-btn',
+                    onClick: function () {
+                      setExpanded(false)
+                      try {
+                        props.onOpenClonePanel()
+                      } catch (error2) {
+                        /* ignore */
+                      }
+                    }
+                  },
+                  t('githubCloneEntry')
+                )
+              )
+            )
           }
 
           if (!signedIn) {
@@ -5460,48 +5915,35 @@ window.__ModuleLoader__.load({
                 )
               )
             } else if (!deviceReady) {
-              // No OAuth app to talk to: tell the user instead of failing at
-              // /device/start, and offer the token path.
               content.push(
                 h('div', { className: 'gitbar-github-hint', key: 'dev-off' }, t('githubDeviceUnavailable')),
-                clientIdForm,
-                customActiveRow,
                 h(
-                  'div',
-                  { className: 'gitbar-github-actions', key: 'dev-off-actions' },
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'gitbar-btn gitbar-github-primary',
-                      onClick: function () {
-                        setMode('pat')
-                      }
-                    },
-                    t('githubUsePat')
-                  )
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-btn gitbar-github-primary',
+                    key: 'dev-off-pat',
+                    onClick: function () {
+                      setMode('pat')
+                    }
+                  },
+                  t('githubUsePat')
                 )
               )
             } else if (!device) {
               content.push(
                 h('div', { className: 'gitbar-github-hint', key: 'dev-hint' }, t('githubDeviceHint')),
                 shippedHint,
-                customActiveRow,
-                customToggleRow,
-                clientIdForm,
                 h(
-                  'div',
-                  { className: 'gitbar-github-actions', key: 'dev-start' },
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'gitbar-btn gitbar-github-primary',
-                      disabled: pending === 'device',
-                      onClick: startDevice
-                    },
-                    t('githubUseBrowser')
-                  )
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-btn gitbar-github-primary',
+                    key: 'dev-start',
+                    disabled: pending === 'device',
+                    onClick: startDevice
+                  },
+                  t('githubUseBrowser')
                 )
               )
             } else {
@@ -5527,89 +5969,93 @@ window.__ModuleLoader__.load({
                 shippedHint,
                 h('div', { className: 'gitbar-github-hint', key: 'dev-wait' }, t('githubDeviceWaiting')),
                 h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-btn',
+                    key: 'dev-cancel',
+                    onClick: function () {
+                      stopDevice()
+                      setError('')
+                    }
+                  },
+                  t('cancel')
+                )
+              )
+            }
+
+            // Custom OAuth app client id (only relevant for the browser flow).
+            content.push(
+              deviceIsCustom
+                ? h(
                   'div',
-                  { className: 'gitbar-github-actions', key: 'dev-cancel' },
+                  { className: 'gitbar-github-actions', key: 'dev-custom-active' },
+                  h('span', { className: 'gitbar-github-hint' }, t('githubClientIdActive')),
                   h(
                     'button',
                     {
                       type: 'button',
-                      className: 'gitbar-btn',
+                      className: 'gitbar-btn gitbar-github-btn',
+                      disabled: configPending,
                       onClick: function () {
-                        stopDevice()
-                        setError('')
+                        saveClientId(true)
                       }
                     },
-                    t('cancel')
+                    t('githubClientIdReset')
                   )
                 )
-              )
-            }
-            content.push(cloneTitle, rootRow, previewRow, cloneJobNode, previewNode, manualRow, legacyRow)
-          } else {
-            content.push(
-              cloneTitle,
-              rootRow,
-              previewRow,
-              cloneJobNode,
-              previewNode,
-              h(
-                'div',
-                { className: 'gitbar-github-actions', key: 'search' },
-                h('input', {
-                  type: 'text',
-                  className: 'gitbar-github-input',
-                  value: repoQuery,
-                  placeholder: t('githubReposPlaceholder'),
-                  'aria-label': t('githubReposPlaceholder'),
-                  autoComplete: 'off',
-                  spellCheck: false,
-                  disabled: pending === 'clone',
-                  onChange: function (event) {
-                    setRepoQuery(event && event.target ? event.target.value : '')
-                  }
-                })
-              )
-            )
-            if (repos && repos.loading === true) {
-              content.push(h('div', { className: 'gitbar-github-empty', key: 'repos-loading' }, t('loading')))
-            } else if (repos && repos.ok === false) {
-              content.push(h('div', { className: 'gitbar-github-error', key: 'repos-error' }, repos.error))
-            } else if (repos && repos.ok === true) {
-              var repoRows = []
-              var list = repos.repos && typeof repos.repos.length === 'number' ? repos.repos : []
-              for (var repoAt = 0; repoAt < list.length; repoAt += 1) {
-                var entry = list[repoAt] && typeof list[repoAt] === 'object' ? list[repoAt] : {}
-                var fullName = toText(entry.fullName)
-                if (!fullName) continue
-                repoRows.push(
+                : null,
+              deviceInfo && deviceReady && !deviceIsCustom
+                ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-btn gitbar-github-btn',
+                    key: 'dev-custom-toggle',
+                    onClick: function () {
+                      setClientFormOpen(function (value) {
+                        return !value
+                      })
+                    }
+                  },
+                  t('githubClientIdCustom')
+                )
+                : null,
+              !deviceReady || deviceIsCustom || clientFormOpen
+                ? h(
+                  'div',
+                  { className: 'gitbar-github-actions', key: 'dev-client' },
+                  h('input', {
+                    type: 'text',
+                    className: 'gitbar-github-input',
+                    value: clientId,
+                    placeholder: t('githubClientIdPlaceholder'),
+                    'aria-label': t('githubClientIdLabel'),
+                    autoComplete: 'off',
+                    spellCheck: false,
+                    disabled: configPending,
+                    onChange: function (event) {
+                      setClientId(event && event.target ? event.target.value : '')
+                    }
+                  }),
                   h(
                     'button',
                     {
                       type: 'button',
-                      className: 'gitbar-github-repo' + (toText(repo).trim() === fullName ? ' gitbar-github-repo-on' : ''),
-                      key: 'repo-' + fullName,
-                      title: fullName,
-                      onClick: function (boundName) {
-                        return function () {
-                          setRepo(boundName)
-                          setError('')
-                          requestPreview(boundName)
-                        }
-                      }(fullName)
+                      className: 'gitbar-btn gitbar-github-primary',
+                      disabled: configPending,
+                      onClick: function () {
+                        saveClientId(false)
+                      }
                     },
-                    h('span', { className: 'gitbar-github-repo-name' }, fullName),
-                    entry.private === true ? h('span', { className: 'gitbar-github-tag' }, t('githubPrivate')) : null,
-                    toText(entry.description) ? h('span', { className: 'gitbar-github-repo-desc' }, toText(entry.description)) : null
+                    configPending ? t('githubSaving') : t('githubSave')
                   )
                 )
-              }
-              content.push(
-                repoRows.length > 0
-                  ? h('div', { className: 'gitbar-github-repos', key: 'repos' }, repoRows)
-                  : h('div', { className: 'gitbar-github-empty', key: 'repos-empty' }, t('githubReposEmpty'))
-              )
-            }
-            content.push(manualRow, legacyRow)
+                : null,
+              !deviceReady || deviceIsCustom || clientFormOpen
+                ? h('div', { className: 'gitbar-github-hint', key: 'dev-client-hint' }, t('githubClientIdHint'))
+                : null
+            )
           }
 
           rows.push(h('div', { className: 'gitbar-github-panel', key: 'panel' }, content))
@@ -6435,8 +6881,8 @@ window.__ModuleLoader__.load({
               t: t,
               sessionId: props.sessionId,
               status: props.github,
-              clone: props.clone,
-              onCloneStart: props.onCloneStart,
+              cloneEntry: props.cloneEntry === true,
+              onOpenClonePanel: props.onOpenClonePanel,
               onStatus: props.onGithubStatus,
               onReload: props.onGithubReload,
               onFlash: props.onFlash
@@ -6618,11 +7064,12 @@ window.__ModuleLoader__.load({
       var settledRef = useRef(false)
       var slowTimerRef = useRef(null)
       var slowActiveRef = useRef(false)
-      var cloneHook = useState(function () {
-        return gitbarCloneStore.get()
-      })
-      var cloneJob = cloneHook[0]
-      var setCloneJob = cloneHook[1]
+      var gpOpenHook = useState(false)
+      var gpOpen = gpOpenHook[0]
+      var setGpOpen = gpOpenHook[1]
+      var gpSessionHook = useState('')
+      var gpSession = gpSessionHook[0]
+      var setGpSession = gpSessionHook[1]
       var githubHook = useState(null)
       var githubStatus = githubHook[0]
       var setGithubStatus = githubHook[1]
@@ -6685,11 +7132,16 @@ window.__ModuleLoader__.load({
 
       // Mirror the module-level clone job so the popover can be closed while the
       // poll keeps running here (the capsule outlives the panel).
+      // The clone panel is a module-level overlay: its open state (and the job
+      // it shows) live outside this component.
       useEffect(function () {
-        var unsubscribe = gitbarCloneStore.subscribe(function (next) {
-          setCloneJob(next)
+        var unsubscribe = gitbarGithubPanelStore.subscribe(function (next) {
+          setGpOpen(Boolean(next && next.open))
+          setGpSession(toText(next && next.sessionId))
         })
-        setCloneJob(gitbarCloneStore.get())
+        var initial = gitbarGithubPanelStore.get()
+        setGpOpen(Boolean(initial && initial.open))
+        setGpSession(toText(initial && initial.sessionId))
         return function () {
           try {
             unsubscribe()
@@ -6698,108 +7150,6 @@ window.__ModuleLoader__.load({
           }
         }
       }, [])
-
-      useEffect(function () {
-        var job = cloneJob
-        if (!job || !toText(job.id)) return undefined
-        if (job.state === 'done' || job.state === 'failed') return undefined
-        var cancelled = false
-        var timer = null
-        var abort = null
-        function schedule() {
-          if (cancelled) return
-          if (timer !== null) {
-            try {
-              clearTimeout(timer)
-            } catch (error) {
-              /* ignore */
-            }
-          }
-          timer = setTimeout(poll, CLONE_POLL_MS)
-        }
-        function poll() {
-          timer = null
-          if (cancelled) return
-          var current = gitbarCloneStore.get()
-          if (!current || toText(current.id) !== toText(job.id)) return
-          if (current.state === 'done' || current.state === 'failed') return
-          try {
-            if (abort) abort()
-          } catch (error) {
-            /* ignore */
-          }
-          abort = requestJson(
-            withQuery(GITHUB_CLONE_STATUS_URL, [
-              { key: 'session', value: sessionRef.current },
-              { key: 'id', value: toText(current.id) }
-            ]),
-            null,
-            function (result) {
-              if (cancelled) return
-              abort = null
-              var now = gitbarCloneStore.get()
-              if (!now || toText(now.id) !== toText(job.id)) return
-              if (result && result.ok === true) {
-                var percent = toNumber(result.percent)
-                var next = {
-                  id: toText(result.id) || now.id,
-                  repo: toText(result.repo) || now.repo,
-                  root: toText(result.root) || now.root,
-                  path: toText(result.path) || now.path,
-                  folder: toText(result.folder) || now.folder,
-                  state: toText(result.state) || now.state,
-                  percent: percent === null ? (toNumber(now.percent) === null ? 0 : now.percent) : percent,
-                  stage: toText(result.stage) || now.stage,
-                  startedAt: now.startedAt,
-                  result: result.result && typeof result.result === 'object' ? result.result : now.result,
-                  reason: toText(result.reason),
-                  detail: toText(result.detail),
-                  needsSignIn: result.needsSignIn === true || now.needsSignIn === true
-                }
-                gitbarCloneStore.set(next)
-                if (next.state !== 'done' && next.state !== 'failed') schedule()
-                return
-              }
-              if (toText(result && result.reason) === 'unknown-job') {
-                gitbarCloneStore.set({
-                  id: now.id,
-                  repo: now.repo,
-                  root: now.root,
-                  path: now.path,
-                  state: 'failed',
-                  percent: now.percent,
-                  stage: now.stage,
-                  startedAt: now.startedAt,
-                  result: null,
-                  reason: 'unknown-job',
-                  detail: '',
-                  needsSignIn: now.needsSignIn === true
-                })
-                return
-              }
-              schedule()
-            }
-          )
-        }
-        schedule()
-        return function () {
-          cancelled = true
-          if (timer !== null) {
-            try {
-              clearTimeout(timer)
-            } catch (error) {
-              /* ignore */
-            }
-          }
-          timer = null
-          try {
-            if (abort) abort()
-          } catch (error) {
-            /* ignore */
-          }
-          abort = null
-        }
-      }, [cloneJob && cloneJob.id, cloneJob && cloneJob.state])
 
       function loadGithubStatus() {
         try {
@@ -6985,6 +7335,7 @@ window.__ModuleLoader__.load({
 
       // 2. Fetch on mount and whenever the Session changes.
       useEffect(function () {
+        if (sessionId) lastCapsuleSessionId = sessionId
         pendingSinceRef.current = Date.now()
         retryIndexRef.current = 0
         settledRef.current = false
@@ -7598,6 +7949,16 @@ window.__ModuleLoader__.load({
           state ? h('span', { className: countClass }, String(all)) : null
         )
 
+        var clonePanelNode = gpOpen
+          ? h(GithubClonePanel, {
+            key: 'github-clone-panel',
+            t: t,
+            sessionId: gpSession || sessionId,
+            onClose: closeGithubClonePanel,
+            onFlash: flashMessage
+          })
+          : null
+
         var panelClass = stateFor(open || closing, closing).className
         if (entered && panelClass === 'gitbar-panel-anim') panelClass = ''
 
@@ -7632,9 +7993,9 @@ window.__ModuleLoader__.load({
             onTogglePicker: onTogglePicker,
             onOpenGraph: onOpenGraph,
             github: githubStatus,
-            clone: cloneJob,
-            onCloneStart: function (job) {
-              gitbarCloneStore.set(job)
+            cloneEntry: heroRegistered !== true,
+            onOpenClonePanel: function () {
+              openGithubClonePanel(sessionRef.current)
             },
             onGithubStatus: onGithubStatus,
             onGithubReload: loadGithubStatus,
@@ -7663,7 +8024,8 @@ window.__ModuleLoader__.load({
           { className: 'gitbar-root', ref: rootRef },
           h('style', { key: 'gitbar-style' }, CSS),
           pill,
-          panel
+          panel,
+          clonePanelNode
         )
       } catch (error) {
         // Last resort: keep a harmless, non-throwing pill in the header.
@@ -7697,6 +8059,46 @@ window.__ModuleLoader__.load({
             }
           )
         })
+
+        // New-conversation hero: the official place next to the workspace picker.
+        try {
+          ctx.slots.inject(HERO_SLOT, function () {
+            return ctx.slots.register(
+              { name: HERO_SLOT, id: ENTRY_ID + ':github-clone', order: HERO_ORDER },
+              function (slotProps) {
+                var heroProps = {}
+                try {
+                  if (slotProps && typeof slotProps === 'object') {
+                    for (var heroKey in slotProps) {
+                      if (Object.prototype.hasOwnProperty.call(slotProps, heroKey)) heroProps[heroKey] = slotProps[heroKey]
+                    }
+                  }
+                } catch (error) {
+                  heroProps = {}
+                }
+                heroProps.t = translate
+                heroProps.sessionId = toText(heroProps.sessionId)
+                return h(GithubCloneEntry, heroProps)
+              }
+            )
+          })
+          heroRegistered = true
+        } catch (error) {
+          heroRegistered = false
+        }
+
+        // Stop the background clone poller with the plugin.
+        try {
+          if (typeof ctx.effect === 'function') {
+            ctx.effect(function () {
+              return function () {
+                stopClonePolling()
+              }
+            }, 'dsh-git-bar: github clone polling')
+          }
+        } catch (error) {
+          /* ignore */
+        }
 
         // Right Sidebar review tab: the type and its body are registered once.
         // When the registries are missing the popover review stays the fallback.
