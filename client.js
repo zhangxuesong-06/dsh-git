@@ -181,7 +181,9 @@ window.__ModuleLoader__.load({
       githubPanelSignIn: '登录',
       githubPanelLoginHint: '也可以到状态栏的 Git 胶囊中用浏览器登录',
       githubClonePreview: '将克隆到',
-      githubCloneExists: '该目录已存在且非空，克隆会被拒绝',
+      githubCloneFolder: '目标文件夹',
+      githubCloneFolderPlaceholder: '默认使用仓库名',
+      githubCloneExists: '该文件夹已存在且非空',
       githubCloneAnonymous: '未登录：只能克隆公开仓库，私有仓库需要登录',
       githubCloneConfirm: '确认克隆',
       githubCloneChangeDir: '修改目录',
@@ -399,7 +401,9 @@ window.__ModuleLoader__.load({
       githubPanelSignIn: 'Sign in',
       githubPanelLoginHint: 'You can also sign in with the browser from the Git capsule in the status bar',
       githubClonePreview: 'Will clone to',
-      githubCloneExists: 'That directory already exists and is not empty; cloning will be refused',
+      githubCloneFolder: 'Target folder',
+      githubCloneFolderPlaceholder: 'Repository name by default',
+      githubCloneExists: 'This folder already exists and is not empty',
       githubCloneAnonymous: 'Not signed in: only public repositories can be cloned; private ones need sign-in',
       githubCloneConfirm: 'Clone',
       githubCloneChangeDir: 'Change directory',
@@ -4970,6 +4974,10 @@ window.__ModuleLoader__.load({
       var previewHook = useState(null)
       var preview = previewHook[0]
       var setPreview = previewHook[1]
+      var folderHook = useState('')
+      var folderDraft = folderHook[0]
+      var setFolderDraft = folderHook[1]
+      var folderTimer = useRef(null)
       var previewPendingHook = useState(false)
       var previewPending = previewPendingHook[0]
       var setPreviewPending = previewPendingHook[1]
@@ -5092,6 +5100,12 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
           noticeTimer.current = null
+          try {
+            if (folderTimer.current !== null) clearTimeout(folderTimer.current)
+          } catch (error2) {
+            /* ignore */
+          }
+          folderTimer.current = null
         }
       }, [])
 
@@ -5228,32 +5242,55 @@ window.__ModuleLoader__.load({
         }
       }, [signedIn, repoQuery])
 
-      function requestPreview(repoOverride) {
+      function requestPreview(repoOverride, folderOverride) {
         var name = toText(repoOverride !== undefined && repoOverride !== null ? repoOverride : address).trim()
         if (!name) {
           setError(t('githubRepoRequired'))
           return
         }
+        var folder = toText(folderOverride !== undefined && folderOverride !== null ? folderOverride : folderDraft).trim()
+        var payload = { repo: name }
+        if (folder) payload.folder = folder
         setPreviewPending(true)
         setError('')
         setPreview(null)
-        send(githubUrl('/clone/preview', sessionId), { repo: name }, function (result) {
+        send(githubUrl('/clone/preview', sessionId), payload, function (result) {
           setPreviewPending(false)
           if (result.ok !== true) {
             setError(toText(result.reason) === 'bad-repo' ? t('githubBadRepo') : cloneReasonText(t, result.reason, result.detail))
             return
           }
           setAddress(toText(result.repo) || name)
+          var resolvedFolder = toText(result.folder)
+          setFolderDraft(resolvedFolder)
           setPreview({
             repo: toText(result.repo) || name,
             kind: toText(result.kind),
             root: toText(result.root),
-            folder: toText(result.folder),
+            folder: resolvedFolder,
+            suggested: toText(result.suggested),
+            folderIsCustom: result.folderIsCustom === true,
             path: toText(result.path),
             exists: result.exists === true,
             signedIn: result.signedIn === true
           })
         })
+      }
+
+      function onFolderChange(value) {
+        var next = toText(value)
+        setFolderDraft(next)
+        try {
+          if (folderTimer.current !== null) clearTimeout(folderTimer.current)
+        } catch (error2) {
+          /* ignore */
+        }
+        var repoName = toText(preview && preview.repo) || toText(address)
+        folderTimer.current = setTimeout(function () {
+          folderTimer.current = null
+          if (!alive.current) return
+          requestPreview(repoName, next.trim())
+        }, 300)
       }
 
       function startClone(repoName) {
@@ -5262,7 +5299,12 @@ window.__ModuleLoader__.load({
         setPending('clone')
         setError('')
         setPreview(null)
-        send(githubUrl('/clone', sessionId), { repo: name, background: true }, function (result) {
+        var cloneRootValue = toText(preview && preview.root)
+        var cloneFolderValue = toText(preview && preview.folder)
+        var clonePayload = { repo: name, background: true }
+        if (cloneRootValue) clonePayload.root = cloneRootValue
+        if (cloneFolderValue) clonePayload.folder = cloneFolderValue
+        send(githubUrl('/clone', sessionId), clonePayload, function (result) {
           setPending('')
           if (result.ok !== true) {
             setError(cloneReasonText(t, result.reason, result.detail))
@@ -5777,7 +5819,41 @@ window.__ModuleLoader__.load({
                 { className: 'gitbar-clone', key: 'preview' },
                 h(
                   'div',
-                  { className: 'gitbar-clone-row' },
+                  { className: 'gitbar-clone-row gitbar-gp-folder', key: 'folder' },
+                  h('span', { className: 'gitbar-clone-label' }, t('githubCloneFolder')),
+                  h('input', {
+                    type: 'text',
+                    className: 'gitbar-github-input',
+                    value: folderDraft,
+                    placeholder: preview.suggested || t('githubCloneFolderPlaceholder'),
+                    'aria-label': t('githubCloneFolder'),
+                    autoComplete: 'off',
+                    spellCheck: false,
+                    disabled: pending === 'clone' || dirPending,
+                    onChange: function (event) {
+                      onFolderChange(event && event.target ? event.target.value : '')
+                    },
+                    onKeyDown: function (event) {
+                      try {
+                        if (!event) return
+                        if (event.key !== 'Enter' && event.keyCode !== 13) return
+                        if (typeof event.preventDefault === 'function') event.preventDefault()
+                        try {
+                          if (folderTimer.current !== null) clearTimeout(folderTimer.current)
+                        } catch (error2) {
+                          /* ignore */
+                        }
+                        folderTimer.current = null
+                        requestPreview(toText(preview.repo), toText(folderDraft).trim())
+                      } catch (error2) {
+                        /* ignore */
+                      }
+                    }
+                  })
+                ),
+                h(
+                  'div',
+                  { className: 'gitbar-clone-row', key: 'path' },
                   h('span', { className: 'gitbar-clone-label' }, t('githubClonePreview')),
                   h('span', { className: 'gitbar-clone-value', title: preview.path }, preview.path),
                   h(
@@ -5808,7 +5884,7 @@ window.__ModuleLoader__.load({
                     {
                       type: 'button',
                       className: 'gitbar-btn gitbar-github-primary',
-                      disabled: pending === 'clone' || dirPending,
+                      disabled: pending === 'clone' || dirPending || preview.exists === true,
                       onClick: function () {
                         startClone(preview.repo)
                       }
@@ -8846,6 +8922,32 @@ window.__ModuleLoader__.load({
           heroRegistered = true
         } catch (error) {
           heroRegistered = false
+        }
+
+        // Second hero entry: the git capsule itself (list slot, same component as the header).
+        try {
+          ctx.slots.inject(HERO_SLOT, function () {
+            return ctx.slots.register(
+              { name: HERO_SLOT, id: ENTRY_ID + ':hero-capsule', order: 20 },
+              function (slotProps) {
+                var capsuleProps = {}
+                try {
+                  if (slotProps && typeof slotProps === 'object') {
+                    for (var capsuleKey in slotProps) {
+                      if (Object.prototype.hasOwnProperty.call(slotProps, capsuleKey)) capsuleProps[capsuleKey] = slotProps[capsuleKey]
+                    }
+                  }
+                } catch (error) {
+                  capsuleProps = {}
+                }
+                capsuleProps.t = translate
+                capsuleProps.sessionId = toText(capsuleProps.sessionId) || lastCapsuleSessionId
+                return h(GitCapsule, capsuleProps)
+              }
+            )
+          })
+        } catch (error) {
+          /* the hero capsule is optional */
         }
 
         // Stop the background clone poller with the plugin.
