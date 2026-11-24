@@ -63,6 +63,7 @@ window.__ModuleLoader__.load({
     var GITHUB_NETWORK_URL = GITHUB_BASE + '/network'
     var GITHUB_NETWORK_TTL_MS = 30000
     var CLONE_DIAGNOSTIC_DELAY_MS = 150
+    var CLONE_DIAGNOSTIC_SETTLED_MS = 600
     var CLONE_POLL_MS = 1000
     var GITHUB_CONFIG_URL = GITHUB_BASE + '/config'
     var GITHUB_SEARCH_DEBOUNCE_MS = 300
@@ -1153,11 +1154,29 @@ window.__ModuleLoader__.load({
     }
 
     // Best-effort diagnostics for the clone panel; must never break the UI.
-    function reportClonePanelOpen(modeName, sessionId, panelElement) {
+    function describeClientPoint(doc, x, y) {
+      var hits = []
       try {
-        var body = { tag: 'clone-panel-open', mode: toText(modeName) || 'dialog', sessionId: toText(sessionId) }
+        if (!doc || typeof doc.elementsFromPoint !== 'function') return hits
+        var stack = doc.elementsFromPoint(x, y)
+        var max = Math.min(stack.length, 3)
+        for (var at = 0; at < max; at += 1) {
+          var entry = describeClientNode(stack[at])
+          if (entry) hits.push({ tag: entry.tag, cls: entry.cls })
+        }
+      } catch (error) {
+        return hits
+      }
+      return hits
+    }
+
+    // Best-effort diagnostics for the clone panel; must never break the UI.
+    function reportClonePanelOpen(tagName, modeName, sessionId, dialogElement) {
+      try {
+        var body = { tag: toText(tagName) || 'clone-panel-open', mode: toText(modeName) || 'dialog', sessionId: toText(sessionId) }
         var innerW = 0
         var innerH = 0
+        var doc = null
         try {
           if (typeof window !== 'undefined' && window) {
             innerW = toNumber(window.innerWidth) || 0
@@ -1166,22 +1185,88 @@ window.__ModuleLoader__.load({
         } catch (error) {
           /* ignore */
         }
+        try {
+          if (typeof document !== 'undefined' && document) doc = document
+        } catch (error) {
+          doc = null
+        }
         body.viewport = [innerW, innerH]
         body.topLayer = { openDialogs: 0, overlays: 0 }
         try {
-          if (typeof document !== 'undefined' && document && typeof document.querySelectorAll === 'function') {
-            body.topLayer.openDialogs = document.querySelectorAll('dialog[open]').length
-            body.topLayer.overlays = document.querySelectorAll('.gitbar-gp-overlay').length
+          if (doc && typeof doc.querySelectorAll === 'function') {
+            body.topLayer.openDialogs = doc.querySelectorAll('dialog[open]').length
+            body.topLayer.overlays = doc.querySelectorAll('.gitbar-gp-overlay').length
           }
         } catch (error) {
           /* ignore */
         }
-        body.panel = rectOfClientNode(panelElement)
-        body.stack = describeClientAncestorChain(panelElement, 14)
+        body.panel = rectOfClientNode(dialogElement)
+        body.stack = describeClientAncestorChain(dialogElement, 14)
+        body.dialog = null
+        try {
+          if (dialogElement) {
+            body.dialog = {
+              open: dialogElement.open === true,
+              modal: typeof dialogElement.matches === 'function' ? dialogElement.matches(':modal') : null,
+              rects: typeof dialogElement.getClientRects === 'function' ? dialogElement.getClientRects().length : 0
+            }
+          }
+        } catch (error) {
+          /* ignore */
+        }
+        var cardElement = null
+        try {
+          if (dialogElement && typeof dialogElement.querySelector === 'function') {
+            cardElement = dialogElement.querySelector('.gitbar-gp')
+          }
+        } catch (error) {
+          cardElement = null
+        }
+        body.card = null
+        try {
+          if (cardElement) {
+            body.card = {
+              rect: rectOfClientNode(cardElement),
+              scrollHeight: toNumber(cardElement.scrollHeight) || 0,
+              clientHeight: toNumber(cardElement.clientHeight) || 0
+            }
+          }
+        } catch (error) {
+          /* ignore */
+        }
+        body.hits = { top: [], center: [], bottom: [] }
+        try {
+          var cardRect = cardElement && typeof cardElement.getBoundingClientRect === 'function' ? cardElement.getBoundingClientRect() : null
+          if (doc && cardRect && innerW && innerH) {
+            var cx = Math.round(toNumber(cardRect.left) + toNumber(cardRect.width) / 2)
+            var topY = Math.round(toNumber(cardRect.top) + 2)
+            var midY = Math.round(toNumber(cardRect.top) + toNumber(cardRect.height) / 2)
+            var bottomY = Math.max(0, Math.round(toNumber(cardRect.top) + toNumber(cardRect.height) - 2))
+            body.hits = {
+              top: describeClientPoint(doc, cx, topY),
+              center: describeClientPoint(doc, cx, midY),
+              bottom: describeClientPoint(doc, cx, bottomY)
+            }
+          }
+        } catch (error) {
+          /* ignore */
+        }
+        body.dialogs = []
+        try {
+          if (doc && typeof doc.querySelectorAll === 'function') {
+            var all = doc.querySelectorAll('dialog')
+            var limit = Math.min(all.length, 5)
+            for (var index = 0; index < limit; index += 1) {
+              body.dialogs.push({ open: all[index].open === true, rect: rectOfClientNode(all[index]) })
+            }
+          }
+        } catch (error) {
+          /* ignore */
+        }
         body.atCenter = null
         try {
-          if (innerW && innerH && typeof document !== 'undefined' && document && typeof document.elementFromPoint === 'function') {
-            body.atCenter = describeClientNode(document.elementFromPoint(innerW / 2, innerH / 2))
+          if (doc && innerW && innerH && typeof doc.elementFromPoint === 'function') {
+            body.atCenter = describeClientNode(doc.elementFromPoint(innerW / 2, innerH / 2))
           }
         } catch (error) {
           /* ignore */
@@ -1955,7 +2040,7 @@ window.__ModuleLoader__.load({
       'dialog.gitbar-gp-dialog:not([open]){display:none}',
       'dialog.gitbar-gp-dialog[open]{display:flex}',
       '.gitbar-gp-dialog .gitbar-gp{pointer-events:auto}',
-      '.gitbar-gp-overlay{position:fixed;inset:0;z-index:2147483001;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--dsw-alias-bg-mask-1, color-mix(in srgb, var(--dsw-alias-bg-base) 45%, transparent))}',
+      '.gitbar-gp-overlay{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--dsw-alias-bg-mask-1, color-mix(in srgb, var(--dsw-alias-bg-base) 45%, transparent))}',
       '.gitbar-gp{display:flex;flex-direction:column;width:min(520px,100%);max-height:min(78vh,620px);box-sizing:border-box;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 12px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 20%, transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.45;overflow:hidden;animation:gitbar-gp-in 150ms cubic-bezier(0.2,0,0,1) both;text-align:left}',
       '.gitbar-gp-head{display:flex;align-items:center;gap:8px;flex:0 0 auto;height:32px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
       '@media (max-width: 560px){.gitbar-gp{width:100%}}',
@@ -5353,20 +5438,54 @@ window.__ModuleLoader__.load({
           setMode('legacy')
           return
         }
-        if (node.open !== true) {
+        if (node.open === true) return
+
+        function fallBack() {
+          try {
+            if (typeof node.close === 'function') node.close()
+          } catch (error3) {
+            /* ignore */
+          }
+          dialogRef.current = null
+          modeRef.current = 'legacy'
+          setMode('legacy')
+        }
+
+        function attempt(allowRetry) {
           try {
             node.show()
           } catch (error2) {
-            try {
-              if (typeof node.close === 'function') node.close()
-            } catch (error3) {
-              /* ignore */
+            // The dialog may not be connected on the first frame; retry once.
+            if (allowRetry && typeof requestAnimationFrame === 'function') {
+              try {
+                requestAnimationFrame(function () {
+                  attempt(false)
+                })
+                return
+              } catch (error3) {
+                /* ignore */
+              }
             }
-            dialogRef.current = null
-            modeRef.current = 'legacy'
-            setMode('legacy')
+            fallBack()
+            return
+          }
+          // show() can fail silently; verify the modal layer actually opened.
+          if (node.open !== true) {
+            if (allowRetry && typeof requestAnimationFrame === 'function') {
+              try {
+                requestAnimationFrame(function () {
+                  attempt(false)
+                })
+                return
+              } catch (error3) {
+                /* ignore */
+              }
+            }
+            fallBack()
           }
         }
+
+        attempt(true)
       }
 
       function handleDialogKeyDown(event) {
@@ -5380,30 +5499,40 @@ window.__ModuleLoader__.load({
         if (alive.current) close()
       }
 
-      // One diagnostics report shortly after opening (never on close).
+      // Two diagnostics snapshots shortly after opening (never on close).
       useEffect(function () {
-        var timer = null
-        try {
-          timer = setTimeout(function () {
-            timer = null
+        var first = null
+        var settled = null
+        function report(tagName, delay) {
+          return setTimeout(function () {
             if (!alive.current) return
             try {
-              reportClonePanelOpen(modeRef.current, sessionId, dialogRef.current)
+              reportClonePanelOpen(tagName, modeRef.current, sessionId, dialogRef.current)
             } catch (error2) {
               /* ignore */
             }
-          }, CLONE_DIAGNOSTIC_DELAY_MS)
+          }, delay)
+        }
+        try {
+          first = report('clone-panel-open', CLONE_DIAGNOSTIC_DELAY_MS)
+          settled = report('clone-panel-settled', CLONE_DIAGNOSTIC_SETTLED_MS)
         } catch (error2) {
-          timer = null
+          first = null
+          settled = null
         }
         return function () {
-          if (timer === null) return
           try {
-            clearTimeout(timer)
+            if (first !== null) clearTimeout(first)
           } catch (error2) {
             /* ignore */
           }
-          timer = null
+          try {
+            if (settled !== null) clearTimeout(settled)
+          } catch (error2) {
+            /* ignore */
+          }
+          first = null
+          settled = null
         }
       }, [])
 
@@ -5854,7 +5983,9 @@ window.__ModuleLoader__.load({
               fontSize: '12.5px',
               lineHeight: 1.45,
               overflow: 'hidden',
-              textAlign: 'left'
+              textAlign: 'left',
+              position: 'relative',
+              zIndex: 2147483647
             },
             'aria-label': t('githubClonePanelTitle'),
             'aria-modal': 'true',
@@ -5912,7 +6043,8 @@ window.__ModuleLoader__.load({
                 boxSizing: 'border-box',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                zIndex: 2147483647
               },
               'aria-label': t('githubClonePanelTitle'),
               onKeyDown: handleDialogKeyDown,
@@ -5929,6 +6061,15 @@ window.__ModuleLoader__.load({
           {
             className: 'gitbar-gp-overlay',
             role: 'presentation',
+            style: {
+              position: 'fixed',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 16,
+              zIndex: 2147483647
+            },
             onMouseDown: function (event) {
               try {
                 if (!event) return

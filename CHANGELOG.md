@@ -3,6 +3,15 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.15] - 2026-11-24
+
+### 修复
+
+- 面板被**输入框（composer）**盖住：dialog/卡片/兜底遮罩统一提到最高层级（`z-index: 2147483647`），并在
+  `show()` 之后校验 `dialog.open`，静默失败或抛错时在下一帧重试、仍失败则切回遮罩渲染，避免「看不见/被压住」。
+- 诊断扩到两档（150ms / 600ms），新增 `dialog{open,modal,rects}`、`card{rect,scrollHeight,clientHeight}`、
+  卡片上中下三点的 `elementsFromPoint` 命中栈与页面上所有 dialog 的开合与矩形。
+
 ## [1.4.14] - 2026-11-24
 
 ### 修复
