@@ -3,6 +3,13 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.11] - 2026-11-24
+
+### 修复
+
+- 「连接」探测更稳：改为 GET `api.github.com/rate_limit`（带 User-Agent、8s 超时），失败再退回 `github.com`；
+  任何 <500 的响应都算连通（401/403 只说明未认证），返回里带上探测通道（api/html）。
+
 ## [1.4.10] - 2026-11-24
 
 ### 修复

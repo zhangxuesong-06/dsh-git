@@ -1276,6 +1276,7 @@ async function pushCommitted(root, branch, credentials = null, options = {}) {
  */
 const GITHUB_API = 'https://api.github.com'
 const GITHUB_WEB = 'https://github.com'
+const GITHUB_USER_AGENT = 'dsh-git-bar'
 const GITHUB_TOKEN_KEY = 'dsh-git-bar/github-token'
 const GITHUB_TIMEOUT_MS = 20_000
 const GITHUB_DEVICE_TTL_MS = 15 * 60_000
@@ -1826,17 +1827,35 @@ async function detectProxy() {
   return value
 }
 
-/** Probe github.com once per 15s; clone requests should not depend on it. */
+/** Probe GitHub once per 15s; clone requests should not depend on it. */
 async function probeGithubReachability() {
   if (reachabilityCache.value && Date.now() - reachabilityCache.at < REACHABILITY_CACHE_MS) return reachabilityCache.value
   const started = Date.now()
-  let value = { reachable: false, status: 0, latencyMs: 0 }
-  try {
-    const response = await githubFetch('https://github.com', { method: 'HEAD' })
-    value = { reachable: response.status < 500, status: response.status, latencyMs: Date.now() - started }
-  } catch (error) {
-    value = { reachable: false, status: 0, latencyMs: Date.now() - started, detail: clipText(error && error.message ? error.message : error) }
+  // The API endpoint answers in one small GET and needs a User-Agent; the HTML
+  // endpoint is the fallback for networks that filter api.github.com.
+  const targets = [
+    { url: `${GITHUB_API}/rate_limit`, via: 'api' },
+    { url: GITHUB_WEB, via: 'html' },
+  ]
+  let value = { reachable: false, status: 0, latencyMs: 0, via: '' }
+  let detail = ''
+  for (const target of targets) {
+    try {
+      const response = await githubFetch(target.url, {
+        method: 'GET',
+        headers: { 'User-Agent': GITHUB_USER_AGENT, Accept: 'application/vnd.github+json' },
+        signal: AbortSignal.timeout(8000),
+      })
+      // Any HTTP answer below 500 proves the network path works; 401/403 just
+      // means the probe is not authenticated.
+      value = { reachable: response.status < 500, status: response.status, latencyMs: Date.now() - started, via: target.via }
+      break
+    } catch (error) {
+      detail = clipText(error && error.message ? error.message : error)
+      value = { reachable: false, status: 0, latencyMs: Date.now() - started, via: target.via }
+    }
   }
+  if (!value.reachable && detail !== '') value.detail = detail
   reachabilityCache.at = Date.now()
   reachabilityCache.value = value
   return value
