@@ -84,7 +84,13 @@ check('client: clone opens a real workspace', /workspaces[\s\S]{0,200}?create\(\
 for (const owned of ['conversation.hero.workspace', 'sidebar.workspaces', 'main.conversation']) {
   check(`client: never registers into "${owned}"`, !client.includes(owned), 'single slot referenced')
 }
-check('client: clone panel uses a native dialog (top layer)', /h\(\s*'dialog'/.test(client) && /showModal/.test(client) && /::backdrop/.test(client), 'dialog host missing')
+// The panel lives in a non-modal <dialog>: the top layer escapes transformed
+// ancestors while the page stays interactive.
+check(
+  'client: clone panel uses a non-modal native dialog',
+  /h\(\s*'dialog'/.test(client) && /\.show\(\)/.test(client) && !/showModal/.test(client) && /pointerdown/.test(client),
+  'dialog host missing',
+)
 check('client: clone entry lives in a list slot', /conversation\.hero\.options/.test(client), 'hero registration missing')
 
 // ── manifest + locale metadata ───────────────────────────────────────────

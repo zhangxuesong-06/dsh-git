@@ -1821,10 +1821,9 @@ window.__ModuleLoader__.load({
       '.gitbar-hero-clone:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
       '.gitbar-hero-clone-icon{display:inline-flex;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-hero-clone-wrap{display:inline-flex;align-items:center}',
-      '.gitbar-gp-dialog{border:0;padding:16px;margin:0;background:transparent;max-width:none;max-height:none;width:100%;height:100%;overflow:visible;box-sizing:border-box;display:flex;align-items:center;justify-content:center;color:inherit}',
-      '.gitbar-gp-dialog:not([open]){display:none}',
-      '.gitbar-gp-dialog[open]{display:flex}',
-      '.gitbar-gp-dialog::backdrop{background:var(--dsw-alias-bg-mask-1, color-mix(in srgb, var(--dsw-alias-bg-base) 45%, transparent))}',
+      '.gitbar-gp-dialog{position:fixed;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);margin:0;padding:0;border:0;background:transparent;max-width:none;max-height:none;width:min(520px, calc(100vw - 32px));height:auto;overflow:visible;box-sizing:border-box;display:flex;align-items:center;justify-content:center;color:inherit}',
+      'dialog.gitbar-gp-dialog:not([open]){display:none}',
+      'dialog.gitbar-gp-dialog[open]{display:flex}',
       '.gitbar-gp-overlay{position:fixed;inset:0;z-index:2147483001;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--dsw-alias-bg-mask-1, color-mix(in srgb, var(--dsw-alias-bg-base) 45%, transparent))}',
       '.gitbar-gp{display:flex;flex-direction:column;width:min(520px,100%);max-height:min(78vh,620px);box-sizing:border-box;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 12px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 20%, transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.45;overflow:hidden;animation:gitbar-gp-in 150ms cubic-bezier(0.2,0,0,1) both;text-align:left}',
       '.gitbar-gp-head{display:flex;align-items:center;gap:8px;flex:0 0 auto;height:32px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
@@ -4798,6 +4797,7 @@ window.__ModuleLoader__.load({
       var setNetwork = networkHook[1]
       var networkAbort = useRef(null)
       var dialogRef = useRef(null)
+      var closedRef = useRef(false)
       var legacyHook = useState(false)
       var legacy = legacyHook[0]
       var setLegacy = legacyHook[1]
@@ -5213,35 +5213,82 @@ window.__ModuleLoader__.load({
       function attachDialog(node) {
         dialogRef.current = node
         if (!node) return
-        // Older engines without showModal fall back to the fixed overlay below.
-        if (typeof node.showModal !== 'function') {
+        // Non-modal show(): stays in the top layer without making the page inert.
+        if (typeof node.show !== 'function') {
           setLegacy(true)
           return
         }
         if (node.open !== true) {
           try {
-            node.showModal()
+            node.show()
           } catch (error2) {
             setLegacy(true)
           }
         }
       }
 
-      function handleDialogCancel(event) {
-        // Keep Esc from closing the native dialog without a matching store change.
+      function handleDialogKeyDown(event) {
+        // Non-modal dialogs never emit cancel, so Esc is handled here.
         try {
-          if (event && typeof event.preventDefault === 'function') event.preventDefault()
+          if (!event || (event.key !== 'Escape' && event.key !== 'Esc')) return
+          if (typeof event.preventDefault === 'function') event.preventDefault()
         } catch (error2) {
-          /* ignore */
+          return
         }
         if (alive.current) close()
       }
+
+      // The panel must not block the page: a click outside just closes it.
+      useEffect(function () {
+        try {
+          if (typeof document === 'undefined' || !document || typeof document.addEventListener !== 'function') return undefined
+        } catch (error2) {
+          return undefined
+        }
+        function handleOutside(event) {
+          var element = dialogRef.current
+          if (!element) return
+          var target = event && event.target ? event.target : null
+          try {
+            if (target && typeof element.contains === 'function' && element.contains(target)) return
+          } catch (error2) {
+            /* ignore */
+          }
+          if (alive.current) close()
+        }
+        // Non-modal show() does not move focus, so Esc must be caught globally.
+        function handleKey(event) {
+          try {
+            if (!event || (event.key !== 'Escape' && event.key !== 'Esc')) return
+            if (typeof event.preventDefault === 'function') event.preventDefault()
+          } catch (error2) {
+            return
+          }
+          if (alive.current) close()
+        }
+        document.addEventListener('pointerdown', handleOutside, true)
+        document.addEventListener('keydown', handleKey, true)
+        return function () {
+          try {
+            document.removeEventListener('pointerdown', handleOutside, true)
+          } catch (error2) {
+            /* ignore */
+          }
+          try {
+            document.removeEventListener('keydown', handleKey, true)
+          } catch (error2) {
+            /* ignore */
+          }
+        }
+      }, [])
 
       function handleDialogClose() {
         if (alive.current) close()
       }
 
       function close() {
+        if (closedRef.current) return
+        closedRef.current = true
         if (typeof props.onClose === 'function') props.onClose()
       }
 
@@ -5661,14 +5708,14 @@ window.__ModuleLoader__.load({
               ref: attachDialog,
               className: 'gitbar-gp-dialog',
               'aria-label': t('githubClonePanelTitle'),
-              onCancel: handleDialogCancel,
+              onKeyDown: handleDialogKeyDown,
               onClose: handleDialogClose
             },
             card
           )
         }
 
-        // Fallback for engines without showModal().
+        // Fallback for engines without show().
         return h(
           'div',
           {
