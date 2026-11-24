@@ -3,6 +3,16 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.13] - 2026-11-24
+
+### 修复
+
+- 克隆面板**只保留一条渲染路径**：`dialog` 与旧遮罩互斥（`show()` 失败时先关掉并卸载 dialog，再切回遮罩），
+  避免透明 dialog 残留在面板之上吞点击/遮住内容；dialog 容器 `pointer-events:none`、卡片 `pointer-events:auto`
+  作为兜底。
+- 新增客户端诊断通道 `POST/GET /dsh-git-bar/github/client-log`：面板打开 150ms 后上报实测数据（模式、视口、
+  面板矩形、14 层祖先的 transform/filter/contain/z-index、中心点的命中元素），渲染问题可以从磁盘日志精确定位。
+
 ## [1.4.12] - 2026-11-24
 
 ### 修复
