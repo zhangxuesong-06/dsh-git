@@ -1220,7 +1220,8 @@ async function pushCommitted(root, branch, credentials = null, options = {}) {
   const token = typeof options.token === 'string' ? options.token : ''
   const effective = credentials ?? (token !== '' ? { username: 'x-access-token', password: token } : null)
   const transport = token === '' ? [] : await githubTransportArgs(root, target)
-  const args = [...transport, ...(target.setTracking ? ['push', '--set-upstream', target.remote, branch] : ['push'])]
+  const proxyArgs = gitProxyArgs(await detectProxy())
+  const args = [...proxyArgs, ...transport, ...(target.setTracking ? ['push', '--set-upstream', target.remote, branch] : ['push'])]
 
   let helper = null
   try {
@@ -1706,6 +1707,172 @@ async function writeGithubEnvToken(token) {
   else delete process.env[GITHUB_MCP_ENV]
 }
 
+/**
+ * Connectivity for pushes and clones.
+ *
+ * `git` does not read the desktop app's network stack, so behind a system proxy
+ * every https remote times out while the GitHub REST calls (which go through
+ * Electron's fetch) work fine. These helpers detect the proxy once, hand it to
+ * git as `-c http.proxy=… -c https.proxy=…` for one command, and answer a
+ * reachability probe the panel can show.
+ */
+const PROXY_CACHE_MS = 60_000
+const REACHABILITY_CACHE_MS = 15_000
+const proxyCache = { at: 0, value: null }
+const reachabilityCache = { at: 0, value: null }
+
+/** Turn one proxy specifier into a URL git accepts. */
+export function normalizeProxyUrl(raw) {
+  const text = String(raw ?? '').trim()
+  if (text === '') return ''
+  if (/^[a-z0-9+.-]+:\/\//i.test(text)) return text
+  return `http://${text}`
+}
+
+/**
+ * Parse Electron's `resolveProxy` answer ("PROXY host:port; DIRECT") or a bare
+ * host:port into `{ mode, url }`. Pure so the self-tests cover every shape.
+ */
+export function parseProxyResult(raw) {
+  const text = String(raw ?? '').trim()
+  if (text === '') return { mode: 'unknown', url: '' }
+  const parts = text
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part !== '')
+  // A concrete proxy outranks the trailing DIRECT fallback in Electron's answer.
+  for (const part of parts) {
+    const match = part.match(/^(PROXY|HTTPS|SOCKS|SOCKS4|SOCKS5)\s+([^\s]+)$/i)
+    if (!match) continue
+    const scheme = /^socks/i.test(match[1]) ? match[1].toLowerCase() : 'http'
+    return { mode: 'proxy', url: `${scheme}://${match[2]}` }
+  }
+  for (const part of parts) {
+    if (/^direct$/i.test(part)) return { mode: 'direct', url: '' }
+  }
+  if (/^[^\s/;]+:\d+$/.test(text)) return { mode: 'proxy', url: `http://${text}` }
+  return { mode: 'unknown', url: '' }
+}
+
+/** `-c` arguments that make one git command honour the detected proxy. */
+export function gitProxyArgs(proxy) {
+  if (!proxy || proxy.mode !== 'proxy' || typeof proxy.url !== 'string' || proxy.url === '') return []
+  return ['-c', `http.proxy=${proxy.url}`, '-c', `https.proxy=${proxy.url}`]
+}
+
+/** Windows registry proxy, used when the Electron network service is absent. */
+async function readWindowsProxy() {
+  if (process.platform !== 'win32') return null
+  try {
+    const enabled = await new Promise((done) => {
+      execFile(
+        'reg.exe',
+        ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings', '/v', 'ProxyEnable'],
+        { timeout: 4000, windowsHide: true, encoding: 'utf8' },
+        (error, stdout) => done(error ? '' : String(stdout)),
+      )
+    })
+    if (!/ProxyEnable\s+REG_DWORD\s+0x1/i.test(enabled)) return null
+    const server = await new Promise((done) => {
+      execFile(
+        'reg.exe',
+        ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings', '/v', 'ProxyServer'],
+        { timeout: 4000, windowsHide: true, encoding: 'utf8' },
+        (error, stdout) => done(error ? '' : String(stdout)),
+      )
+    })
+    const match = server.match(/ProxyServer\s+REG_SZ\s+(\S+)/i)
+    if (!match) return null
+    // "host:port" or "http=host:port;https=host:port"
+    const perScheme = match[1].match(/https?=([^;]+)/i)
+    const candidate = perScheme ? perScheme[1] : match[1].split(';')[0]
+    const url = normalizeProxyUrl(candidate)
+    return url === '' ? null : { mode: 'proxy', url }
+  } catch {
+    return null
+  }
+}
+
+/** Electron's Chromium-stack proxy resolution, matching what `net.fetch` uses. */
+async function readElectronProxy() {
+  try {
+    const mod = await import('electron')
+    const session = (mod && mod.session) || (mod && mod.default && mod.default.session)
+    const target = session && session.defaultSession
+    if (!target || typeof target.resolveProxy !== 'function') return null
+    const resolved = await target.resolveProxy('https://github.com')
+    const parsed = parseProxyResult(resolved)
+    return parsed.mode === 'unknown' ? null : parsed
+  } catch {
+    return null
+  }
+}
+
+/** The proxy git should use; `none` in DSH_GIT_BAR_HTTP_PROXY forces direct. */
+async function detectProxy() {
+  const override = process.env.DSH_GIT_BAR_HTTP_PROXY
+  if (typeof override === 'string' && override.trim() !== '') {
+    const text = override.trim()
+    if (/^(none|direct|off)$/i.test(text)) return { mode: 'direct', url: '' }
+    return { mode: 'proxy', url: normalizeProxyUrl(text) }
+  }
+  if (proxyCache.value && Date.now() - proxyCache.at < PROXY_CACHE_MS) return proxyCache.value
+  const electron = await readElectronProxy()
+  const registry = electron ? null : await readWindowsProxy()
+  const envProxy = process.env.https_proxy ?? process.env.HTTPS_PROXY ?? process.env.http_proxy ?? process.env.HTTP_PROXY
+  const value = electron ?? registry ?? (envProxy ? { mode: 'proxy', url: normalizeProxyUrl(envProxy) } : { mode: 'unknown', url: '' })
+  proxyCache.at = Date.now()
+  proxyCache.value = value
+  return value
+}
+
+/** Probe github.com once per 15s; clone requests should not depend on it. */
+async function probeGithubReachability() {
+  if (reachabilityCache.value && Date.now() - reachabilityCache.at < REACHABILITY_CACHE_MS) return reachabilityCache.value
+  const started = Date.now()
+  let value = { reachable: false, status: 0, latencyMs: 0 }
+  try {
+    const response = await githubFetch('https://github.com', { method: 'HEAD' })
+    value = { reachable: response.status < 500, status: response.status, latencyMs: Date.now() - started }
+  } catch (error) {
+    value = { reachable: false, status: 0, latencyMs: Date.now() - started, detail: clipText(error && error.message ? error.message : error) }
+  }
+  reachabilityCache.at = Date.now()
+  reachabilityCache.value = value
+  return value
+}
+
+/** How this workspace would push right now (transport + remote URL). */
+async function pushTransportOf(root) {
+  const remote = await git(root, ['remote', 'get-url', 'origin'])
+  const url = remote.failed ? '' : remote.out.trim()
+  if (url === '') return { transport: 'none', remote: '', url: '' }
+  return { transport: /^https?:\/\//i.test(url) ? 'https' : 'ssh', remote: 'origin', url }
+}
+
+/** Everything the panel needs to show connectivity honestly. */
+async function githubNetwork(ctx, url) {
+  const proxy = await detectProxy()
+  const [github, root] = await Promise.all([
+    probeGithubReachability(),
+    (async () => {
+      try {
+        return await repositoryRoot(resolveCwd(ctx, url))
+      } catch {
+        return null
+      }
+    })(),
+  ])
+  const push = root ? await pushTransportOf(root) : { transport: 'none', remote: '', url: '' }
+  return {
+    ok: true,
+    proxy,
+    github,
+    git: { usesProxyForPush: proxy.mode === 'proxy' },
+    push,
+  }
+}
+
 /** Everything the browser half may know about the current sign-in. */
 async function githubStatus(ctx) {
   const [config, grant] = await Promise.all([readGithubConfig(), readGithubGrant(ctx)])
@@ -2055,7 +2222,7 @@ async function githubClone(ctx, payload = {}, job = null) {
           }
         : {}),
     }
-    const args = ['clone', '--progress']
+    const args = [...gitProxyArgs(await detectProxy()), 'clone', '--progress']
     const branch = typeof payload.branch === 'string' ? payload.branch.trim() : ''
     if (branch !== '') args.push('--branch', branch)
     args.push('--', url, target)
@@ -2184,7 +2351,7 @@ async function handle(ctx, req, res) {
         send(200, await githubStatus(ctx))
         return
       }
-      if (req.method !== 'POST' && step !== 'repos' && step !== 'clone/status') {
+      if (req.method !== 'POST' && step !== 'repos' && step !== 'clone/status' && step !== 'network') {
         send(405, { ok: false, reason: 'method-not-allowed' })
         return
       }
@@ -2217,6 +2384,10 @@ async function handle(ctx, req, res) {
           return
         }
         send(200, await githubDevicePoll(ctx, id))
+        return
+      }
+      if (step === 'network') {
+        send(200, await githubNetwork(ctx, url))
         return
       }
       if (step === 'repos') {

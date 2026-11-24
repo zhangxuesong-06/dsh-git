@@ -60,6 +60,8 @@ window.__ModuleLoader__.load({
     var GITHUB_REPOS_URL = GITHUB_BASE + '/repos'
     var GITHUB_CLONE_URL = GITHUB_BASE + '/clone'
     var GITHUB_CLONE_STATUS_URL = GITHUB_BASE + '/clone/status'
+    var GITHUB_NETWORK_URL = GITHUB_BASE + '/network'
+    var GITHUB_NETWORK_TTL_MS = 30000
     var CLONE_POLL_MS = 1000
     var GITHUB_CONFIG_URL = GITHUB_BASE + '/config'
     var GITHUB_SEARCH_DEBOUNCE_MS = 300
@@ -157,6 +159,15 @@ window.__ModuleLoader__.load({
       githubCloneRoot: '克隆根目录',
       githubCloneRootChange: '修改',
       githubCloneTarget: '将克隆到',
+      githubNetwork: '连接',
+      githubNetworkChecking: '检测中…',
+      githubNetworkOk: 'GitHub：正常',
+      githubNetworkDirect: '直连',
+      githubNetworkProxy: '经系统代理 {url}',
+      githubNetworkUnreachable: 'GitHub：不可达',
+      githubNetworkFailed: '网络检测失败',
+      githubNetworkRetest: '重测',
+      githubNetworkRow: '网络：{text}（点击重测）',
       githubClonePanelTitle: '从 GitHub 克隆工作区',
       githubCloneEntry: '从 GitHub 克隆',
       githubAddressLabel: '仓库地址',
@@ -366,6 +377,15 @@ window.__ModuleLoader__.load({
       githubCloneRoot: 'Clone root',
       githubCloneRootChange: 'Change',
       githubCloneTarget: 'Will clone to',
+      githubNetwork: 'Connection',
+      githubNetworkChecking: 'Checking…',
+      githubNetworkOk: 'GitHub: OK',
+      githubNetworkDirect: 'direct',
+      githubNetworkProxy: 'via system proxy {url}',
+      githubNetworkUnreachable: 'GitHub: unreachable',
+      githubNetworkFailed: 'Network check failed',
+      githubNetworkRetest: 'Re-test',
+      githubNetworkRow: 'Network: {text} (click to re-test)',
       githubClonePanelTitle: 'Clone a workspace from GitHub',
       githubCloneEntry: 'Clone from GitHub',
       githubAddressLabel: 'Repository address',
@@ -1026,6 +1046,45 @@ window.__ModuleLoader__.load({
     })()
 
     var lastCapsuleSessionId = ''
+    var githubNetworkCache = { at: 0, data: null }
+
+    function fetchGithubNetwork(sessionId, force, done) {
+      var now = Date.now()
+      if (!force && githubNetworkCache.data && now - githubNetworkCache.at < GITHUB_NETWORK_TTL_MS) {
+        done(githubNetworkCache.data)
+        return function () {}
+      }
+      return requestJson(
+        withQuery(GITHUB_NETWORK_URL, [{ key: 'session', value: toText(sessionId) }]),
+        null,
+        function (result) {
+          if (result && result.ok === true) {
+            // Mutate in place so external readers keep the same object reference.
+            githubNetworkCache.at = Date.now()
+            githubNetworkCache.data = result
+            done(result)
+            return
+          }
+          done({ ok: false })
+        }
+      )
+    }
+
+    function githubNetworkText(t, network) {
+      if (!network) return t('githubNetworkChecking')
+      if (network.ok !== true) return t('githubNetworkFailed')
+      var github = network.github && typeof network.github === 'object' ? network.github : null
+      if (!github || github.reachable !== true) return t('githubNetworkUnreachable')
+      var proxy = network.proxy && typeof network.proxy === 'object' ? network.proxy : null
+      var via = proxy && proxy.mode === 'proxy' && toText(proxy.url)
+        ? t('githubNetworkProxy').replace('{url}', toText(proxy.url))
+        : t('githubNetworkDirect')
+      var text = t('githubNetworkOk') + '（' + via + '）'
+      var latency = toNumber(github.latencyMs)
+      if (latency !== null) text += ' · ' + String(latency) + 'ms'
+      return text
+    }
+
     // The capsule always lives in the session header (also on the hero page), so it
     // is the safest host for a position:fixed overlay (hero rows animate transform).
     var clonePanelHost = { capsule: false }
@@ -1051,7 +1110,7 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
-      if (!open) return null
+      if (!open || clonePanelHost.capsule !== true) return null
       var state = gitbarGithubPanelStore.get()
       return h(GithubClonePanel, {
         t: t,
@@ -1767,6 +1826,15 @@ window.__ModuleLoader__.load({
       '.gitbar-github-repo-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.gitbar-github-repo-desc{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-github-tag{flex:0 0 auto;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;font-size:9.5px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-net{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:3px 8px 5px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-net-text{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.gitbar-github-net-error{color:var(--dsw-alias-state-error-primary)}',
+      '.gitbar-github-net-btn{flex:0 0 auto;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:transparent;color:inherit;font:inherit;font-size:10px;line-height:15px;cursor:pointer}',
+      '.gitbar-github-net-btn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
+      '.gitbar-gp-net{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-gp-net-error{color:var(--dsw-alias-state-error-primary)}',
+      '.gitbar-commitpanel-net{display:flex;align-items:center;gap:4px;padding:2px 10px 4px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-commitpanel-net button{padding:0;border:none;background:transparent;color:var(--dsw-alias-brand-primary);font:inherit;font-size:10.5px;cursor:pointer;text-decoration:underline}',
       '.gitbar-github-error{display:flex;align-items:flex-start;gap:6px;padding:4px 8px;font-size:11px;color:var(--dsw-alias-state-error-primary);border-bottom:1px solid var(--dsw-alias-border-l1);white-space:pre-wrap}',
       '.gitbar-github-empty{padding:4px 7px;font-size:11px;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-github-path{display:flex;align-items:center;gap:6px;min-width:0;padding:2px 7px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
@@ -1811,7 +1879,7 @@ window.__ModuleLoader__.load({
       '.gitbar-gp-login{display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid var(--dsw-alias-border-l1)}',
       '@keyframes gitbar-gp-in{from{opacity:0;transform:translateY(-4px) scale(.99)}to{opacity:1;transform:none}}',
       '@keyframes gitbar-github-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}',
-      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-gp,.gitbar-gp-repo,.gitbar-hero-clone,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
+      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-gp,.gitbar-gp-repo,.gitbar-hero-clone,.gitbar-github-net-btn,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
     // ── components ────────────────────────────────────────────────────────
@@ -4745,6 +4813,12 @@ window.__ModuleLoader__.load({
       })
       var job = jobHook[0]
       var setJob = jobHook[1]
+      var networkHook = useState(function () {
+        return githubNetworkCache.data
+      })
+      var network = networkHook[0]
+      var setNetwork = networkHook[1]
+      var networkAbort = useRef(null)
       var noticeHook = useState('')
       var notice = noticeHook[0]
       var setNotice = noticeHook[1]
@@ -4771,6 +4845,22 @@ window.__ModuleLoader__.load({
           }
         }
       }, [])
+
+      useEffect(function () {
+        networkAbort.current = fetchGithubNetwork(sessionId, false, function (result) {
+          if (!alive.current) return
+          networkAbort.current = null
+          setNetwork(result || null)
+        })
+        return function () {
+          try {
+            if (networkAbort.current) networkAbort.current()
+          } catch (error2) {
+            /* ignore */
+          }
+          networkAbort.current = null
+        }
+      }, [sessionId])
 
       useEffect(function () {
         alive.current = true
@@ -5112,12 +5202,44 @@ window.__ModuleLoader__.load({
         })
       }
 
+      function retestNetwork() {
+        try {
+          if (networkAbort.current) networkAbort.current()
+        } catch (error2) {
+          /* ignore */
+        }
+        networkAbort.current = fetchGithubNetwork(sessionId, true, function (result) {
+          if (!alive.current) return
+          networkAbort.current = null
+          setNetwork(result || null)
+        })
+      }
+
       function close() {
         if (typeof props.onClose === 'function') props.onClose()
       }
 
       try {
         var body = []
+        var panelNetworkBad = Boolean(network && (network.ok !== true || !(network.github && network.github.reachable === true)))
+        body.push(
+          h(
+            'div',
+            { className: 'gitbar-gp-net' + (panelNetworkBad ? ' gitbar-gp-net-error' : ''), key: 'net' },
+            h('span', { className: 'gitbar-github-net-text' }, githubNetworkText(t, network)),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'gitbar-github-net-btn',
+                title: t('githubNetworkRetest'),
+                'aria-label': t('githubNetworkRetest'),
+                onClick: retestNetwork
+              },
+              t('githubNetworkRetest')
+            )
+          )
+        )
         if (error) body.push(h('div', { className: 'gitbar-gp-error', key: 'error', role: 'alert' }, error))
         if (notice) body.push(h('div', { className: 'gitbar-gp-hint', key: 'notice', role: 'status' }, notice))
 
@@ -5920,6 +6042,8 @@ window.__ModuleLoader__.load({
           )
         }
 
+        var network = props.network && typeof props.network === 'object' ? props.network : null
+        var networkBad = Boolean(network && (network.ok !== true || !(network.github && network.github.reachable === true)))
         var rows = [
           h(
             'div',
@@ -5934,6 +6058,34 @@ window.__ModuleLoader__.load({
             caret
           )
         ]
+        rows.push(
+          h(
+            'div',
+            { className: 'gitbar-github-net', key: 'net' },
+            h(
+              'span',
+              { className: 'gitbar-github-net-text' + (networkBad ? ' gitbar-github-net-error' : '') },
+              githubNetworkText(t, network)
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'gitbar-github-net-btn',
+                title: t('githubNetworkRetest'),
+                'aria-label': t('githubNetworkRetest'),
+                onClick: function () {
+                  try {
+                    if (typeof props.onNetworkReload === 'function') props.onNetworkReload()
+                  } catch (error2) {
+                    /* ignore */
+                  }
+                }
+              },
+              t('githubNetworkRetest')
+            )
+          )
+        )
 
         if (expanded) {
           var content = []
@@ -6219,6 +6371,9 @@ window.__ModuleLoader__.load({
       var alive = useRef(true)
       var commitAbort = useRef(null)
       var pushAbort = useRef(null)
+      var pushFailureHook = useState(false)
+      var pushFailure = pushFailureHook[0]
+      var setPushFailure = pushFailureHook[1]
       var undoHook = useState(false)
       var undoConfirm = undoHook[0]
       var setUndoConfirm = undoHook[1]
@@ -6353,6 +6508,7 @@ window.__ModuleLoader__.load({
         if (pending !== '') return
         if (shouldPush === true ? !canPush : !canCommit) return
         setPending('commit')
+        setPushFailure(false)
         setStatus(null)
         var body = { message: toText(message).trim(), push: shouldPush === true }
         if (detached) body.branch = toText(branch).trim()
@@ -6402,13 +6558,16 @@ window.__ModuleLoader__.load({
               })
               return
             }
-            setStatus({ tone: 'error', text: failureText(result && result.reason, result && result.detail) })
+            var failedReason = toText(result && result.reason)
+            if (failedReason === 'push-failed' || (result && result.needsCredentials === true)) setPushFailure(true)
+            setStatus({ tone: 'error', text: failureText(failedReason, result && result.detail) })
           }
         )
       }
 
       function retryPush() {
         if (pending !== '') return
+        setPushFailure(false)
         setPending('push')
         setStatus(null)
         var body = {}
@@ -6435,6 +6594,7 @@ window.__ModuleLoader__.load({
               }
               return
             }
+            if (toText(result && result.reason) === 'push-failed') setPushFailure(true)
             setStatus({ tone: 'error', text: pushReasonText(result && result.reason, result && result.pushDetail) })
             if (result && result.needsCredentials === true) setPhase('credentials')
           }
@@ -6619,6 +6779,30 @@ window.__ModuleLoader__.load({
                 key: 'status'
               },
               status.text
+            )
+          )
+        }
+
+        if (pushFailure) {
+          children.push(
+            h(
+              'div',
+              { className: 'gitbar-commitpanel-net', key: 'net' },
+              h('span', null, toText(t('githubNetworkRow')).replace('{text}', githubNetworkText(t, props.githubNetwork))),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  onClick: function () {
+                    try {
+                      if (typeof props.onRetestNetwork === 'function') props.onRetestNetwork()
+                    } catch (error) {
+                      /* ignore */
+                    }
+                  }
+                },
+                t('githubNetworkRetest')
+              )
             )
           )
         }
@@ -6993,6 +7177,8 @@ window.__ModuleLoader__.load({
               t: t,
               sessionId: props.sessionId,
               status: props.github,
+              network: props.githubNetwork,
+              onNetworkReload: props.onGithubNetworkReload,
               cloneEntry: props.cloneEntry === true,
               onOpenClonePanel: props.onOpenClonePanel,
               onStatus: props.onGithubStatus,
@@ -7053,6 +7239,8 @@ window.__ModuleLoader__.load({
               detached: Boolean(state && state.detached),
               lastCommit: state && state.commits && state.commits.length > 0 ? state.commits[0] : null,
               onUndone: props.onCommitUndone,
+              githubNetwork: props.githubNetwork,
+              onRetestNetwork: props.onGithubNetworkReload,
               githubLogin: props.github && props.github.ok === true && props.github.signedIn === true && props.github.account ? toText(props.github.account.login) : '',
               githubIdentity: Boolean(props.github && props.github.ok === true && props.github.config && props.github.config.useGithubIdentity === true),
               onGithubIdentity: props.onGithubIdentity,
@@ -7180,6 +7368,10 @@ window.__ModuleLoader__.load({
       var githubStatus = githubHook[0]
       var setGithubStatus = githubHook[1]
       var githubAbortRef = useRef(null)
+      var networkHook = useState(null)
+      var githubNetwork = networkHook[0]
+      var setGithubNetwork = networkHook[1]
+      var networkAbortRef = useRef(null)
       var commitPanelHook = useState(false)
       var commitPanelOpen = commitPanelHook[0]
       var setCommitPanelOpen = commitPanelHook[1]
@@ -7251,10 +7443,29 @@ window.__ModuleLoader__.load({
           function (result) {
             if (!mountedRef.current) return
             githubAbortRef.current = null
+          try {
+            if (networkAbortRef.current) networkAbortRef.current()
+          } catch (error) {
+            /* ignore */
+          }
+          networkAbortRef.current = null
             if (result && typeof result === 'object' && result.ok === true) setGithubStatus(result)
             else setGithubStatus({ ok: false })
           }
         )
+      }
+
+      function loadGithubNetwork(force) {
+        try {
+          if (networkAbortRef.current) networkAbortRef.current()
+        } catch (error) {
+          /* ignore */
+        }
+        networkAbortRef.current = fetchGithubNetwork(sessionRef.current, force === true, function (result) {
+          if (!mountedRef.current) return
+          networkAbortRef.current = null
+          setGithubNetwork(result || null)
+        })
       }
 
       function onGithubStatus(result) {
@@ -7441,6 +7652,7 @@ window.__ModuleLoader__.load({
         setFlash('')
         loadRef.current(true)
         loadGithubStatus()
+        loadGithubNetwork(false)
         return function () {
           try {
             if (stateAbortRef.current) stateAbortRef.current()
@@ -7456,6 +7668,7 @@ window.__ModuleLoader__.load({
         if (!open || closing) return undefined
         loadRef.current(false)
         loadGithubStatus()
+        loadGithubNetwork(false)
         return undefined
       }, [open])
 
@@ -8073,6 +8286,10 @@ window.__ModuleLoader__.load({
             onTogglePicker: onTogglePicker,
             onOpenGraph: onOpenGraph,
             github: githubStatus,
+            githubNetwork: githubNetwork,
+            onGithubNetworkReload: function () {
+              loadGithubNetwork(true)
+            },
             cloneEntry: heroRegistered !== true,
             onOpenClonePanel: function () {
               openGithubClonePanel(sessionRef.current)
@@ -8108,8 +8325,16 @@ window.__ModuleLoader__.load({
           h(ClonePanelHost, { key: 'clone-panel-host', t: t })
         )
       } catch (error) {
-        // Last resort: keep a harmless, non-throwing pill in the header.
-        return h('span', { className: 'gitbar-root' }, h('style', { key: 'gitbar-style' }, CSS), h('span', { className: 'gitbar-pill', title: t('error') }, branchGlyph(12)))
+        // Last resort: a harmless pill, but keep the styles and mount the panel host
+        // (the hero page often lands here; its entry falls back to local rendering
+        // because the capsule flag is only set by the normal branch).
+        return h(
+          'span',
+          { className: 'gitbar-root' },
+          h('style', { key: 'gitbar-style' }, CSS),
+          h('span', { className: 'gitbar-pill', title: translate('error') }, branchGlyph(12)),
+          h(ClonePanelHost, { key: 'clone-panel-host', t: translate })
+        )
       }
     }
 

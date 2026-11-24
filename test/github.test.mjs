@@ -4,7 +4,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
-import { apply, githubIdentityArgs, githubRewriteArgs, parseGithubRepo, resolveDeviceClientId } from '../index.js'
+import {
+  apply,
+  githubIdentityArgs,
+  githubRewriteArgs,
+  gitProxyArgs,
+  parseGithubRepo,
+  parseProxyResult,
+  resolveDeviceClientId,
+} from '../index.js'
 
 const results = []
 const check = (name, ok, detail) => results.push({ name, ok: Boolean(ok), detail: detail === undefined ? '' : String(detail) })
@@ -13,6 +21,8 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
 const dataDir = mkdtempSync(join(tmpdir(), 'dshgit-gh-data-'))
 process.env.DSH_GIT_BAR_DATA_DIR = dataDir
 process.env.GIT_TERMINAL_PROMPT = '0'
+// Deterministic networking: never inherit the machine's proxy in the unit run.
+process.env.DSH_GIT_BAR_HTTP_PROXY = 'none'
 // Stand in for the OAuth App the project ships, so the browser flow is
 // exercisable without the real client id.
 const SHIPPED_CLIENT_ID = 'Iv1shippedAppClient01'
@@ -441,8 +451,34 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   check('route: method guard', wrongMethod.ok === false && wrongMethod.reason === 'method-not-allowed', JSON.stringify(wrongMethod))
 }
 
+// ── 12. connectivity: proxy detection and the network route ──────────────
+{
+  check('proxy: electron PROXY spec', JSON.stringify(parseProxyResult('PROXY 127.0.0.1:7897; DIRECT')) === JSON.stringify({ mode: 'proxy', url: 'http://127.0.0.1:7897' }), parseProxyResult('PROXY 127.0.0.1:7897; DIRECT').url)
+  check('proxy: DIRECT', parseProxyResult('DIRECT').mode === 'direct', parseProxyResult('DIRECT').mode)
+  check('proxy: socks', parseProxyResult('SOCKS5 127.0.0.1:1080').url === 'socks5://127.0.0.1:1080', parseProxyResult('SOCKS5 127.0.0.1:1080').url)
+  check('proxy: bare host:port', parseProxyResult('127.0.0.1:7897').url === 'http://127.0.0.1:7897', parseProxyResult('127.0.0.1:7897').url)
+  check('proxy: empty is unknown', parseProxyResult('').mode === 'unknown', parseProxyResult('').mode)
+  check('proxy args: proxy mode', gitProxyArgs({ mode: 'proxy', url: 'http://p:1' }).length === 4, gitProxyArgs({ mode: 'proxy', url: 'http://p:1' }).join(' '))
+  check('proxy args: direct is empty', gitProxyArgs({ mode: 'direct', url: '' }).length === 0, 'direct')
+
+  // Deterministic proxy override, then a reachability probe through mocked fetch.
+  process.env.DSH_GIT_BAR_HTTP_PROXY = '127.0.0.1:7897'
+  queued(() => respond('', { status: 200 }))
+  const network = await ask(repo, '/dsh-git-bar/github/network?session=s1')
+  check('network: proxy reported', network.ok === true && network.proxy.mode === 'proxy' && network.proxy.url === 'http://127.0.0.1:7897', JSON.stringify(network.proxy))
+  check('network: github reachable', network.github.reachable === true && network.github.status === 200, JSON.stringify(network.github))
+  check('network: git uses the proxy', network.git.usesProxyForPush === true, JSON.stringify(network.git))
+  check('network: push transport detected', network.push.transport === 'none' || network.push.transport === 'ssh' || network.push.transport === 'https', JSON.stringify(network.push))
+
+  process.env.DSH_GIT_BAR_HTTP_PROXY = 'none'
+  queued(() => respond('', { status: 200 }))
+  const direct = await ask(repo, '/dsh-git-bar/github/network?session=s1')
+  check('network: direct mode honoured', direct.proxy.mode === 'direct' && direct.git.usesProxyForPush === false, JSON.stringify(direct.proxy))
+}
+
 globalThis.fetch = realFetch
 delete process.env.DSH_GIT_BAR_OAUTH_CLIENT_ID
+process.env.DSH_GIT_BAR_HTTP_PROXY = 'none'
 rmSync(dataDir, { recursive: true, force: true })
 delete process.env.DSH_GIT_BAR_DATA_DIR
 
