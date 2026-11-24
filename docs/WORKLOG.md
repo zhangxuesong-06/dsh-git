@@ -230,6 +230,10 @@ URL 为准；会话 ID 也会随环境变化。
         → Host 检测代理（Electron `resolveProxy` → Windows 注册表 → 环境变量，`DSH_GIT_BAR_HTTP_PROXY=none` 强制直连），
         只在单条 git 命令上加 `-c http.proxy=…`；新增 `GET /github/network`（代理/可达性/延迟/推送方式，15s 缓存），
         面板在 GitHub 卡片、克隆面板、推送失败错误条三处展示并可重测。另修 hero 页胶囊走 catch 兜底分支时丢面板宿主的问题。
+  - [x] **v1.4.10 原生 dialog 修「面板渲染成原地展开」**：`position: fixed` 在带 `transform` 的祖先里会退化成相对该祖先
+        定位（hero 行正好是这类容器），所以面板看着像「在按钮处展开且没渲染好」，切会话换宿主才正常。改用
+        `<dialog>` + `showModal()`（top layer，不受祖先 transform/裁剪影响），`::backdrop` 用 `--dsw-alias-bg-mask-1`；
+        `showModal` 缺失时退回 fixed 遮罩；切会话自动关闭；删除胶囊宿主/`shell.overlay` 双渲染路径。
   - [ ] 待用户用真实 GitHub 账号验证：真机克隆 + 打开工作区、重启后 `mcp__github__*` 工具是否出现、
         面板在 hero 页的即时渲染与主题观感、代理下推送是否稳定。
   - [-] 历史作者整理：开发期 44 个提交作者是 `DSH Lead <lead@local>`；**用户决定不改写历史**（不 force push），

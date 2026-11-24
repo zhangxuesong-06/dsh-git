@@ -1085,40 +1085,6 @@ window.__ModuleLoader__.load({
       return text
     }
 
-    // The capsule always lives in the session header (also on the hero page), so it
-    // is the safest host for a position:fixed overlay (hero rows animate transform).
-    var clonePanelHost = { capsule: false }
-
-    function ClonePanelHost(props) {
-      var t = props.t || translate
-      var openHook = useState(false)
-      var open = openHook[0]
-      var setOpen = openHook[1]
-
-      useEffect(function () {
-        var unsubscribe = gitbarGithubPanelStore.subscribe(function (next) {
-          setOpen(Boolean(next && next.open === true))
-        })
-        var initial = gitbarGithubPanelStore.get()
-        setOpen(Boolean(initial && initial.open === true))
-        return function () {
-          try {
-            unsubscribe()
-          } catch (error) {
-            /* ignore */
-          }
-        }
-      }, [])
-
-      if (!open || clonePanelHost.capsule !== true) return null
-      var state = gitbarGithubPanelStore.get()
-      return h(GithubClonePanel, {
-        t: t,
-        sessionId: toText(state && state.sessionId) || lastCapsuleSessionId,
-        onClose: closeGithubClonePanel
-      })
-    }
-
     function openGithubClonePanel(sessionId) {
       gitbarGithubPanelStore.set({
         open: true,
@@ -1855,6 +1821,10 @@ window.__ModuleLoader__.load({
       '.gitbar-hero-clone:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
       '.gitbar-hero-clone-icon{display:inline-flex;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-hero-clone-wrap{display:inline-flex;align-items:center}',
+      '.gitbar-gp-dialog{border:0;padding:16px;margin:0;background:transparent;max-width:none;max-height:none;width:100%;height:100%;overflow:visible;box-sizing:border-box;display:flex;align-items:center;justify-content:center;color:inherit}',
+      '.gitbar-gp-dialog:not([open]){display:none}',
+      '.gitbar-gp-dialog[open]{display:flex}',
+      '.gitbar-gp-dialog::backdrop{background:var(--dsw-alias-bg-mask-1, color-mix(in srgb, var(--dsw-alias-bg-base) 45%, transparent))}',
       '.gitbar-gp-overlay{position:fixed;inset:0;z-index:2147483001;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--dsw-alias-bg-mask-1, color-mix(in srgb, var(--dsw-alias-bg-base) 45%, transparent))}',
       '.gitbar-gp{display:flex;flex-direction:column;width:min(520px,100%);max-height:min(78vh,620px);box-sizing:border-box;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 12px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 20%, transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.45;overflow:hidden;animation:gitbar-gp-in 150ms cubic-bezier(0.2,0,0,1) both;text-align:left}',
       '.gitbar-gp-head{display:flex;align-items:center;gap:8px;flex:0 0 auto;height:32px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
@@ -4691,6 +4661,7 @@ window.__ModuleLoader__.load({
     // ── GitHub clone panel (independent overlay, opened from the hero slot) ──
     function GithubCloneEntry(props) {
       var t = props.t || translate
+      var sessionId = toText(props.sessionId)
       var openHook = useState(false)
       var open = openHook[0]
       var setOpen = openHook[1]
@@ -4708,6 +4679,16 @@ window.__ModuleLoader__.load({
         }
       }, [])
 
+      // Switching sessions must not leave a modal open over another conversation.
+      useEffect(function () {
+        setOpen(false)
+        try {
+          closeGithubClonePanel()
+        } catch (error) {
+          /* ignore */
+        }
+      }, [sessionId])
+
       function closeEntryPanel() {
         setOpen(false)
         try {
@@ -4718,7 +4699,6 @@ window.__ModuleLoader__.load({
       }
 
       try {
-        var hosted = clonePanelHost.capsule === true
         var button = h(
           'button',
           {
@@ -4738,16 +4718,14 @@ window.__ModuleLoader__.load({
           h('span', { className: 'gitbar-hero-clone-icon', 'aria-hidden': 'true' }, '⌥'),
           t('githubCloneEntry')
         )
-        // The capsule host renders the overlay when it is mounted; only the
-        // (unlikely) no-capsule case falls back to rendering here.
-        if (!open || hosted) return button
+        if (!open) return button
         return h(
           'span',
           { className: 'gitbar-hero-clone-wrap' },
           button,
           h(GithubClonePanel, {
             t: t,
-            sessionId: toText(props.sessionId) || lastCapsuleSessionId,
+            sessionId: sessionId || lastCapsuleSessionId,
             onClose: closeEntryPanel
           })
         )
@@ -4819,6 +4797,10 @@ window.__ModuleLoader__.load({
       var network = networkHook[0]
       var setNetwork = networkHook[1]
       var networkAbort = useRef(null)
+      var dialogRef = useRef(null)
+      var legacyHook = useState(false)
+      var legacy = legacyHook[0]
+      var setLegacy = legacyHook[1]
       var noticeHook = useState('')
       var notice = noticeHook[0]
       var setNotice = noticeHook[1]
@@ -4866,6 +4848,7 @@ window.__ModuleLoader__.load({
         alive.current = true
         return function () {
           alive.current = false
+          closeDialogNode()
           try {
             if (requestAbort.current) requestAbort.current()
           } catch (error2) {
@@ -5213,6 +5196,49 @@ window.__ModuleLoader__.load({
           networkAbort.current = null
           setNetwork(result || null)
         })
+      }
+
+      function closeDialogNode() {
+        var element = dialogRef.current
+        if (!element) return
+        if (element.open === true) {
+          try {
+            element.close()
+          } catch (error2) {
+            /* ignore */
+          }
+        }
+      }
+
+      function attachDialog(node) {
+        dialogRef.current = node
+        if (!node) return
+        // Older engines without showModal fall back to the fixed overlay below.
+        if (typeof node.showModal !== 'function') {
+          setLegacy(true)
+          return
+        }
+        if (node.open !== true) {
+          try {
+            node.showModal()
+          } catch (error2) {
+            setLegacy(true)
+          }
+        }
+      }
+
+      function handleDialogCancel(event) {
+        // Keep Esc from closing the native dialog without a matching store change.
+        try {
+          if (event && typeof event.preventDefault === 'function') event.preventDefault()
+        } catch (error2) {
+          /* ignore */
+        }
+        if (alive.current) close()
+      }
+
+      function handleDialogClose() {
+        if (alive.current) close()
       }
 
       function close() {
@@ -5593,6 +5619,56 @@ window.__ModuleLoader__.load({
           }
         }
 
+        var card = h(
+          'div',
+          {
+            className: 'gitbar-gp',
+            role: 'dialog',
+            'aria-label': t('githubClonePanelTitle'),
+            'aria-modal': 'true',
+            onMouseDown: function (event) {
+              try {
+                if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
+              } catch (error2) {
+                /* ignore */
+              }
+            }
+          },
+          h(
+            'div',
+            { className: 'gitbar-gp-head' },
+            h('span', { className: 'gitbar-gp-title' }, t('githubClonePanelTitle')),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'gitbar-btn',
+                title: t('close'),
+                'aria-label': t('close'),
+                onClick: close
+              },
+              '×'
+            )
+          ),
+          h('div', { className: 'gitbar-gp-body' }, body)
+        )
+
+        // Native modal dialog: the top layer ignores ancestor transforms/filters.
+        if (!legacy) {
+          return h(
+            'dialog',
+            {
+              ref: attachDialog,
+              className: 'gitbar-gp-dialog',
+              'aria-label': t('githubClonePanelTitle'),
+              onCancel: handleDialogCancel,
+              onClose: handleDialogClose
+            },
+            card
+          )
+        }
+
+        // Fallback for engines without showModal().
         return h(
           'div',
           {
@@ -5608,39 +5684,7 @@ window.__ModuleLoader__.load({
               }
             }
           },
-          h(
-            'div',
-            {
-              className: 'gitbar-gp',
-              role: 'dialog',
-              'aria-label': t('githubClonePanelTitle'),
-              'aria-modal': 'true',
-              onMouseDown: function (event) {
-                try {
-                  if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
-                } catch (error2) {
-                  /* ignore */
-                }
-              }
-            },
-            h(
-              'div',
-              { className: 'gitbar-gp-head' },
-              h('span', { className: 'gitbar-gp-title' }, t('githubClonePanelTitle')),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'gitbar-btn',
-                  title: t('close'),
-                  'aria-label': t('close'),
-                  onClick: close
-                },
-                '×'
-              )
-            ),
-            h('div', { className: 'gitbar-gp-body' }, body)
-          )
+          card
         )
       } catch (error2) {
         return null
@@ -5733,6 +5777,9 @@ window.__ModuleLoader__.load({
       var clientFormHook = useState(false)
       var clientFormOpen = clientFormHook[0]
       var setClientFormOpen = clientFormHook[1]
+      var cloneOpenHook = useState(false)
+      var cloneOpen = cloneOpenHook[0]
+      var setCloneOpen = cloneOpenHook[1]
       var configPendingHook = useState(false)
       var configPending = configPendingHook[0]
       var setConfigPending = configPendingHook[1]
@@ -6105,6 +6152,7 @@ window.__ModuleLoader__.load({
                     className: 'gitbar-btn',
                     onClick: function () {
                       setExpanded(false)
+                      setCloneOpen(true)
                       try {
                         if (typeof props.onOpenClonePanel === 'function') props.onOpenClonePanel()
                       } catch (error2) {
@@ -6325,6 +6373,23 @@ window.__ModuleLoader__.load({
           rows.push(h('div', { className: 'gitbar-github-panel', key: 'panel' }, content))
         }
 
+        if (cloneOpen) {
+          rows.push(
+            h(GithubClonePanel, {
+              key: 'clone-panel',
+              t: t,
+              sessionId: sessionId || lastCapsuleSessionId,
+              onClose: function () {
+                setCloneOpen(false)
+                try {
+                  closeGithubClonePanel()
+                } catch (error2) {
+                  /* ignore */
+                }
+              }
+            })
+          )
+        }
         return h('div', { className: 'gitbar-github' }, rows)
       } catch (error2) {
         return null
@@ -7608,11 +7673,9 @@ window.__ModuleLoader__.load({
       // 1. Mount/unmount bookkeeping: stop in-flight work and every timer.
       useEffect(function () {
         mountedRef.current = true
-        clonePanelHost.capsule = true
         var unwatchMotion = watchReducedMotion()
         return function () {
           mountedRef.current = false
-          clonePanelHost.capsule = false
           try {
             unwatchMotion()
           } catch (error) {
@@ -8324,20 +8387,11 @@ window.__ModuleLoader__.load({
           { className: 'gitbar-root', ref: rootRef },
           h('style', { key: 'gitbar-style' }, CSS),
           pill,
-          panel,
-          h(ClonePanelHost, { key: 'clone-panel-host', t: t })
+          panel
         )
       } catch (error) {
-        // Last resort: a harmless pill, but keep the styles and mount the panel host
-        // (the hero page often lands here; its entry falls back to local rendering
-        // because the capsule flag is only set by the normal branch).
-        return h(
-          'span',
-          { className: 'gitbar-root' },
-          h('style', { key: 'gitbar-style' }, CSS),
-          h('span', { className: 'gitbar-pill', title: translate('error') }, branchGlyph(12)),
-          h(ClonePanelHost, { key: 'clone-panel-host', t: translate })
-        )
+        // Last resort: keep a harmless pill; the hero entry owns the clone dialog.
+        return h('span', { className: 'gitbar-root' }, h('style', { key: 'gitbar-style' }, CSS), h('span', { className: 'gitbar-pill', title: translate('error') }, branchGlyph(12)))
       }
     }
 

@@ -3,6 +3,17 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.10] - 2026-11-24
+
+### 修复
+
+- **克隆面板终于在哪儿都弹对了**：之前用 `position: fixed` 的遮罩渲染在 hero 行/胶囊子树里，祖先带 `transform` 时
+  fixed 会退化成相对该祖先定位，表现为「按钮原地展开一块没渲染好的面板」，切一次会话换了宿主才正常。现在改用
+  **原生 `<dialog>` + `showModal()`**（浏览器 top layer，天然不受祖先 transform/裁剪影响），遮罩用
+  `::backdrop` + `--dsw-alias-bg-mask-1`；Esc 与关闭按钮都同步真实 dialog 与面板状态。
+- 切换到其他会话时面板**自动关闭**（不再残留）；`showModal` 不可用的老环境自动退回旧的 fixed 遮罩渲染。
+- 删除 v1.4.8/v1.4.9 的胶囊宿主与 `shell.overlay` 渲染路径，面板只由一个宿主渲染，避免双渲染与状态分叉。
+
 ## [1.4.9] - 2026-11-24
 
 ### 新增
