@@ -7372,6 +7372,7 @@ window.__ModuleLoader__.load({
       var githubNetwork = networkHook[0]
       var setGithubNetwork = networkHook[1]
       var networkAbortRef = useRef(null)
+      var networkSeqRef = useRef(0)
       var commitPanelHook = useState(false)
       var commitPanelOpen = commitPanelHook[0]
       var setCommitPanelOpen = commitPanelHook[1]
@@ -7461,8 +7462,10 @@ window.__ModuleLoader__.load({
         } catch (error) {
           /* ignore */
         }
+        networkSeqRef.current += 1
+        var networkSeq = networkSeqRef.current
         networkAbortRef.current = fetchGithubNetwork(sessionRef.current, force === true, function (result) {
-          if (!mountedRef.current) return
+          if (!mountedRef.current || networkSeq !== networkSeqRef.current) return
           networkAbortRef.current = null
           setGithubNetwork(result || null)
         })

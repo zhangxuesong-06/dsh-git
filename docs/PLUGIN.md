@@ -85,6 +85,7 @@
 | `GET /dsh-git-bar/github/repos?q=&limit=` | `/user/repos?sort=updated&affiliation=owner,collaborator,organization_member`，最多 100 条，Host 侧按名称/描述过滤 |
 | `POST /dsh-git-bar/github/clone` | body `{repo,branch?,root?}`；`owner/repo` / `github.com/...` / 任意 URL（`file:` 也可，测试用）。目录名 `<owner>-<repo>`，目标非空即 `target-exists`；token 走 askpass 的 HTTPS 克隆；错误还包括 `not-signed-in`、`bad-repo`、`not-found`、`auth-failed`、`clone-failed` |
 | `POST /dsh-git-bar/github/config` | 改 `cloneRoot`/`deviceClientId`/`useGithubIdentity`（写到插件数据目录 `github.json`）；client id 非法返回 `invalid-config` |
+| `GET /dsh-git-bar/github/network` | 连通状态：`proxy{mode:'direct'\|'proxy'\|'unknown',url}`（Electron `resolveProxy` → Windows 注册表 → `https_proxy`/`DSH_GIT_BAR_HTTP_PROXY`，`none` 强制直连）、`github{reachable,status,latencyMs}`（15s 缓存）、`git{usesProxyForPush}`、`push{transport:'https'\|'ssh'\|'none',remote,url}`。推送与克隆只在**单条 git 命令**上加 `-c http.proxy=… -c https.proxy=…`，不改全局配置 |
 | `GET /dsh-git-bar/health` | 存活探针 |
 
 文件操作统一约束：只有 `POST`；`paths` 逐条过 `relativePath` 校验（拒绝绝对路径、盘符、`..`、`-` 开头），
