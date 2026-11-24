@@ -226,8 +226,12 @@ URL 为准；会话 ID 也会随环境变化。
         会话才出现；改为由**会话头部胶囊宿主**（`clonePanelHost` + `ClonePanelHost`）渲染，胶囊常驻并订阅 store，
         点击即出现；hero 按钮只触发，胶囊未挂载才退回入口本地渲染。遮罩改用 `--dsw-alias-bg-mask-1`，
         卡片尺寸/阴影/圆角/字号对齐胶囊面板（`bg-overlay` + `border-l2` + `min(520px,100%)`）。
+  - [x] **v1.4.9 网络与渲染兜底**：git 不读桌面网络栈，系统代理下 https 远端超时（GitHub API 走 Electron fetch 却正常）
+        → Host 检测代理（Electron `resolveProxy` → Windows 注册表 → 环境变量，`DSH_GIT_BAR_HTTP_PROXY=none` 强制直连），
+        只在单条 git 命令上加 `-c http.proxy=…`；新增 `GET /github/network`（代理/可达性/延迟/推送方式，15s 缓存），
+        面板在 GitHub 卡片、克隆面板、推送失败错误条三处展示并可重测。另修 hero 页胶囊走 catch 兜底分支时丢面板宿主的问题。
   - [ ] 待用户用真实 GitHub 账号验证：真机克隆 + 打开工作区、重启后 `mcp__github__*` 工具是否出现、
-        面板在 hero 页的即时渲染与主题观感。
+        面板在 hero 页的即时渲染与主题观感、代理下推送是否稳定。
   - [-] 历史作者整理：开发期 44 个提交作者是 `DSH Lead <lead@local>`；**用户决定不改写历史**（不 force push），
         此后的提交已改用仓库配置身份、插件创建的提交用 GitHub 身份。
 - **发布收尾**：
