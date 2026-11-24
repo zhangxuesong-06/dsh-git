@@ -474,6 +474,13 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   queued(() => respond('', { status: 200 }))
   const direct = await ask(repo, '/dsh-git-bar/github/network?session=s1')
   check('network: direct mode honoured', direct.proxy.mode === 'direct' && direct.git.usesProxyForPush === false, JSON.stringify(direct.proxy))
+
+  // Diagnostics channel: the browser posts what it measured, the Host keeps it.
+  const posted = await ask(repo, '/dsh-git-bar/github/client-log', 'POST', { tag: 'clone-panel-open', mode: 'dialog', stack: [{ tag: 'body' }] })
+  check('client-log: accepts a report', posted.ok === true && typeof posted.file === 'string' && posted.file.endsWith('client-log.jsonl'), JSON.stringify(posted))
+  const log = await ask(repo, '/dsh-git-bar/github/client-log')
+  const lastEntry = (log.entries || [])[log.entries.length - 1] || {}
+  check('client-log: round-trips the payload', log.ok === true && lastEntry.tag === 'clone-panel-open' && lastEntry.mode === 'dialog', JSON.stringify(lastEntry))
 }
 
 globalThis.fetch = realFetch

@@ -1326,6 +1326,31 @@ function githubDataDir() {
   return join(homedir(), '.dsh-git-bar')
 }
 
+/**
+ * Client diagnostics channel: the browser half posts one JSON blob when the
+ * clone panel opens, so a rendering problem can be inspected from disk instead
+ * of guessed at. Capped so a runaway client cannot fill the disk.
+ */
+const CLIENT_LOG_MAX_BYTES = 256 * 1024
+
+async function appendClientLog(entry) {
+  const dir = githubDataDir()
+  await mkdir(dir, { recursive: true, mode: 0o700 }).catch(() => {})
+  const file = join(dir, 'client-log.jsonl')
+  const line = `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`
+  const existing = await readFile(file, 'utf8').catch(() => '')
+  const next = existing.length + line.length > CLIENT_LOG_MAX_BYTES ? line : existing + line
+  await writeFile(file, next, { encoding: 'utf8', mode: 0o600 })
+  return file
+}
+
+async function readClientLog() {
+  const file = join(githubDataDir(), 'client-log.jsonl')
+  const text = await readFile(file, 'utf8').catch(() => '')
+  const lines = text.trim() === '' ? [] : text.trim().split('\n').slice(-20)
+  return { ok: true, file, entries: lines.map((line) => { try { return JSON.parse(line) } catch { return { raw: line } } }) }
+}
+
 /** Settings the browser half may read and patch. */
 function githubDefaultConfig() {
   return { cloneRoot: join(homedir(), 'dsh-workspaces'), deviceClientId: '', useGithubIdentity: true }
@@ -2370,7 +2395,7 @@ async function handle(ctx, req, res) {
         send(200, await githubStatus(ctx))
         return
       }
-      if (req.method !== 'POST' && step !== 'repos' && step !== 'clone/status' && step !== 'network') {
+      if (req.method !== 'POST' && step !== 'repos' && step !== 'clone/status' && step !== 'network' && step !== 'client-log') {
         send(405, { ok: false, reason: 'method-not-allowed' })
         return
       }
@@ -2403,6 +2428,16 @@ async function handle(ctx, req, res) {
           return
         }
         send(200, await githubDevicePoll(ctx, id))
+        return
+      }
+      if (step === 'client-log') {
+        if (req.method === 'POST') {
+          const payload = await readPayload(req)
+          const file = await appendClientLog(payload && typeof payload === 'object' ? payload : { raw: payload })
+          send(200, { ok: true, file })
+        } else {
+          send(200, await readClientLog())
+        }
         return
       }
       if (step === 'network') {

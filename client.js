@@ -62,6 +62,7 @@ window.__ModuleLoader__.load({
     var GITHUB_CLONE_STATUS_URL = GITHUB_BASE + '/clone/status'
     var GITHUB_NETWORK_URL = GITHUB_BASE + '/network'
     var GITHUB_NETWORK_TTL_MS = 30000
+    var CLONE_DIAGNOSTIC_DELAY_MS = 150
     var CLONE_POLL_MS = 1000
     var GITHUB_CONFIG_URL = GITHUB_BASE + '/config'
     var GITHUB_SEARCH_DEBOUNCE_MS = 300
@@ -1070,6 +1071,135 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function describeClientNode(element) {
+      try {
+        if (!element) return null
+        var tag = toText(element.tagName).toLowerCase()
+        var cls = ''
+        var id = ''
+        try {
+          cls = toText(element.className)
+        } catch (error) {
+          cls = ''
+        }
+        try {
+          id = toText(element.id)
+        } catch (error) {
+          id = ''
+        }
+        if (!tag && !cls && !id) return null
+        return { tag: tag, cls: cls, id: id }
+      } catch (error) {
+        return null
+      }
+    }
+
+    function rectOfClientNode(element) {
+      try {
+        if (!element || typeof element.getBoundingClientRect !== 'function') return null
+        var rect = element.getBoundingClientRect()
+        return { x: Math.round(toNumber(rect.left) || 0), y: Math.round(toNumber(rect.top) || 0), w: Math.round(toNumber(rect.width) || 0), h: Math.round(toNumber(rect.height) || 0) }
+      } catch (error) {
+        return null
+      }
+    }
+
+    function describeClientAncestorChain(element, limit) {
+      var chain = []
+      try {
+        var node = element
+        var max = toNumber(limit) || 14
+        while (node && chain.length < max) {
+          var entry = {
+            tag: toText(node.tagName).toLowerCase(),
+            cls: '',
+            transform: '',
+            filter: '',
+            contain: '',
+            willChange: '',
+            position: '',
+            zIndex: '',
+            pointerEvents: '',
+            overflow: '',
+            rect: rectOfClientNode(node)
+          }
+          try {
+            entry.cls = toText(node.className)
+          } catch (error) {
+            entry.cls = ''
+          }
+          try {
+            var style = typeof window !== 'undefined' && window && typeof window.getComputedStyle === 'function' ? window.getComputedStyle(node) : null
+            if (style) {
+              entry.transform = toText(style.transform)
+              entry.filter = toText(style.filter)
+              entry.contain = toText(style.contain)
+              entry.willChange = toText(style.willChange)
+              entry.position = toText(style.position)
+              entry.zIndex = toText(style.zIndex)
+              entry.pointerEvents = toText(style.pointerEvents)
+              entry.overflow = toText(style.overflow)
+            }
+          } catch (error) {
+            /* ignore */
+          }
+          chain.push(entry)
+          node = node.parentElement || null
+        }
+      } catch (error) {
+        return chain
+      }
+      return chain
+    }
+
+    // Best-effort diagnostics for the clone panel; must never break the UI.
+    function reportClonePanelOpen(modeName, sessionId, panelElement) {
+      try {
+        var body = { tag: 'clone-panel-open', mode: toText(modeName) || 'dialog', sessionId: toText(sessionId) }
+        var innerW = 0
+        var innerH = 0
+        try {
+          if (typeof window !== 'undefined' && window) {
+            innerW = toNumber(window.innerWidth) || 0
+            innerH = toNumber(window.innerHeight) || 0
+          }
+        } catch (error) {
+          /* ignore */
+        }
+        body.viewport = [innerW, innerH]
+        body.topLayer = { openDialogs: 0, overlays: 0 }
+        try {
+          if (typeof document !== 'undefined' && document && typeof document.querySelectorAll === 'function') {
+            body.topLayer.openDialogs = document.querySelectorAll('dialog[open]').length
+            body.topLayer.overlays = document.querySelectorAll('.gitbar-gp-overlay').length
+          }
+        } catch (error) {
+          /* ignore */
+        }
+        body.panel = rectOfClientNode(panelElement)
+        body.stack = describeClientAncestorChain(panelElement, 14)
+        body.atCenter = null
+        try {
+          if (innerW && innerH && typeof document !== 'undefined' && document && typeof document.elementFromPoint === 'function') {
+            body.atCenter = describeClientNode(document.elementFromPoint(innerW / 2, innerH / 2))
+          }
+        } catch (error) {
+          /* ignore */
+        }
+        try {
+          fetch(GITHUB_BASE + '/client-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          }).catch(function () {})
+        } catch (error) {
+          /* reporting is optional */
+        }
+      } catch (error) {
+        /* never let diagnostics break the panel */
+      }
+    }
+
     function githubNetworkText(t, network) {
       if (!network) return t('githubNetworkChecking')
       if (network.ok !== true) return t('githubNetworkFailed')
@@ -1821,9 +1951,10 @@ window.__ModuleLoader__.load({
       '.gitbar-hero-clone:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
       '.gitbar-hero-clone-icon{display:inline-flex;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-hero-clone-wrap{display:inline-flex;align-items:center}',
-      '.gitbar-gp-dialog{position:fixed;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);margin:0;padding:0;border:0;background:transparent;max-width:none;max-height:none;width:min(520px, calc(100vw - 32px));height:auto;overflow:visible;box-sizing:border-box;display:flex;align-items:center;justify-content:center;color:inherit}',
+      '.gitbar-gp-dialog{pointer-events:none;position:fixed;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);margin:0;padding:0;border:0;background:transparent;max-width:none;max-height:none;width:min(520px, calc(100vw - 32px));height:auto;overflow:visible;box-sizing:border-box;display:flex;align-items:center;justify-content:center;color:inherit}',
       'dialog.gitbar-gp-dialog:not([open]){display:none}',
       'dialog.gitbar-gp-dialog[open]{display:flex}',
+      '.gitbar-gp-dialog .gitbar-gp{pointer-events:auto}',
       '.gitbar-gp-overlay{position:fixed;inset:0;z-index:2147483001;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--dsw-alias-bg-mask-1, color-mix(in srgb, var(--dsw-alias-bg-base) 45%, transparent))}',
       '.gitbar-gp{display:flex;flex-direction:column;width:min(520px,100%);max-height:min(78vh,620px);box-sizing:border-box;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l2);border-radius:12px;box-shadow:0 12px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 20%, transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;line-height:1.45;overflow:hidden;animation:gitbar-gp-in 150ms cubic-bezier(0.2,0,0,1) both;text-align:left}',
       '.gitbar-gp-head{display:flex;align-items:center;gap:8px;flex:0 0 auto;height:32px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
@@ -4798,9 +4929,10 @@ window.__ModuleLoader__.load({
       var networkAbort = useRef(null)
       var dialogRef = useRef(null)
       var closedRef = useRef(false)
-      var legacyHook = useState(false)
-      var legacy = legacyHook[0]
-      var setLegacy = legacyHook[1]
+      var modeHook = useState('dialog')
+      var mode = modeHook[0]
+      var setMode = modeHook[1]
+      var modeRef = useRef('dialog')
       var noticeHook = useState('')
       var notice = noticeHook[0]
       var setNotice = noticeHook[1]
@@ -5213,16 +5345,24 @@ window.__ModuleLoader__.load({
       function attachDialog(node) {
         dialogRef.current = node
         if (!node) return
-        // Non-modal show(): stays in the top layer without making the page inert.
+        // Exactly one rendering path: either the native dialog or the overlay.
         if (typeof node.show !== 'function') {
-          setLegacy(true)
+          modeRef.current = 'legacy'
+          setMode('legacy')
           return
         }
         if (node.open !== true) {
           try {
             node.show()
           } catch (error2) {
-            setLegacy(true)
+            try {
+              if (typeof node.close === 'function') node.close()
+            } catch (error3) {
+              /* ignore */
+            }
+            dialogRef.current = null
+            modeRef.current = 'legacy'
+            setMode('legacy')
           }
         }
       }
@@ -5237,6 +5377,33 @@ window.__ModuleLoader__.load({
         }
         if (alive.current) close()
       }
+
+      // One diagnostics report shortly after opening (never on close).
+      useEffect(function () {
+        var timer = null
+        try {
+          timer = setTimeout(function () {
+            timer = null
+            if (!alive.current) return
+            try {
+              reportClonePanelOpen(modeRef.current, sessionId, dialogRef.current)
+            } catch (error2) {
+              /* ignore */
+            }
+          }, CLONE_DIAGNOSTIC_DELAY_MS)
+        } catch (error2) {
+          timer = null
+        }
+        return function () {
+          if (timer === null) return
+          try {
+            clearTimeout(timer)
+          } catch (error2) {
+            /* ignore */
+          }
+          timer = null
+        }
+      }, [])
 
       // The panel must not block the page: a click outside just closes it.
       useEffect(function () {
@@ -5700,8 +5867,10 @@ window.__ModuleLoader__.load({
           h('div', { className: 'gitbar-gp-body' }, body)
         )
 
-        // Native modal dialog: the top layer ignores ancestor transforms/filters.
-        if (!legacy) {
+        modeRef.current = mode
+
+        // Native dialog only; the overlay branch below is mutually exclusive.
+        if (mode !== 'legacy') {
           return h(
             'dialog',
             {
