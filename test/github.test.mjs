@@ -166,8 +166,12 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   check('clone: directory exists', first.ok === true && existsSync(join(first.path, '.git')), String(first.path))
   check('clone: branch resolved', typeof first.branch === 'string' && first.branch !== '', String(first.branch))
 
-  const again = await ask(repo, '/dsh-git-bar/github/clone', 'POST', { repo: `file://${bare.replace(/\\/g, '/')}`, root })
-  check('clone: refuses a non-empty destination', again.ok === false && again.reason === 'target-exists', JSON.stringify(again))
+  const fileUrl = `file://${bare.replace(/\\/g, '/')}`
+  const again = await ask(repo, '/dsh-git-bar/github/clone', 'POST', { repo: fileUrl, root })
+  check('clone: a second clone picks a free folder', again.ok === true && again.folder === `${first.folder}-2`, JSON.stringify(again.folder))
+
+  const clash = await ask(repo, '/dsh-git-bar/github/clone', 'POST', { repo: fileUrl, root, folder: first.folder })
+  check('clone: refuses a non-empty destination', clash.ok === false && clash.reason === 'target-exists', JSON.stringify(clash))
 
   const bad = await ask(repo, '/dsh-git-bar/github/clone', 'POST', { repo: '%%%', root })
   check('clone: bad spec', bad.ok === false && bad.reason === 'bad-repo', JSON.stringify(bad))
@@ -213,14 +217,23 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
 {
   const previewRoot = mkdtempSync(join(tmpdir(), 'dshgit-gh-preview-'))
   const preview = await ask(repo, '/dsh-git-bar/github/clone/preview', 'POST', { repo: 'octo/alpha', root: previewRoot })
-  check('preview: path resolved', preview.ok === true && preview.path === join(previewRoot, 'octo-alpha'), JSON.stringify(preview))
+  check('preview: defaults to the bare repository name', preview.ok === true && preview.folder === 'alpha' && preview.path === join(previewRoot, 'alpha'), JSON.stringify(preview))
   check('preview: not occupied yet', preview.exists === false, String(preview.exists))
   check('preview: reports the sign-in state', preview.signedIn === true, String(preview.signedIn))
 
-  mkdirSync(join(previewRoot, 'octo-alpha'))
-  writeFileSync(join(previewRoot, 'octo-alpha', 'README.md'), 'x\n')
+  const custom = await ask(repo, '/dsh-git-bar/github/clone/preview', 'POST', { repo: 'octo/alpha', root: previewRoot, folder: '我的 项目' })
+  check('preview: custom folder wins', custom.ok === true && custom.folder === '我的 项目' && custom.folderIsCustom === true && custom.path === join(previewRoot, '我的 项目'), JSON.stringify(custom))
+
+  const unsafe = await ask(repo, '/dsh-git-bar/github/clone/preview', 'POST', { repo: 'octo/alpha', root: previewRoot, folder: '../escape' })
+  check('preview: unsafe folder is sanitised', unsafe.ok === true && unsafe.folder === '-escape' && unsafe.path === join(previewRoot, '-escape'), JSON.stringify(unsafe.folder))
+
+  mkdirSync(join(previewRoot, 'alpha'))
+  writeFileSync(join(previewRoot, 'alpha', 'README.md'), 'x\n')
   const occupied = await ask(repo, '/dsh-git-bar/github/clone/preview', 'POST', { repo: 'octo/alpha', root: previewRoot })
-  check('preview: occupied destination flagged', occupied.exists === true, String(occupied.exists))
+  check('preview: occupied destination gets a free suffix', occupied.exists === false && occupied.folder === 'alpha-2', JSON.stringify(occupied.folder))
+
+  const forced = await ask(repo, '/dsh-git-bar/github/clone/preview', 'POST', { repo: 'octo/alpha', root: previewRoot, folder: 'alpha' })
+  check('preview: explicit occupied folder is flagged', forced.exists === true && forced.folder === 'alpha', JSON.stringify(forced.folder))
 
   const foreign = await ask(repo, '/dsh-git-bar/github/clone/preview', 'POST', {
     repo: 'https://gitlab.com/group/project.git',

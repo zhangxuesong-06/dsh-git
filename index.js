@@ -1544,12 +1544,35 @@ export function parseGithubRepo(spec) {
   return { kind: 'github', owner, name }
 }
 
-/** Target folder name for a parsed repository spec. */
+/** Target folder name for a parsed repository spec: the bare repository name. */
 export function cloneFolderFor(parsed) {
-  if (parsed.kind === 'github') return `${parsed.owner}-${parsed.name}`.replace(/[\\/:*?"<>|]/g, '-')
+  if (parsed.kind === 'github') return sanitizeCloneFolder(parsed.name) || 'repository'
   const tail = String(parsed.url).replace(/[/\\]+$/, '').replace(/\.git$/, '')
   const base = tail.split(/[/:]/).filter(Boolean).pop() ?? ''
-  return (base || 'repository').replace(/[\\/:*?"<>|]/g, '-')
+  return sanitizeCloneFolder(base) || 'repository'
+}
+
+/** A folder name the filesystem accepts, or '' when nothing usable is left. */
+export function sanitizeCloneFolder(raw) {
+  const text = String(raw ?? '')
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/^\.+/, '')
+    .replace(/\.+$/, '')
+    .trim()
+  if (text === '' || text === '.' || text === '..') return ''
+  return text.slice(0, 80)
+}
+
+/** First free `<base>`, `<base>-2`, `<base>-3`, … under `root`. */
+async function uniqueCloneFolder(root, base) {
+  const start = sanitizeCloneFolder(base) || 'repository'
+  for (let attempt = 1; attempt <= 99; attempt += 1) {
+    const name = attempt === 1 ? start : `${start}-${attempt}`
+    const listing = await readdir(join(root, name)).catch(() => null)
+    if (listing === null || listing.length === 0) return name
+  }
+  return `${start}-${Date.now().toString(36)}`
 }
 
 /** Absolute clone root: the request's, else the profile's, else the default. */
@@ -1561,16 +1584,19 @@ function cloneRootFor(payload, config) {
 
 /**
  * Where a clone would land, without cloning. The panel shows this before the
- * user confirms, including whether the destination is already occupied.
+ * user confirms: the folder name is editable, so a requested one wins, and an
+ * occupied destination gets a free `-2` suffix instead of failing the preview.
  */
 async function githubClonePreview(ctx, payload = {}) {
   const parsed = parseGithubRepo(payload.repo)
   if (!parsed) return { ok: false, reason: 'bad-repo' }
   const config = await readGithubConfig()
   const root = cloneRootFor(payload, config)
-  const folder = cloneFolderFor(parsed)
-  const path = join(root, folder)
-  const existing = await readdir(path).catch(() => null)
+  const requested = sanitizeCloneFolder(payload.folder)
+  const suggested = cloneFolderFor(parsed)
+  const folder = requested !== '' ? requested : await uniqueCloneFolder(root, suggested)
+  const target = join(root, folder)
+  const existing = await readdir(target).catch(() => null)
   const access = await githubAccessToken(ctx)
   return {
     ok: true,
@@ -1578,7 +1604,9 @@ async function githubClonePreview(ctx, payload = {}) {
     kind: parsed.kind,
     root,
     folder,
-    path,
+    suggested,
+    folderIsCustom: requested !== '',
+    path: target,
     exists: existing !== null && existing.length > 0,
     signedIn: Boolean(access.token),
   }
@@ -2235,7 +2263,8 @@ async function githubClone(ctx, payload = {}, job = null) {
   const root = cloneRootFor(payload, config)
   await mkdir(root, { recursive: true })
 
-  const folder = cloneFolderFor(parsed)
+  const requested = sanitizeCloneFolder(payload.folder)
+  const folder = requested !== '' ? requested : await uniqueCloneFolder(root, cloneFolderFor(parsed))
   const target = join(root, folder)
   if (job) {
     job.root = root
