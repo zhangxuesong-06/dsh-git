@@ -4848,10 +4848,12 @@ window.__ModuleLoader__.load({
           h('span', { className: 'gitbar-hero-clone-icon', 'aria-hidden': 'true' }, '⌥'),
           t('githubCloneEntry')
         )
-        if (!open) return button
+        var styleNode = h('style', { key: 'gitbar-dialog-style' }, CSS)
+        if (!open) return h('span', { className: 'gitbar-hero-clone-root' }, styleNode, button)
         return h(
           'span',
           { className: 'gitbar-hero-clone-wrap' },
+          styleNode,
           button,
           h(GithubClonePanel, {
             t: t,
@@ -5838,6 +5840,22 @@ window.__ModuleLoader__.load({
           {
             className: 'gitbar-gp',
             role: 'dialog',
+            style: {
+              display: 'flex',
+              flexDirection: 'column',
+              width: '100%',
+              maxHeight: 'min(78vh,620px)',
+              boxSizing: 'border-box',
+              background: 'var(--dsw-alias-bg-overlay)',
+              border: '1px solid var(--dsw-alias-border-l2)',
+              borderRadius: 12,
+              boxShadow: '0 12px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 20%, transparent)',
+              color: 'var(--dsw-alias-label-primary)',
+              fontSize: '12.5px',
+              lineHeight: 1.45,
+              overflow: 'hidden',
+              textAlign: 'left'
+            },
             'aria-label': t('githubClonePanelTitle'),
             'aria-modal': 'true',
             onMouseDown: function (event) {
@@ -5876,10 +5894,31 @@ window.__ModuleLoader__.load({
             {
               ref: attachDialog,
               className: 'gitbar-gp-dialog',
+              style: {
+                position: 'fixed',
+                inset: 'auto',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%,-50%)',
+                margin: 0,
+                padding: 0,
+                border: 0,
+                background: 'transparent',
+                maxWidth: 'none',
+                maxHeight: 'none',
+                width: 'min(520px, calc(100vw - 32px))',
+                height: 'auto',
+                overflow: 'visible',
+                boxSizing: 'border-box',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              },
               'aria-label': t('githubClonePanelTitle'),
               onKeyDown: handleDialogKeyDown,
               onClose: handleDialogClose
             },
+            h('style', { key: 'gitbar-dialog-css' }, CSS),
             card
           )
         }
@@ -5900,6 +5939,7 @@ window.__ModuleLoader__.load({
               }
             }
           },
+          h('style', { key: 'gitbar-dialog-css' }, CSS),
           card
         )
       } catch (error2) {
@@ -6590,6 +6630,7 @@ window.__ModuleLoader__.load({
         }
 
         if (cloneOpen) {
+          rows.push(h('style', { key: 'gitbar-dialog-style' }, CSS))
           rows.push(
             h(GithubClonePanel, {
               key: 'clone-panel',
