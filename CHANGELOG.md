@@ -3,6 +3,15 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.23] - 2026-11-25
+
+### 新增
+
+- **浏览器登录自动化**：点「用浏览器登录」后立刻**自动打开浏览器**（用 GitHub 的 `verification_uri_complete`
+  深链，验证码已预填）并把**验证码复制到剪贴板**；面板里同时大字显示验证码、提供「复制」与「重新打开浏览器」按钮。
+  打开走 Host 的 `POST /github/device/open`（Electron `shell.openExternal`，只放行 `https://github.com/login/device*`），
+  失败时退回 `window.open`，再失败保留可点链接；任何一步失败都不会中断轮询。
+
 ## [1.4.22] - 2026-11-25
 
 ### 修复

@@ -13,6 +13,7 @@ import {
   gitProxyArgs,
   gitTransportAttempts,
   isTransportFailure,
+  openExternalUrl,
   parseGithubRepo,
   parseProxyResult,
   resolveDeviceClientId,
@@ -309,10 +310,18 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   let seenBody = ''
   queued((url, init) => {
     seenBody = String(init.body ?? '')
-    return respond({ device_code: 'device_secret', user_code: 'ABCD-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 1 })
+    return respond({
+      device_code: 'device_secret',
+      user_code: 'ABCD-1234',
+      verification_uri: 'https://github.com/login/device',
+      verification_uri_complete: 'https://github.com/login/device?user_code=ABCD-1234',
+      expires_in: 900,
+      interval: 1,
+    })
   })
   const started = await ask(repo, '/dsh-git-bar/github/device/start', 'POST', {})
   check('device: start returns a code', started.ok === true && started.userCode === 'ABCD-1234', JSON.stringify(started))
+  check('device: carries the pre-filled verification link', started.verificationUriComplete === 'https://github.com/login/device?user_code=ABCD-1234', started.verificationUriComplete)
   check('device: custom app wins', seenBody.includes('client_id=Iv1device0001'), seenBody.slice(0, 120))
   // Pushes that touch .github/workflows/* need the workflow scope, so the
   // browser sign-in must request it up front.
@@ -512,6 +521,14 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   const chunkBody = '{"error":"authorization_pending"}'
   const chunked = `${chunkBody.length.toString(16)}\r\n${chunkBody}\r\n0\r\n\r\n`
   check('tunnel: chunked bodies decode', dechunkBody(chunked) === chunkBody, JSON.stringify(dechunkBody(chunked)))
+
+  // The browser-opener only ever forwards GitHub's device page.
+  const wrongHost = await openExternalUrl('https://evil.example/login/device?user_code=A')
+  check('open: foreign host refused', wrongHost.ok === false && wrongHost.reason === 'bad-url', JSON.stringify(wrongHost))
+  const wrongScheme = await openExternalUrl('http://github.com/login/device')
+  check('open: plain http refused', wrongScheme.ok === false && wrongScheme.reason === 'bad-url', JSON.stringify(wrongScheme))
+  const wrongPath = await openExternalUrl('https://github.com/zhangxuesong-06/dsh-git-bar')
+  check('open: other github paths refused', wrongPath.ok === false && wrongPath.reason === 'bad-url', JSON.stringify(wrongPath))
 
   // Deterministic proxy override, then a reachability probe through mocked fetch.
   process.env.DSH_GIT_BAR_HTTP_PROXY = '127.0.0.1:7897'

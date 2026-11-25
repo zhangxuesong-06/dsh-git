@@ -154,6 +154,8 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: '打开验证页',
       githubDeviceExpired: '验证码已过期，请重试',
       githubDeviceDenied: '授权被拒绝',
+      githubDeviceAutoOpened: '已打开浏览器并已复制验证码 {code}',
+      githubDeviceReopen: '重新打开浏览器',
       githubDeviceNetwork: '网络暂时不稳定，正在重试…',
       githubDeviceRestart: '登录码已失效（后台可能重启过），请重新点击浏览器登录',
       githubDeviceFailed: '登录失败，请重试',
@@ -378,6 +380,8 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: 'Open verification page',
       githubDeviceExpired: 'The code expired, please try again',
       githubDeviceDenied: 'Authorization denied',
+      githubDeviceAutoOpened: 'Opened the browser and copied code {code}',
+      githubDeviceReopen: 'Open the browser again',
       githubDeviceNetwork: 'Network hiccup — retrying…',
       githubDeviceRestart: 'The code expired (the backend may have restarted). Click browser sign-in again.',
       githubDeviceFailed: 'Sign-in failed, please try again',
@@ -6267,6 +6271,7 @@ window.__ModuleLoader__.load({
       var alive = useRef(true)
       var requestAbort = useRef(null)
       var deviceAbort = useRef(null)
+      var deviceOpenAbort = useRef(null)
       var deviceTimer = useRef(null)
       var deviceFailures = useRef(0)
       var deviceRef = useRef(null)
@@ -6287,6 +6292,12 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
           deviceAbort.current = null
+          try {
+            if (deviceOpenAbort.current) deviceOpenAbort.current()
+          } catch (error2) {
+            /* ignore */
+          }
+          deviceOpenAbort.current = null
           try {
             if (deviceTimer.current !== null) clearTimeout(deviceTimer.current)
           } catch (error2) {
@@ -6322,6 +6333,92 @@ window.__ModuleLoader__.load({
           requestAbort.current = null
           done(result && typeof result === 'object' ? result : {})
         })
+      }
+
+      function copyDeviceCode(code) {
+        var text = toText(code)
+        if (!text) return false
+        try {
+          var clipboard = typeof navigator !== 'undefined' && navigator ? navigator.clipboard : null
+          if (clipboard && typeof clipboard.writeText === 'function') {
+            var pending = clipboard.writeText(text)
+            if (pending && typeof pending.catch === 'function') pending.catch(function () {})
+            return true
+          }
+        } catch (error2) {
+          /* fall through to the textarea path */
+        }
+        try {
+          if (typeof document !== 'undefined' && document && typeof document.createElement === 'function') {
+            var host = document.documentElement || null
+            if (host && typeof host.appendChild === 'function') {
+              var area = document.createElement('textarea')
+              area.value = text
+              area.setAttribute('readonly', '')
+              area.style.position = 'fixed'
+              area.style.opacity = '0'
+              host.appendChild(area)
+              var copied = false
+              try {
+                if (typeof area.select === 'function') area.select()
+                copied = document.execCommand('copy') === true
+              } catch (error3) {
+                copied = false
+              }
+              try {
+                host.removeChild(area)
+              } catch (error3) {
+                /* ignore */
+              }
+              return copied
+            }
+          }
+        } catch (error2) {
+          return false
+        }
+        return false
+      }
+
+      function openDevicePage(url) {
+        var target = toText(url)
+        if (!target) return
+        try {
+          if (deviceOpenAbort.current) deviceOpenAbort.current()
+        } catch (error2) {
+          /* ignore */
+        }
+        var fallback = function () {
+          try {
+            if (typeof window !== 'undefined' && window && typeof window.open === 'function') {
+              var opened = window.open(target, '_blank', 'noopener')
+              if (opened) return
+            }
+          } catch (error2) {
+            /* the rendered link remains available */
+          }
+        }
+        try {
+          deviceOpenAbort.current = requestJson(
+            githubUrl('/device/open', sessionId),
+            { method: 'POST', body: JSON.stringify({ url: target }) },
+            function (result) {
+              if (!alive.current) return
+              deviceOpenAbort.current = null
+              if (result && result.ok === true) return
+              fallback()
+            }
+          )
+        } catch (error2) {
+          fallback()
+        }
+      }
+
+      function openDeviceAgain() {
+        var current = deviceRef.current
+        var details = device || {}
+        if (!current) return
+        copyDeviceCode(details.userCode)
+        openDevicePage(toText(details.verificationUriComplete) || toText(details.verificationUri))
       }
 
       function sendDevice(body, done) {
@@ -6464,15 +6561,22 @@ window.__ModuleLoader__.load({
             return
           }
           var interval = toNumber(result.interval)
+          var userCode = toText(result.userCode)
+          var verificationUri = toText(result.verificationUri)
+          var completeUri = toText(result.verificationUriComplete)
           deviceRef.current = { id: id, interval: interval === null ? 5 : interval }
           setDevice({
             id: id,
-            userCode: toText(result.userCode),
-            verificationUri: toText(result.verificationUri),
+            userCode: userCode,
+            verificationUri: verificationUri,
+            verificationUriComplete: completeUri,
+            autoNotice: userCode ? toText(t('githubDeviceAutoOpened')).replace('{code}', userCode) : '',
             expiresAt: toNumber(result.expiresAt)
           })
           setDeviceState('pending')
           setMode('device')
+          if (userCode) copyDeviceCode(userCode)
+          openDevicePage(completeUri || verificationUri)
           schedulePoll()
         })
       }
@@ -6776,6 +6880,20 @@ window.__ModuleLoader__.load({
                   'div',
                   { className: 'gitbar-github-actions', key: 'dev-code' },
                   h('span', { className: 'gitbar-github-code' }, t('githubDeviceCode') + ' ' + device.userCode),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-btn',
+                      key: 'dev-copy',
+                      title: t('copy'),
+                      'aria-label': t('copy'),
+                      onClick: function () {
+                        copyDeviceCode(device.userCode)
+                      }
+                    },
+                    '⧉'
+                  ),
                   device.verificationUri
                     ? h(
                       'a',
@@ -6791,7 +6909,18 @@ window.__ModuleLoader__.load({
                     : null
                 ),
                 shippedHint,
+                device.autoNotice ? h('div', { className: 'gitbar-github-hint', key: 'dev-auto' }, device.autoNotice) : null,
                 h('div', { className: 'gitbar-github-hint', key: 'dev-wait' }, t('githubDeviceWaiting')),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-btn gitbar-github-btn',
+                    key: 'dev-reopen',
+                    onClick: openDeviceAgain
+                  },
+                  t('githubDeviceReopen')
+                ),
                 h(
                   'button',
                   {

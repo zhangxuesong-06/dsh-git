@@ -2030,6 +2030,48 @@ async function githubLogin(ctx, token) {
   return githubStatus(ctx)
 }
 
+/**
+ * Open a URL in the user's default browser. Electron's shell is the proper way;
+ * the per-platform launchers are the fallback for a plain Node host. Only the
+ * device-verification page is ever allowed through here.
+ */
+export async function openExternalUrl(rawUrl) {
+  let parsed = null
+  try {
+    parsed = new URL(String(rawUrl ?? ''))
+  } catch {
+    return { ok: false, reason: 'bad-url' }
+  }
+  if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com' || !parsed.pathname.startsWith('/login/device')) {
+    return { ok: false, reason: 'bad-url' }
+  }
+  const url = parsed.toString()
+  try {
+    const mod = await import('electron')
+    const shell = (mod && mod.shell) || (mod && mod.default && mod.default.shell)
+    if (shell && typeof shell.openExternal === 'function') {
+      await shell.openExternal(url)
+      return { ok: true, opened: 'electron', url }
+    }
+  } catch {
+    // Fall through to the platform launcher.
+  }
+  try {
+    if (process.platform === 'win32') {
+      spawn('rundll32', ['url.dll,FileProtocolHandler', url], { windowsHide: true, detached: true, stdio: 'ignore' }).unref()
+      return { ok: true, opened: 'rundll32', url }
+    }
+    if (process.platform === 'darwin') {
+      spawn('open', [url], { detached: true, stdio: 'ignore' }).unref()
+      return { ok: true, opened: 'open', url }
+    }
+    spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref()
+    return { ok: true, opened: 'xdg-open', url }
+  } catch (error) {
+    return { ok: false, reason: 'open-failed', detail: clipText(error && error.message ? error.message : error) }
+  }
+}
+
 /** Decode an HTTP/1.1 chunked body (the OAuth endpoints answer chunked). */
 export function dechunkBody(raw) {
   const text = String(raw ?? '')
@@ -2193,6 +2235,9 @@ async function githubDeviceStart() {
     id,
     userCode: asText(data.user_code),
     verificationUri: asText(data.verification_uri) || `${GITHUB_WEB}/login/device`,
+    // GitHub's own deep link pre-fills the code, so the browser never asks the
+    // user to type it.
+    verificationUriComplete: asText(data.verification_uri_complete) || '',
     interval,
     expiresAt,
   }
@@ -2637,6 +2682,11 @@ async function handle(ctx, req, res) {
       if (step === 'device/start') {
         await readPayload(req)
         send(200, await githubDeviceStart())
+        return
+      }
+      if (step === 'device/open') {
+        const payload = await readPayload(req)
+        send(200, await openExternalUrl(payload.url))
         return
       }
       if (step === 'device/poll') {
