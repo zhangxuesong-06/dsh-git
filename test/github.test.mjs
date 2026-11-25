@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
 import {
   apply,
+  classifyPushFailure,
   githubIdentityArgs,
   githubRewriteArgs,
   gitProxyArgs,
@@ -481,6 +482,15 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   check('transport: direct attempt first, proxy second', attemptsWithProxy.length === 2 && attemptsWithProxy[0].length === 0 && attemptsWithProxy[1].length === 4, JSON.stringify(attemptsWithProxy))
   check('transport: no proxy means one attempt', gitTransportAttempts({ mode: 'direct', url: '' }).length === 1, 'direct')
   check('transport: network failures retry', isTransportFailure('fatal: unable to access: TLS handshake failed') === true && isTransportFailure('fatal: Authentication failed for repo') === false, 'classification')
+  // A token without `workflow` scope is refused as "remote rejected"; that used
+  // to be misreported to the user as "the remote has new commits".
+  check(
+    'push: workflow scope refusal is named',
+    classifyPushFailure(' ! [remote rejected] main -> main (refusing to allow an OAuth App to create or update workflow `.github/workflows/ci.yml` without `workflow` scope)') === 'workflow-scope',
+    'workflow-scope',
+  )
+  check('push: non-fast-forward is out-of-date', classifyPushFailure(' ! [rejected]        main -> main (non-fast-forward)') === 'out-of-date', 'out-of-date')
+  check('push: anything else is a plain failure', classifyPushFailure('fatal: unable to access: timeout') === 'push-failed', 'push-failed')
 
   // Deterministic proxy override, then a reachability probe through mocked fetch.
   process.env.DSH_GIT_BAR_HTTP_PROXY = '127.0.0.1:7897'

@@ -1207,6 +1207,14 @@ async function undoCommit(root) {
   return { ok: true, undone: clipText(subject.out.trim(), 200), short: head.out.trim() }
 }
 
+/** Why a push was refused, from git's own message. Pure so tests can cover it. */
+export function classifyPushFailure(detail) {
+  const text = String(detail ?? '')
+  if (/refusing to allow an OAuth App|workflow scope|create or update workflow/i.test(text)) return 'workflow-scope'
+  if (/non-fast-forward|fetch first|! \[rejected\]/i.test(text)) return 'out-of-date'
+  return 'push-failed'
+}
+
 /**
  * Push a branch. Never force-pushes. Without credentials git is told to fail
  * instead of prompting; with a one-shot password a temporary askpass helper
@@ -1249,10 +1257,9 @@ async function pushCommitted(root, branch, credentials = null, options = {}) {
     }
     if (pushed && pushed.failed) {
       const detail = lastDetail
-      const outOfDate = /non-fast-forward|fetch first|rejected|updates were rejected/i.test(detail)
       return {
         pushed: false,
-        pushReason: outOfDate ? 'out-of-date' : 'push-failed',
+        pushReason: classifyPushFailure(detail),
         pushDetail: detail,
         upstream: target.upstream,
         needsCredentials: effective === null && isAuthFailure(detail),

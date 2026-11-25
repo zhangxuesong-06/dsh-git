@@ -3,6 +3,15 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.18] - 2026-12-25
+
+### 修复
+
+- **推送被 GitHub 拒绝时不再误报「远端有新提交」**：OAuth App 的 token 缺少 `workflow` 作用域时，推送任何修改
+  `.github/workflows/*` 的提交会被 `remote rejected` 拒绝，旧逻辑把含 "rejected" 的错误一律当成 `out-of-date`。
+  现在单独识别为 `workflow-scope`，面板明确提示「当前 GitHub 授权缺少 workflow 权限，请改用 SSH 推送或重新授权」，
+  并且不再提供误导性的「重试推送」按钮。
+
 ## [1.4.17] - 2026-11-25
 
 ### 修复

@@ -269,6 +269,7 @@ window.__ModuleLoader__.load({
       pushReasonSep: '：',
       pushNoRemote: '未配置 git 远端',
       pushOutOfDate: '远端有新提交，请先拉取',
+      pushWorkflowScope: '推送被拒：当前 GitHub 授权缺少 workflow 权限。请改用 SSH 推送，或重新授权（含 workflow 作用域）。',
       pushDetached: '分离 HEAD',
       autoCommitHint: '自动生成提交信息、提交并推送到远端',
       autoCommitPending: '提交并推送…',
@@ -489,6 +490,7 @@ window.__ModuleLoader__.load({
       pushReasonSep: ': ',
       pushNoRemote: 'No git remote configured',
       pushOutOfDate: 'Remote has newer commits, pull first',
+      pushWorkflowScope: 'Push refused: this GitHub grant has no workflow scope. Push over SSH, or re-authorize with the workflow scope.',
       pushDetached: 'Detached HEAD',
       autoCommitHint: 'Generate a commit message, commit and push to the remote',
       autoCommitPending: 'Committing & pushing…',
@@ -6913,6 +6915,9 @@ window.__ModuleLoader__.load({
       var pushFailureHook = useState(false)
       var pushFailure = pushFailureHook[0]
       var setPushFailure = pushFailureHook[1]
+      var pushBlockedHook = useState(false)
+      var pushBlocked = pushBlockedHook[0]
+      var setPushBlocked = pushBlockedHook[1]
       var undoHook = useState(false)
       var undoConfirm = undoHook[0]
       var setUndoConfirm = undoHook[1]
@@ -7012,6 +7017,7 @@ window.__ModuleLoader__.load({
         var safe = toText(reason)
         if (safe === 'no-remote') return t('pushNoRemote')
         if (safe === 'out-of-date') return t('pushOutOfDate')
+        if (safe === 'workflow-scope') return t('pushWorkflowScope')
         if (safe === 'detached') return t('pushDetached')
         var line = detailLine(detail)
         return line || t('pushIncomplete')
@@ -7019,6 +7025,7 @@ window.__ModuleLoader__.load({
 
       function failureText(reason, detail) {
         var safe = toText(reason)
+        if (safe === 'workflow-scope') return t('pushWorkflowScope')
         if (safe === 'nothing-to-commit') return t('nothingToCommit')
         if (safe === 'conflicted') return t('commitConflicts')
         if (safe === 'invalid-branch') return t('invalidBranch')
@@ -7048,6 +7055,7 @@ window.__ModuleLoader__.load({
         if (shouldPush === true ? !canPush : !canCommit) return
         setPending('commit')
         setPushFailure(false)
+        setPushBlocked(false)
         setStatus(null)
         var body = { message: toText(message).trim(), push: shouldPush === true }
         if (detached) body.branch = toText(branch).trim()
@@ -7089,6 +7097,10 @@ window.__ModuleLoader__.load({
                 return
               }
               setPhase('retry')
+              if (toText(result.pushReason) === 'workflow-scope') {
+                setPushBlocked(true)
+                setPushFailure(true)
+              }
               setStatus({
                 tone: 'warn',
                 text:
@@ -7098,6 +7110,10 @@ window.__ModuleLoader__.load({
               return
             }
             var failedReason = toText(result && result.reason)
+            if (failedReason === 'workflow-scope') {
+              setPushBlocked(true)
+              setPushFailure(true)
+            }
             if (failedReason === 'push-failed' || (result && result.needsCredentials === true)) setPushFailure(true)
             setStatus({ tone: 'error', text: failureText(failedReason, result && result.detail) })
           }
@@ -7411,6 +7427,7 @@ window.__ModuleLoader__.load({
             )
           )
         } else {
+          if (!pushBlocked) {
           actions.push(
             h(
               'button',
@@ -7424,6 +7441,7 @@ window.__ModuleLoader__.load({
               t('retryPush')
             )
           )
+          }
           actions.push(
             h(
               'button',
