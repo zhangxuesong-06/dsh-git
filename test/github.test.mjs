@@ -341,6 +341,20 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   check('device: unknown flow', unknown.ok === false && unknown.reason === 'unknown-flow', JSON.stringify(unknown))
 }
 
+// ── 7b-2. one transient poll failure must not end the sign-in ────────────
+{
+  queued(() => respond({ device_code: 'device_retry', user_code: 'RETR-0001', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 1 }))
+  const started = await ask(repo, '/dsh-git-bar/github/device/start', 'POST', {})
+  check('device retry: flow started', started.ok === true && typeof started.id === 'string', JSON.stringify(started))
+  await sleep(1100)
+  queued(() => {
+    throw new Error('fetch failed')
+  })
+  queued(() => respond({ error: 'authorization_pending' }))
+  const retried = await ask(repo, '/dsh-git-bar/github/device/poll', 'POST', { id: started.id })
+  check('device retry: network blip is retried host-side', retried.ok === true && retried.state === 'pending', JSON.stringify(retried))
+}
+
 // ── 7c. expiring grants refresh automatically ────────────────────────────
 {
   const grantFile = join(dataDir, 'github-token.json')

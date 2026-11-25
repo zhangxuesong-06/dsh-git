@@ -154,6 +154,9 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: '打开验证页',
       githubDeviceExpired: '验证码已过期，请重试',
       githubDeviceDenied: '授权被拒绝',
+      githubDeviceNetwork: '网络暂时不稳定，正在重试…',
+      githubDeviceRestart: '登录码已失效（后台可能重启过），请重新点击浏览器登录',
+      githubDeviceFailed: '登录失败，请重试',
       githubDeviceMissingClientId: '未配置 GitHub OAuth Client ID',
       githubNewWorkspace: '从 GitHub 新建工作区',
       githubReposPlaceholder: '搜索仓库，或输入 owner/repo',
@@ -375,6 +378,9 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: 'Open verification page',
       githubDeviceExpired: 'The code expired, please try again',
       githubDeviceDenied: 'Authorization denied',
+      githubDeviceNetwork: 'Network hiccup — retrying…',
+      githubDeviceRestart: 'The code expired (the backend may have restarted). Click browser sign-in again.',
+      githubDeviceFailed: 'Sign-in failed, please try again',
       githubDeviceMissingClientId: 'No GitHub OAuth client id configured',
       githubNewWorkspace: 'New workspace from GitHub',
       githubReposPlaceholder: 'Search repos, or type owner/repo',
@@ -6262,6 +6268,7 @@ window.__ModuleLoader__.load({
       var requestAbort = useRef(null)
       var deviceAbort = useRef(null)
       var deviceTimer = useRef(null)
+      var deviceFailures = useRef(0)
       var deviceRef = useRef(null)
 
       useEffect(function () {
@@ -6287,6 +6294,7 @@ window.__ModuleLoader__.load({
           }
           deviceTimer.current = null
           deviceRef.current = null
+          deviceFailures.current = 0
         }
       }, [])
 
@@ -6340,6 +6348,7 @@ window.__ModuleLoader__.load({
 
       function stopDevice() {
         deviceRef.current = null
+        deviceFailures.current = 0
         setDevice(null)
         setDeviceState('')
         try {
@@ -6356,7 +6365,7 @@ window.__ModuleLoader__.load({
         deviceAbort.current = null
       }
 
-      function schedulePoll() {
+      function schedulePoll(overrideSeconds) {
         var current = deviceRef.current
         if (!current || !current.id) return
         try {
@@ -6364,7 +6373,8 @@ window.__ModuleLoader__.load({
         } catch (error2) {
           /* ignore */
         }
-        var wait = toNumber(current.interval)
+        var wait = toNumber(overrideSeconds)
+        if (wait === null || wait < 1) wait = toNumber(current.interval)
         if (wait === null || wait < 1) wait = 5
         deviceTimer.current = setTimeout(function () {
           deviceTimer.current = null
@@ -6374,10 +6384,36 @@ window.__ModuleLoader__.load({
             if (!deviceRef.current) return
             var state = toText(result.state)
             if (result.ok !== true) {
+              var failedReason = toText(result.reason)
+              if (failedReason === 'network') {
+                deviceFailures.current += 1
+                if (deviceFailures.current >= 5) {
+                  stopDevice()
+                  setError(t('githubDeviceNetwork'))
+                  return
+                }
+                setError(t('githubDeviceNetwork'))
+                setDeviceState('retrying')
+                schedulePoll(3)
+                return
+              }
               stopDevice()
-              setError(t('githubDeviceMissingClientId'))
+              if (failedReason === 'expired' || failedReason === 'unknown-flow') {
+                setError(t('githubDeviceRestart'))
+                return
+              }
+              if (failedReason === 'denied') {
+                setError(t('githubDeviceDenied'))
+                return
+              }
+              if (failedReason === 'missing-client-id') {
+                setError(t('githubDeviceMissingClientId'))
+                return
+              }
+              setError(t('githubDeviceFailed'))
               return
             }
+            deviceFailures.current = 0
             if (state === 'done') {
               stopDevice()
               setExpanded(false)
@@ -6408,6 +6444,7 @@ window.__ModuleLoader__.load({
       }
 
       function startDevice() {
+        deviceFailures.current = 0
         setPending('device')
         setError('')
         setDeviceState('')

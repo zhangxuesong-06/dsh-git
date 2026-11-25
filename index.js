@@ -2077,19 +2077,35 @@ async function githubDevicePoll(ctx, id) {
   }
   flow.nextPollAt = Date.now() + flow.interval * 1000
   let response
-  try {
-    response = await githubFetch(`${GITHUB_WEB}/login/oauth/access_token`, {
-      method: 'POST',
-      headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: flow.clientId,
-        device_code: flow.deviceCode,
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-      }).toString(),
-      signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
-    })
-  } catch (error) {
-    return { ok: false, reason: 'network', detail: clipText(error && error.message ? error.message : error) }
+  let networkError = null
+  // One retry matters here: the panel used to abort the whole sign-in on a
+  // single transient fetch failure.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await githubFetch(`${GITHUB_WEB}/login/oauth/access_token`, {
+        method: 'POST',
+        headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: flow.clientId,
+          device_code: flow.deviceCode,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        }).toString(),
+        signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
+      })
+      networkError = null
+      break
+    } catch (error) {
+      networkError = error
+      if (attempt === 0) {
+        flow.nextPollAt = Date.now()
+        await new Promise((done) => setTimeout(done, 400))
+      }
+    }
+  }
+  if (networkError) {
+    // Let the client retry immediately instead of waiting out the interval.
+    flow.nextPollAt = Date.now()
+    return { ok: false, reason: 'network', detail: clipText(networkError.message ? networkError.message : networkError) }
   }
   const data = await response.json().catch(() => null)
   const error = asText(data && data.error)
