@@ -11,8 +11,10 @@
 import { execFile, spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { readFile, mkdtemp, writeFile, rm as rmPath, chmod, mkdir, readdir } from 'node:fs/promises'
+import { request as httpRequest } from 'node:http'
 import { tmpdir, homedir } from 'node:os'
 import { isAbsolute, join, resolve as resolvePath } from 'node:path'
+import { connect as tlsConnect } from 'node:tls'
 
 /**
  * Every route this plugin owns. The route table matches a prefix either
@@ -2028,24 +2030,156 @@ async function githubLogin(ctx, token) {
   return githubStatus(ctx)
 }
 
+/** Decode an HTTP/1.1 chunked body (the OAuth endpoints answer chunked). */
+export function dechunkBody(raw) {
+  const text = String(raw ?? '')
+  let index = 0
+  let out = ''
+  while (index < text.length) {
+    const lineEnd = text.indexOf('\r\n', index)
+    if (lineEnd < 0) break
+    const size = Number.parseInt(text.slice(index, lineEnd).trim().split(';')[0], 16)
+    if (!Number.isFinite(size) || size < 0) break
+    if (size === 0) break
+    out += text.slice(lineEnd + 2, lineEnd + 2 + size)
+    index = lineEnd + 2 + size + 2
+  }
+  return out
+}
+
+/**
+ * One HTTPS request through the system proxy's CONNECT tunnel, hand-rolled on
+ * node:http + node:tls.
+ *
+ * Electron's fetch shares Chromium's network stack with the app; through this
+ * machine's proxy it drops the connection to github.com's OAuth endpoints every
+ * few calls ("fetch failed"), which used to break the browser sign-in. A private
+ * tunnel is deterministic, cheap, and keeps the token request off that stack.
+ */
+async function proxyTunnelRequest(urlString, options = {}) {
+  const proxy = await detectProxy()
+  if (!proxy || proxy.mode !== 'proxy' || proxy.url === '') return null
+  let proxyUrl = null
+  try {
+    proxyUrl = new URL(proxy.url)
+  } catch {
+    return null
+  }
+  if (!/^https?:$/.test(proxyUrl.protocol)) return null
+  const target = new URL(urlString)
+  const method = options.method ?? 'GET'
+  const body = options.body ?? ''
+  const timeoutMs = options.timeoutMs ?? 12_000
+  const headers = { host: target.hostname, 'user-agent': GITHUB_USER_AGENT, ...(options.headers ?? {}) }
+  if (body !== '') headers['content-length'] = String(Buffer.byteLength(body))
+  headers.connection = 'close'
+
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const finish = (fn, value) => {
+      if (settled) return
+      settled = true
+      fn(value)
+    }
+    const tunnel = httpRequest({
+      host: proxyUrl.hostname,
+      port: Number(proxyUrl.port) || 80,
+      method: 'CONNECT',
+      path: `${target.hostname}:443`,
+      timeout: timeoutMs,
+      headers: { host: `${target.hostname}:443` },
+    })
+    tunnel.setTimeout(timeoutMs, () => {
+      tunnel.destroy()
+      finish(reject, new Error('proxy connect timeout'))
+    })
+    tunnel.on('error', (error) => finish(reject, error))
+    tunnel.on('connect', (response, socket) => {
+      if (response.statusCode !== 200) {
+        socket.destroy()
+        finish(reject, new Error(`proxy CONNECT ${response.statusCode}`))
+        return
+      }
+      const secure = tlsConnect({ socket, servername: target.hostname })
+      const timer = setTimeout(() => {
+        secure.destroy()
+        finish(reject, new Error('tls timeout'))
+      }, timeoutMs)
+      secure.on('error', (error) => {
+        clearTimeout(timer)
+        finish(reject, error)
+      })
+      secure.on('close', () => clearTimeout(timer))
+      secure.once('secureConnect', () => {
+        const requestLine = `${method} ${target.pathname}${target.search} HTTP/1.1`
+        const head = [requestLine, ...Object.entries(headers).map(([key, value]) => `${key}: ${value}`)]
+        secure.write(`${head.join('\r\n')}\r\n\r\n${body}`)
+      })
+      let raw = ''
+      secure.setEncoding('latin1')
+      secure.on('data', (chunk) => {
+        raw += chunk
+      })
+      secure.on('end', () => {
+        clearTimeout(timer)
+        const split = raw.indexOf('\r\n\r\n')
+        if (split < 0) {
+          finish(reject, new Error('malformed response'))
+          return
+        }
+        const headLines = raw.slice(0, split).split('\r\n')
+        const status = Number.parseInt(headLines[0].split(' ')[1] ?? '', 10) || 0
+        const responseHeaders = {}
+        for (const line of headLines.slice(1)) {
+          const colon = line.indexOf(':')
+          if (colon > 0) responseHeaders[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim()
+        }
+        let text = Buffer.from(raw.slice(split + 4), 'latin1').toString('utf8')
+        if (/chunked/i.test(responseHeaders['transfer-encoding'] ?? '')) text = dechunkBody(text)
+        finish(resolve, { status, headers: responseHeaders, text })
+      })
+    })
+    tunnel.end()
+  })
+}
+
+/** POST to a github.com OAuth endpoint: proxy tunnel first, Electron fetch second. */
+export async function githubOauthPost(path, params) {
+  const body = new URLSearchParams(params).toString()
+  const headers = { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' }
+  try {
+    const tunneled = await proxyTunnelRequest(`${GITHUB_WEB}${path}`, { method: 'POST', headers, body, timeoutMs: 10_000 })
+    if (tunneled) return { ok: true, status: tunneled.status, text: tunneled.text }
+  } catch {
+    // Fall through to the app's own fetch.
+  }
+  try {
+    const response = await githubFetch(`${GITHUB_WEB}${path}`, {
+      method: 'POST',
+      headers,
+      body,
+      signal: AbortSignal.timeout(12_000),
+    })
+    return { ok: true, status: response.status, text: await response.text() }
+  } catch (error) {
+    return { ok: false, reason: 'network', detail: clipText(error && error.message ? error.message : error) }
+  }
+}
+
 /** Begin an OAuth device-flow attempt; the device code never leaves the Host. */
 async function githubDeviceStart() {
   const config = await readGithubConfig()
   const clientId = effectiveDeviceClientId(config)
   if (clientId === '') return { ok: false, reason: 'missing-client-id' }
-  let response
+  const response = await githubOauthPost('/login/device/code', { client_id: clientId, scope: GITHUB_DEVICE_SCOPE })
+  if (response.ok !== true) return { ok: false, reason: 'network', detail: response.detail ?? '' }
+  let data = null
   try {
-    response = await githubFetch(`${GITHUB_WEB}/login/device/code`, {
-      method: 'POST',
-      headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ client_id: clientId, scope: GITHUB_DEVICE_SCOPE }).toString(),
-      signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
-    })
-  } catch (error) {
-    return { ok: false, reason: 'network', detail: clipText(error && error.message ? error.message : error) }
+    data = JSON.parse(response.text)
+  } catch {
+    data = null
   }
-  const data = await response.json().catch(() => null)
-  if (!response.ok || !data || typeof data.device_code !== 'string') {
+  if (response.status >= 400 || !data || typeof data.device_code !== 'string') {
     return { ok: false, reason: 'device-start-failed', detail: clipText((data && data.error_description) ?? `HTTP ${response.status}`) }
   }
   const id = randomBytes(12).toString('hex')
@@ -2076,38 +2210,30 @@ async function githubDevicePoll(ctx, id) {
     return { ok: true, state: 'pending', retryAfter: Math.max(1, Math.ceil((flow.nextPollAt - Date.now()) / 1000)) }
   }
   flow.nextPollAt = Date.now() + flow.interval * 1000
-  let response
-  let networkError = null
-  // Three tries: through a flaky proxy the first connection to the token
-  // endpoint drops now and then, and that must not end the sign-in.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      response = await githubFetch(`${GITHUB_WEB}/login/oauth/access_token`, {
-        method: 'POST',
-        headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: flow.clientId,
-          device_code: flow.deviceCode,
-          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-        }).toString(),
-        signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
-      })
-      networkError = null
-      break
-    } catch (error) {
-      networkError = error
-      if (attempt < 2) {
-        flow.nextPollAt = Date.now()
-        await new Promise((done) => setTimeout(done, attempt === 0 ? 500 : 1500))
-      }
-    }
+  let response = await githubOauthPost('/login/oauth/access_token', {
+    client_id: flow.clientId,
+    device_code: flow.deviceCode,
+    grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+  })
+  if (response.ok !== true) {
+    // Retry once immediately: a dropped tunnel here must not end the sign-in.
+    await new Promise((done) => setTimeout(done, 500))
+    response = await githubOauthPost('/login/oauth/access_token', {
+      client_id: flow.clientId,
+      device_code: flow.deviceCode,
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+    })
   }
-  if (networkError) {
-    // Let the client retry immediately instead of waiting out the interval.
+  if (response.ok !== true) {
     flow.nextPollAt = Date.now()
-    return { ok: false, reason: 'network', detail: clipText(networkError.message ? networkError.message : networkError) }
+    return { ok: false, reason: 'network', detail: response.detail ?? '' }
   }
-  const data = await response.json().catch(() => null)
+  let data = null
+  try {
+    data = JSON.parse(response.text)
+  } catch {
+    data = null
+  }
   const error = asText(data && data.error)
   if (error === 'authorization_pending') return { ok: true, state: 'pending', retryAfter: flow.interval }
   if (error === 'slow_down') {

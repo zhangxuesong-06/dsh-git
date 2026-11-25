@@ -3,6 +3,15 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.22] - 2026-11-25
+
+### 修复
+
+- **浏览器登录改走自建代理隧道**：经系统代理访问 `github.com/login/*` 时，Electron 的网络栈每隔几次就会丢连接
+  （`fetch failed`），这是授权后登录失败的真正原因。Host 现在用 `node:http` 的 CONNECT + `node:tls` 自建一条
+  一次性 HTTPS 隧道（仍优先，失败再回落到 Electron fetch），实测 6/6 轮询全部成功、单次 0.8–1.5 秒。
+- 设备流轮询改为「失败立刻重试一次」，不再叠加退避等待，登录更快。
+
 ## [1.4.21] - 2026-11-25
 
 ### 修复

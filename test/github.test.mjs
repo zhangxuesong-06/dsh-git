@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events'
 import {
   apply,
   classifyPushFailure,
+  dechunkBody,
   githubIdentityArgs,
   githubRewriteArgs,
   gitProxyArgs,
@@ -508,6 +509,9 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   )
   check('push: non-fast-forward is out-of-date', classifyPushFailure(' ! [rejected]        main -> main (non-fast-forward)') === 'out-of-date', 'out-of-date')
   check('push: anything else is a plain failure', classifyPushFailure('fatal: unable to access: timeout') === 'push-failed', 'push-failed')
+  const chunkBody = '{"error":"authorization_pending"}'
+  const chunked = `${chunkBody.length.toString(16)}\r\n${chunkBody}\r\n0\r\n\r\n`
+  check('tunnel: chunked bodies decode', dechunkBody(chunked) === chunkBody, JSON.stringify(dechunkBody(chunked)))
 
   // Deterministic proxy override, then a reachability probe through mocked fetch.
   process.env.DSH_GIT_BAR_HTTP_PROXY = '127.0.0.1:7897'
