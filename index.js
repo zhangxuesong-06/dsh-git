@@ -1220,8 +1220,8 @@ async function pushCommitted(root, branch, credentials = null, options = {}) {
   const token = typeof options.token === 'string' ? options.token : ''
   const effective = credentials ?? (token !== '' ? { username: 'x-access-token', password: token } : null)
   const transport = token === '' ? [] : await githubTransportArgs(root, target)
-  const proxyArgs = gitProxyArgs(await detectProxy())
-  const args = [...proxyArgs, ...transport, ...(target.setTracking ? ['push', '--set-upstream', target.remote, branch] : ['push'])]
+  const attempts = gitTransportAttempts(await detectProxy())
+  const pushArgs = target.setTracking ? ['push', '--set-upstream', target.remote, branch] : ['push']
 
   let helper = null
   try {
@@ -1238,9 +1238,17 @@ async function pushCommitted(root, branch, credentials = null, options = {}) {
           SSH_ASKPASS_REQUIRE: 'force',
         }
       : NETWORK_ENV
-    const pushed = await git(root, args, 120_000, env)
-    if (pushed.failed) {
-      const detail = clipText(pushed.err || pushed.out)
+    let pushed = null
+    let lastDetail = ''
+    for (const attempt of attempts) {
+      pushed = await git(root, [...attempt, ...transport, ...pushArgs], 120_000, env)
+      if (!pushed.failed) break
+      lastDetail = clipText(pushed.err || pushed.out)
+      // Retry only when the transport itself looks broken; auth/ref conflicts are final.
+      if (!isTransportFailure(lastDetail) || attempt === attempts[attempts.length - 1]) break
+    }
+    if (pushed && pushed.failed) {
+      const detail = lastDetail
       const outOfDate = /non-fast-forward|fetch first|rejected|updates were rejected/i.test(detail)
       return {
         pushed: false,
@@ -1814,6 +1822,23 @@ export function gitProxyArgs(proxy) {
   return ['-c', `http.proxy=${proxy.url}`, '-c', `https.proxy=${proxy.url}`]
 }
 
+/**
+ * Argument sets to try, in order. A detected proxy is not always right: with a
+ * TUN-mode client git reaches GitHub directly while forcing the proxy breaks the
+ * TLS handshake, so the direct attempt goes first and the proxy is the fallback.
+ */
+export function gitTransportAttempts(proxy) {
+  const proxied = gitProxyArgs(proxy)
+  return proxied.length === 0 ? [[]] : [[], proxied]
+}
+
+/** Failures worth retrying through the other transport. */
+export function isTransportFailure(detail) {
+  const text = String(detail ?? '')
+  if (text === '') return false
+  return /unable to access|Could not resolve|timed out|timed? ?out|TLS|handshake|SSL|Connection (refused|reset|closed)|Failed to connect|network/i.test(text)
+}
+
 /** Windows registry proxy, used when the Electron network service is absent. */
 async function readWindowsProxy() {
   if (process.platform !== 'win32') return null
@@ -2295,14 +2320,24 @@ async function githubClone(ctx, payload = {}, job = null) {
           }
         : {}),
     }
-    const args = [...gitProxyArgs(await detectProxy()), 'clone', '--progress']
-    const branch = typeof payload.branch === 'string' ? payload.branch.trim() : ''
-    if (branch !== '') args.push('--branch', branch)
-    args.push('--', url, target)
+    const attempts = gitTransportAttempts(await detectProxy())
+    const requestedBranch = typeof payload.branch === 'string' ? payload.branch.trim() : ''
     if (job) job.state = 'cloning'
-    const cloned = await runCloneWithProgress(root, args, env, job)
-    if (!cloned.ok) {
+    let cloned = { ok: true, detail: '' }
+    for (const attempt of attempts) {
+      const args = [...attempt, 'clone', '--progress']
+      if (requestedBranch !== '') args.push('--branch', requestedBranch)
+      args.push('--', url, target)
+      cloned = await runCloneWithProgress(root, args, env, job)
+      if (cloned.ok) break
       await rmPath(target, { recursive: true, force: true }).catch(() => {})
+      if (!isTransportFailure(cloned.detail) || attempt === attempts[attempts.length - 1]) break
+      if (job) {
+        job.stage = 'retrying'
+        job.percent = 0
+      }
+    }
+    if (!cloned.ok) {
       const detail = clipText(cloned.detail)
       return {
         ok: false,

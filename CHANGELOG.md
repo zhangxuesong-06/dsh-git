@@ -3,6 +3,15 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.17] - 2026-11-25
+
+### 修复
+
+- **推送/克隆不再一律强加代理**：检测到系统代理时改为**先直连、失败再走代理**。TUN 模式（本机就是）下 git 直连
+  GitHub 更快更稳，而强制走 HTTP 代理会出现 `schannel: failed to receive handshake, SSL/TLS connection failed`；
+  只有网络类错误（`unable to access`、TLS/handshake、connection refused、超时等）才重试另一条通道，
+  认证失败与非快进冲突不会盲目重试。
+
 ## [1.4.16] - 2026-11-24
 
 ### 新增

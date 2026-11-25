@@ -9,6 +9,8 @@ import {
   githubIdentityArgs,
   githubRewriteArgs,
   gitProxyArgs,
+  gitTransportAttempts,
+  isTransportFailure,
   parseGithubRepo,
   parseProxyResult,
   resolveDeviceClientId,
@@ -473,6 +475,12 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   check('proxy: empty is unknown', parseProxyResult('').mode === 'unknown', parseProxyResult('').mode)
   check('proxy args: proxy mode', gitProxyArgs({ mode: 'proxy', url: 'http://p:1' }).length === 4, gitProxyArgs({ mode: 'proxy', url: 'http://p:1' }).join(' '))
   check('proxy args: direct is empty', gitProxyArgs({ mode: 'direct', url: '' }).length === 0, 'direct')
+  // A TUN-mode client makes direct the working transport while the proxy breaks
+  // TLS, so the direct attempt always comes first and the proxy is the fallback.
+  const attemptsWithProxy = gitTransportAttempts({ mode: 'proxy', url: 'http://p:1' })
+  check('transport: direct attempt first, proxy second', attemptsWithProxy.length === 2 && attemptsWithProxy[0].length === 0 && attemptsWithProxy[1].length === 4, JSON.stringify(attemptsWithProxy))
+  check('transport: no proxy means one attempt', gitTransportAttempts({ mode: 'direct', url: '' }).length === 1, 'direct')
+  check('transport: network failures retry', isTransportFailure('fatal: unable to access: TLS handshake failed') === true && isTransportFailure('fatal: Authentication failed for repo') === false, 'classification')
 
   // Deterministic proxy override, then a reachability probe through mocked fetch.
   process.env.DSH_GIT_BAR_HTTP_PROXY = '127.0.0.1:7897'
