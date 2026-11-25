@@ -1292,6 +1292,12 @@ async function pushCommitted(root, branch, credentials = null, options = {}) {
 const GITHUB_API = 'https://api.github.com'
 const GITHUB_WEB = 'https://github.com'
 const GITHUB_USER_AGENT = 'dsh-git-bar'
+/**
+ * Scopes the browser sign-in asks for. `workflow` is included because a push
+ * that touches `.github/workflows/*` is refused by GitHub without it, and this
+ * plugin is used to push exactly those files.
+ */
+const GITHUB_DEVICE_SCOPE = 'repo read:user workflow'
 const GITHUB_TOKEN_KEY = 'dsh-git-bar/github-token'
 const GITHUB_TIMEOUT_MS = 20_000
 const GITHUB_DEVICE_TTL_MS = 15 * 60_000
@@ -2032,7 +2038,7 @@ async function githubDeviceStart() {
     response = await githubFetch(`${GITHUB_WEB}/login/device/code`, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ client_id: clientId, scope: 'repo read:user' }).toString(),
+      body: new URLSearchParams({ client_id: clientId, scope: GITHUB_DEVICE_SCOPE }).toString(),
       signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
     })
   } catch (error) {

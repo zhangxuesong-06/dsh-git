@@ -3,6 +3,15 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.19] - 2026-11-25
+
+### 变更
+
+- **浏览器登录额外申请 `workflow` 作用域**：之前用 OAuth App 登录推不了修改 `.github/workflows/*` 的提交
+  （GitHub 报 `refusing to allow an OAuth App to create or update workflow … without workflow scope`）。
+  现在设备流登录会申请 `repo read:user workflow`，可以正常推送 workflow 文件。
+  **已有的登录需要「退出 → 重新用浏览器登录」一次才会拿到新作用域**（PAT 请自备含 `workflow` 的 token）。
+
 ## [1.4.18] - 2026-11-25
 
 ### 修复

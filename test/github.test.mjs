@@ -313,6 +313,9 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   const started = await ask(repo, '/dsh-git-bar/github/device/start', 'POST', {})
   check('device: start returns a code', started.ok === true && started.userCode === 'ABCD-1234', JSON.stringify(started))
   check('device: custom app wins', seenBody.includes('client_id=Iv1device0001'), seenBody.slice(0, 120))
+  // Pushes that touch .github/workflows/* need the workflow scope, so the
+  // browser sign-in must request it up front.
+  check('device: asks for the workflow scope', /scope=/.test(seenBody) && decodeURIComponent(seenBody).includes('workflow'), decodeURIComponent(seenBody).slice(0, 160))
   check('device: device secret stays host-side', !JSON.stringify(started).includes('device_secret"'), 'leak')
   check('device: verification uri', started.verificationUri === 'https://github.com/login/device', started.verificationUri)
 
