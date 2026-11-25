@@ -2078,9 +2078,9 @@ async function githubDevicePoll(ctx, id) {
   flow.nextPollAt = Date.now() + flow.interval * 1000
   let response
   let networkError = null
-  // One retry matters here: the panel used to abort the whole sign-in on a
-  // single transient fetch failure.
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  // Three tries: through a flaky proxy the first connection to the token
+  // endpoint drops now and then, and that must not end the sign-in.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       response = await githubFetch(`${GITHUB_WEB}/login/oauth/access_token`, {
         method: 'POST',
@@ -2096,9 +2096,9 @@ async function githubDevicePoll(ctx, id) {
       break
     } catch (error) {
       networkError = error
-      if (attempt === 0) {
+      if (attempt < 2) {
         flow.nextPollAt = Date.now()
-        await new Promise((done) => setTimeout(done, 400))
+        await new Promise((done) => setTimeout(done, attempt === 0 ? 500 : 1500))
       }
     }
   }
