@@ -52,7 +52,23 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      # Pushing a backlog of old tags must not turn the run red: publishing a
+      # version that is already on npm is a no-op, not a failure.
+      - name: Look up the version on npm
+        id: lookup
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if npm view "dsh-git-bar@$version" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Already published
+        if: steps.lookup.outputs.exists == 'true'
+        run: echo "dsh-git-bar@${{ steps.lookup.outputs.version }} is already on npm; nothing to publish."
       - name: Publish
+        if: steps.lookup.outputs.exists == 'false'
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
