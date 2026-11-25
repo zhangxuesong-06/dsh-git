@@ -3,6 +3,18 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.24] - 2026-11-25
+
+### 修复
+
+- 浏览器登录的自带验证码链接：GitHub 的 device code 响应不一定返回 `verification_uri_complete`（本项目的 OAuth App
+  就不返回），现在 Host 会用 `verification_uri?user_code=…` 自己拼出预填链接，浏览器打开即带验证码。
+
+### 工程
+
+- **CI 自动发布**：仓库已配置 `NPM_TOKEN` secret；`v*` tag 推送后由 `publish to npm` 作业带 provenance 发布
+  （实测 v1.4.23 由 CI 发布成功，sigstore 透明日志可查）。README 的发布流程已同步更新。
+
 ## [1.4.23] - 2026-11-25
 
 ### 新增

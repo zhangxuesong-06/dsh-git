@@ -2230,14 +2230,24 @@ async function githubDeviceStart() {
   // Keep the client id with the attempt so a later config edit cannot make the
   // token exchange disagree with the code request that produced it.
   deviceFlows.set(id, { clientId, deviceCode: data.device_code, interval, expiresAt, nextPollAt: Date.now() + interval * 1000 })
+  const userCode = asText(data.user_code)
+  const verificationUri = asText(data.verification_uri) || `${GITHUB_WEB}/login/device`
+  // GitHub only returns `verification_uri_complete` for some app types; the
+  // device page accepts the same code as a query parameter, so build the
+  // pre-filled link when it is missing.
+  const completeFromServer = asText(data.verification_uri_complete)
+  const verificationUriComplete =
+    completeFromServer !== ''
+      ? completeFromServer
+      : userCode === ''
+        ? ''
+        : `${verificationUri}${verificationUri.includes('?') ? '&' : '?'}user_code=${encodeURIComponent(userCode)}`
   return {
     ok: true,
     id,
-    userCode: asText(data.user_code),
-    verificationUri: asText(data.verification_uri) || `${GITHUB_WEB}/login/device`,
-    // GitHub's own deep link pre-fills the code, so the browser never asks the
-    // user to type it.
-    verificationUriComplete: asText(data.verification_uri_complete) || '',
+    userCode,
+    verificationUri,
+    verificationUriComplete,
     interval,
     expiresAt,
   }

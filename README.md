@@ -191,10 +191,23 @@ root 可在卡片里改），然后调用 DSH 的 `workspaces.create({path})` + 
 
 ## 发布
 
+打 tag 即由 CI 发布（带 npm provenance），不需要本地 `npm publish`：
+
 ```bash
-npm publish          # scoped 包需 --access public；本包为无 scope 名，public 是默认
-npm run sync-mirror  # 发布后同步国内镜像（见下），否则镜像用户会装到旧版本
+npm version patch --no-git-tag-version   # 改版本号并提交
+git commit -am "chore: release vX.Y.Z"
+git tag -a vX.Y.Z -m "dsh-git-bar vX.Y.Z"
+git push origin main --tags              # 触发 CI：双平台测试 → publish to npm
+npm run sync-mirror                      # 发布后同步国内镜像（见下），否则镜像用户会装到旧版本
 ```
+
+工作流 `.github/workflows/ci.yml` 的行为：
+
+- `push` 到 main 或 `pull_request`：跑 ubuntu + windows 的 `check` 与 `test`；
+- `push` tag（`v*`）：测试通过后由 `publish to npm` 作业发布，使用仓库 secret `NPM_TOKEN`，
+  并附带 `--provenance`（sigstore 透明日志可查）；
+- 发布前会 `npm view` 查这个版本是否已在 npm 上，**已存在就跳过发布**（补推历史 tag 不会变红）；
+- 手工发布仍可用 `npm publish`（需要本机 `~/.npmrc` 里的 npm token），但会绕过 provenance。
 
 - `package.json` 已声明 `engines.dsh`（`>=0.2.1-rc.5 <0.3.0`）：DSH 安装前会按它做兼容性门禁，超出范围会被拒绝；
 - 版本号遵循 semver，DSH 的 registry 安装锁定精确版本；

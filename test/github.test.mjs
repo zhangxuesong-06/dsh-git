@@ -365,6 +365,17 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   check('device retry: network blip is retried host-side', retried.ok === true && retried.state === 'pending', JSON.stringify(retried))
 }
 
+// ── 7b-3. the pre-filled device link is built when GitHub omits it ───────
+{
+  queued(() => respond({ device_code: 'device_prefill', user_code: 'PREF-1234', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 5 }))
+  const started = await ask(repo, '/dsh-git-bar/github/device/start', 'POST', {})
+  check(
+    'device: pre-filled link is constructed from the user code',
+    started.ok === true && started.verificationUriComplete === 'https://github.com/login/device?user_code=PREF-1234',
+    started.verificationUriComplete,
+  )
+}
+
 // ── 7c. expiring grants refresh automatically ────────────────────────────
 {
   const grantFile = join(dataDir, 'github-token.json')
