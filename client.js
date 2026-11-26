@@ -155,6 +155,8 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: '打开验证页',
       githubDeviceExpired: '验证码已过期，请重试',
       githubDeviceDenied: '授权被拒绝',
+      githubAccountPanelTitle: 'GitHub 账号',
+      githubAccountOpen: '打开账号面板',
       githubBadgeSignedOut: '未登录',
       githubBadgeConnected: '已连接',
       githubLoadingStatusShort: '读取中',
@@ -415,6 +417,8 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: 'Open verification page',
       githubDeviceExpired: 'The code expired, please try again',
       githubDeviceDenied: 'Authorization denied',
+      githubAccountPanelTitle: 'GitHub account',
+      githubAccountOpen: 'Open the account panel',
       githubBadgeSignedOut: 'Not signed in',
       githubBadgeConnected: 'Connected',
       githubLoadingStatusShort: 'Loading',
@@ -2091,6 +2095,15 @@ window.__ModuleLoader__.load({
       '.gitbar-github-repo-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.gitbar-github-repo-desc{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-github-tag{flex:0 0 auto;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;font-size:9.5px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-compact-row{display:flex;align-items:center;justify-content:flex-end;flex:0 0 auto;padding:2px 8px 5px}',
+      '.gitbar-github-compact{display:inline-flex;align-items:center;gap:4px;padding:2px;border:1px solid transparent;border-radius:999px;background:transparent;color:inherit;font:inherit;cursor:pointer}',
+      '.gitbar-github-compact:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.gitbar-github-compact:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-brand-primary)}',
+      '.gitbar-github-compact .gitbar-github-avatar{position:relative;display:inline-flex;align-items:center;justify-content:center;overflow:visible}',
+      '.gitbar-github-account-dot{position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;box-sizing:border-box;border-radius:50%;background:var(--dsw-alias-state-success-primary);box-shadow:0 0 0 1.5px var(--dsw-alias-bg-overlay)}',
+      '.gitbar-github-account-dot-warn{background:var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary))}',
+      '.gitbar-github-compact-chevron{font-size:9px;line-height:1;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-account-panel{width:100%}',
       '.gitbar-github-head{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:4px 8px}',
       '.gitbar-github-title{font-weight:600;font-size:12.5px}',
       '.gitbar-github-badge{display:inline-flex;align-items:center;gap:4px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;font-size:10px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
@@ -2189,7 +2202,7 @@ window.__ModuleLoader__.load({
       '.gitbar-gp-login{display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid var(--dsw-alias-border-l1)}',
       '@keyframes gitbar-gp-in{from{opacity:0;transform:translateY(-4px) scale(.99)}to{opacity:1;transform:none}}',
       '@keyframes gitbar-github-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}',
-      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-gp,.gitbar-gp-repo,.gitbar-hero-clone,.gitbar-github-net-btn,.gitbar-github-pulse,.gitbar-github-skeleton-dot,.gitbar-github-step,.gitbar-github-cta-btn,.gitbar-github-disclosure,.gitbar-github-danger,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
+      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-gp,.gitbar-gp-repo,.gitbar-hero-clone,.gitbar-github-net-btn,.gitbar-github-pulse,.gitbar-github-skeleton-dot,.gitbar-github-compact,.gitbar-github-account-dot,.gitbar-github-step,.gitbar-github-cta-btn,.gitbar-github-disclosure,.gitbar-github-danger,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
     // ── components ────────────────────────────────────────────────────────
@@ -6411,6 +6424,13 @@ window.__ModuleLoader__.load({
       var setLogoutConfirm = logoutConfirmHook[1]
       var logoutTimer = useRef(null)
       var countdownTimer = useRef(null)
+      var accountOpenHook = useState(false)
+      var accountOpen = accountOpenHook[0]
+      var setAccountOpen = accountOpenHook[1]
+      var avatarBrokenHook = useState(false)
+      var avatarBroken = avatarBrokenHook[0]
+      var setAvatarBroken = avatarBrokenHook[1]
+      var accountDialogRef = useRef(null)
       var alive = useRef(true)
       var requestAbort = useRef(null)
       var deviceAbort = useRef(null)
@@ -6461,6 +6481,13 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
           countdownTimer.current = null
+          try {
+            var accountNode = accountDialogRef.current
+            if (accountNode && accountNode.open === true && typeof accountNode.close === 'function') accountNode.close()
+          } catch (error2) {
+            /* ignore */
+          }
+          accountDialogRef.current = null
         }
       }, [])
 
@@ -6671,10 +6698,15 @@ window.__ModuleLoader__.load({
               setExpanded(false)
               setError('')
               setPending('')
-              if (result.account && typeof props.onStatus === 'function') {
-                props.onStatus({ ok: true, signedIn: true, account: result.account, config: status && status.config ? status.config : {} })
+              // Host sends the complete status with the done poll; use it directly
+              // so scopes/mcp are correct immediately (no stale local assembly).
+              var doneStatus = result.status && typeof result.status === 'object' && result.status.ok === true ? result.status : null
+              if (doneStatus && typeof props.onStatus === 'function') {
+                props.onStatus(doneStatus)
               } else if (typeof props.onReload === 'function') {
                 props.onReload()
+              } else if (doneStatus) {
+                /* nothing else to do */
               }
               flash(t('githubSignedIn'))
               return
@@ -6816,6 +6848,50 @@ window.__ModuleLoader__.load({
         }
       }, [device && device.id, device && device.expiresAt])
 
+      useEffect(function () {
+        if (!accountOpen) return undefined
+        function handleOutside(event) {
+          var element = accountDialogRef.current
+          if (!element) return
+          var target = event && event.target ? event.target : null
+          try {
+            if (target && typeof element.contains === 'function' && element.contains(target)) return
+          } catch (error2) {
+            /* ignore */
+          }
+          closeAccountDialog()
+        }
+        function handleKey(event) {
+          try {
+            if (!event || (event.key !== 'Escape' && event.key !== 'Esc')) return
+            if (typeof event.preventDefault === 'function') event.preventDefault()
+          } catch (error2) {
+            return
+          }
+          closeAccountDialog()
+        }
+        try {
+          if (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') {
+            document.addEventListener('pointerdown', handleOutside, true)
+            document.addEventListener('keydown', handleKey, true)
+          }
+        } catch (error2) {
+          /* ignore */
+        }
+        return function () {
+          try {
+            document.removeEventListener('pointerdown', handleOutside, true)
+          } catch (error2) {
+            /* ignore */
+          }
+          try {
+            document.removeEventListener('keydown', handleKey, true)
+          } catch (error2) {
+            /* ignore */
+          }
+        }
+      }, [accountOpen])
+
       function cancelLogoutConfirm() {
         try {
           if (logoutTimer.current !== null) clearTimeout(logoutTimer.current)
@@ -6824,6 +6900,57 @@ window.__ModuleLoader__.load({
         }
         logoutTimer.current = null
         setLogoutConfirm(false)
+      }
+
+      function closeAccountDialog() {
+        var element = accountDialogRef.current
+        if (element && element.open === true) {
+          try {
+            element.close()
+          } catch (error2) {
+            /* ignore */
+          }
+        }
+        setAccountOpen(false)
+      }
+
+      function attachAccountDialog(node) {
+        accountDialogRef.current = node
+        if (!node) return
+        if (typeof node.show !== 'function') return
+        if (node.open !== true) {
+          try {
+            node.show()
+          } catch (error2) {
+            setAccountOpen(false)
+          }
+        }
+      }
+
+      function openAccountDialog() {
+        setExpanded(true)
+        setAccountOpen(true)
+      }
+
+      function handleCompactKeyDown(event) {
+        try {
+          if (!event) return
+          if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar' && event.keyCode !== 13 && event.keyCode !== 32) return
+          if (typeof event.preventDefault === 'function') event.preventDefault()
+        } catch (error2) {
+          return
+        }
+        openAccountDialog()
+      }
+
+      function handleAccountDialogKeyDown(event) {
+        try {
+          if (!event || (event.key !== 'Escape' && event.key !== 'Esc')) return
+          if (typeof event.preventDefault === 'function') event.preventDefault()
+        } catch (error2) {
+          return
+        }
+        closeAccountDialog()
       }
 
       function armLogoutConfirm() {
@@ -6901,40 +7028,67 @@ window.__ModuleLoader__.load({
             h('span', { className: 'gitbar-github-title' }, t('github')),
             badge,
             h('span', { className: 'gitbar-spacer' }),
-            caret
+            signedIn ? null : caret
           )
         ]
 
         var network = props.network && typeof props.network === 'object' ? props.network : null
         var networkBad = Boolean(network && (network.ok !== true || !(network.github && network.github.reachable === true)))
-        rows.push(
+        var netRow = h(
+          'div',
+          { className: 'gitbar-github-net', key: 'net' },
           h(
-            'div',
-            { className: 'gitbar-github-net', key: 'net' },
-            h(
-              'span',
-              { className: 'gitbar-github-net-text' + (networkBad ? ' gitbar-github-net-error' : '') },
-              githubNetworkText(t, network)
-            ),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'gitbar-github-net-btn',
-                title: t('githubNetworkRetest'),
-                'aria-label': t('githubNetworkRetest'),
-                onClick: function () {
-                  try {
-                    if (typeof props.onNetworkReload === 'function') props.onNetworkReload()
-                  } catch (error3) {
-                    /* ignore */
-                  }
+            'span',
+            { className: 'gitbar-github-net-text' + (networkBad ? ' gitbar-github-net-error' : '') },
+            githubNetworkText(t, network)
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'gitbar-github-net-btn',
+              title: t('githubNetworkRetest'),
+              'aria-label': t('githubNetworkRetest'),
+              onClick: function () {
+                try {
+                  if (typeof props.onNetworkReload === 'function') props.onNetworkReload()
+                } catch (error3) {
+                  /* ignore */
                 }
-              },
-              t('githubNetworkRetest')
-            )
+              }
+            },
+            t('githubNetworkRetest')
           )
         )
+        if (!signedIn) rows.push(netRow)
+        var accountBody = null
+        if (signedIn) {
+          rows.push(
+            h(
+              'div',
+              { className: 'gitbar-github-compact-row', key: 'compact' },
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gitbar-github-compact' + (hasWorkflowScope ? '' : ' gitbar-github-compact-warn'),
+                  title: t('githubAccountOpen'),
+                  'aria-label': t('githubAccountOpen'),
+                  'aria-expanded': accountOpen ? 'true' : 'false',
+                  onClick: openAccountDialog,
+                  onKeyDown: handleCompactKeyDown
+                },
+                h(
+                  'span',
+                  { className: 'gitbar-github-avatar gitbar-github-avatar-24', 'aria-hidden': 'true' },
+                  avatarUrl && !avatarBroken ? h('img', { src: avatarUrl, alt: '', loading: 'lazy', onError: function () { setAvatarBroken(true) } }) : avatarText
+                ),
+                h('span', { className: 'gitbar-github-account-dot' + (hasWorkflowScope ? '' : ' gitbar-github-account-dot-warn'), 'aria-hidden': 'true' }),
+                h('span', { className: 'gitbar-github-compact-chevron', 'aria-hidden': 'true' }, '▸')
+              )
+            )
+          )
+        }
 
         if (expanded) {
           var content = []
@@ -7447,7 +7601,69 @@ window.__ModuleLoader__.load({
             }
           }
 
-          rows.push(h('div', { className: 'gitbar-github-panel', key: 'panel' }, content))
+          if (signedIn) {
+            content.unshift(netRow)
+            accountBody = content
+          } else {
+            rows.push(h('div', { className: 'gitbar-github-panel', key: 'panel' }, content))
+          }
+        }
+
+        if (signedIn && accountOpen && accountBody) {
+          rows.push(
+            h(
+              'dialog',
+              {
+                ref: attachAccountDialog,
+                className: 'gitbar-gp-dialog',
+                'aria-label': t('githubAccountPanelTitle'),
+                onKeyDown: handleAccountDialogKeyDown,
+                style: {
+                  position: 'fixed',
+                  inset: 'auto',
+                  left: '50%',
+                  top: '50%',
+                  transform: 'translate(-50%,-50%)',
+                  margin: 0,
+                  padding: 0,
+                  border: 0,
+                  background: 'transparent',
+                  maxWidth: 'none',
+                  maxHeight: 'none',
+                  width: 'min(520px, calc(100vw - 32px))',
+                  height: 'auto',
+                  overflow: 'visible',
+                  boxSizing: 'border-box',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 2147483647
+                }
+              },
+              h('style', { key: 'gitbar-account-css' }, CSS),
+              h(
+                'div',
+                { className: 'gitbar-gp gitbar-github-account-panel', role: 'dialog', 'aria-modal': 'true' },
+                h(
+                  'div',
+                  { className: 'gitbar-gp-head' },
+                  h('span', { className: 'gitbar-gp-title' }, t('githubAccountPanelTitle')),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn',
+                      title: t('close'),
+                      'aria-label': t('close'),
+                      onClick: closeAccountDialog
+                    },
+                    '×'
+                  )
+                ),
+                h('div', { className: 'gitbar-gp-body' }, accountBody)
+              )
+            )
+          )
         }
 
         if (cloneOpen) {
