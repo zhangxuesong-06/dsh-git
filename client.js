@@ -9690,16 +9690,14 @@ window.__ModuleLoader__.load({
                 if (orgs.length > 8) orgRows.push(h('span', { className: 'gitbar-github-profile-org', key: 'org-more' }, '+' + String(orgs.length - 8)))
                 orgChildren.push(h('div', { className: 'gitbar-github-orgs-list', key: 'orgs-list' }, orgRows))
               }
-              // Empty organisation lists stay silent: GitHub reports private
-              // memberships only after the organisation approves this app.
-              if (orgs.length > 0) {
-                profileLines.push(
-                  h('div', { className: 'gitbar-github-profile-orgs', key: 'orgs-row' },
-                    h('span', { className: 'gitbar-github-meta-label' }, t('githubOrgsTitle')),
-                    h('div', { className: 'gitbar-github-orgs-list' }, orgChildren)
-                  )
+              // Empty organisation lists still show a quiet placeholder.
+              if (orgs.length === 0) orgChildren.push(h('div', { className: 'gitbar-github-hint', key: 'orgs-empty' }, t('githubOrgsEmpty')))
+              profileLines.push(
+                h('div', { className: 'gitbar-github-profile-orgs', key: 'orgs-row' },
+                  h('span', { className: 'gitbar-github-meta-label' }, t('githubOrgsTitle')),
+                  h('div', { className: 'gitbar-github-orgs-list' }, orgChildren)
                 )
-              }
+              )
               if (panelProfile.hireable === true) {
                 profileLines.push(h('div', { className: 'gitbar-github-profile-hireable', key: 'hireable' }, h('span', { className: 'gitbar-github-chip gitbar-github-chip-ok' }, t('githubHireable'))))
               }
@@ -9754,19 +9752,18 @@ window.__ModuleLoader__.load({
                 )
               )
             )
-            meta.push(
-              h(
-                'div',
-                { className: 'gitbar-github-meta-item', key: 'mcp' },
-                h('div', { className: 'gitbar-github-meta-label' }, 'MCP'),
+            // MCP is optional and needs a process environment variable at startup,
+            // so the row only appears when the server is actually configured.
+            if (mcpConfigured) {
+              meta.push(
                 h(
                   'div',
-                  { className: 'gitbar-github-meta-value' + (mcpConfigured ? '' : ' gitbar-github-meta-muted'), title: mcpConfigured ? '' : t('githubMcpHint') },
-                  mcpConfigured ? t('githubMcpOn') : t('githubMcpOff')
-                ),
-                mcpConfigured ? null : h('div', { className: 'gitbar-github-hint' }, t('githubMcpHint'))
+                  { className: 'gitbar-github-meta-item', key: 'mcp' },
+                  h('div', { className: 'gitbar-github-meta-label' }, 'MCP'),
+                  h('div', { className: 'gitbar-github-meta-value' }, t('githubMcpOn'))
+                )
               )
-            )
+            }
             content.push(h('div', { className: 'gitbar-github-meta-grid', key: 'meta' }, meta))
 
             if (!hasWorkflowScope) {
