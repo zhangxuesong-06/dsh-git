@@ -1316,7 +1316,7 @@ const GITHUB_USER_AGENT = 'dsh-git-bar'
  * that touches `.github/workflows/*` is refused by GitHub without it, and this
  * plugin is used to push exactly those files.
  */
-const GITHUB_DEVICE_SCOPE = 'repo read:user workflow'
+const GITHUB_DEVICE_SCOPE = 'repo read:user workflow read:org'
 const GITHUB_TOKEN_KEY = 'dsh-git-bar/github-token'
 const GITHUB_TIMEOUT_MS = 20_000
 const GITHUB_DEVICE_TTL_MS = 15 * 60_000
@@ -2353,23 +2353,39 @@ async function githubDevicePoll(ctx, id) {
   return { ok: true, state: 'done', account, scopes: grantedScopes, status: await githubStatus(ctx) }
 }
 
-/** Repositories the signed-in account can push to, newest first. */
-/** The signed-in account's public profile, for the account page header. */
+/**
+ * The signed-in account's public profile, for the account page header.
+ *
+ * Organisations need `read:org` for the private list; without it the public
+ * `/users/{login}/orgs` endpoint still answers, so the block stays useful.
+ */
 async function githubProfile(ctx) {
   const access = await githubAccessToken(ctx)
   if (!access.token) return { ok: false, reason: access.reason ?? 'not-signed-in', detail: access.detail ?? '' }
-  const [result, orgsResult] = await Promise.all([
-    githubRequest('/user', { token: access.token }),
-    githubRequest('/user/orgs?per_page=20', { token: access.token }),
-  ])
+  const grant = access.grant ?? (await readGithubGrant(ctx))
+  const login = grant && grant.account && typeof grant.account.login === 'string' ? grant.account.login : ''
+  const result = await githubRequest('/user', { token: access.token })
   if (!result.ok) return { ok: false, reason: result.reason, detail: result.detail ?? '' }
   const data = result.data && typeof result.data === 'object' ? result.data : {}
-  const orgs = orgsResult.ok && Array.isArray(orgsResult.data)
-    ? orgsResult.data.map((org) => asText(org && org.login)).filter(Boolean).slice(0, 20)
-    : []
+  const scopes = Array.isArray(result.scopes) ? result.scopes : []
+  let orgs = []
+  let orgsSource = 'none'
+  const memberOrgs = await githubRequest('/user/orgs?per_page=30', { token: access.token })
+  if (memberOrgs.ok && Array.isArray(memberOrgs.data)) {
+    orgs = memberOrgs.data.map((org) => asText(org && org.login)).filter(Boolean)
+    orgsSource = 'member'
+  } else if (login !== '') {
+    const publicOrgs = await githubRequest(`/users/${encodeURIComponent(login)}/orgs?per_page=30`, { token: access.token })
+    if (publicOrgs.ok && Array.isArray(publicOrgs.data)) {
+      orgs = publicOrgs.data.map((org) => asText(org && org.login)).filter(Boolean)
+      orgsSource = 'public'
+    }
+  }
   return {
     ok: true,
-    scopes: Array.isArray(result.scopes) ? result.scopes : [],
+    scopes,
+    orgsSource,
+    canReadOrgs: scopes.includes('read:org') || scopes.includes('user') || scopes.includes('admin:org'),
     profile: {
       login: asText(data.login),
       name: asText(data.name),
@@ -2389,9 +2405,71 @@ async function githubProfile(ctx) {
       avatarUrl: asText(data.avatar_url),
       htmlUrl: asText(data.html_url),
       hireable: data.hireable === true,
-      orgs,
+      orgs: orgs.slice(0, 30),
     },
   }
+}
+
+/**
+ * Parse GitHub's public contribution calendar (the profile page HTML) into day
+ * cells. GitHub renders one `<td data-date data-level id>` per day plus a
+ * tool-tip carrying the count, and this reads both without a GraphQL token.
+ */
+export function parseContributionsHtml(html) {
+  const text = String(html ?? '')
+  const cells = []
+  const tagRe = /<td\b[^>]*data-date="(\d{4}-\d{2}-\d{2})"[^>]*>/g
+  let match
+  while ((match = tagRe.exec(text)) !== null) {
+    const tag = match[0]
+    const id = (tag.match(/\bid="([^"]+)"/) ?? [])[1] ?? ''
+    const level = Number((tag.match(/data-level="(\d)"/) ?? [])[1] ?? 0)
+    cells.push({ date: match[1], level: Number.isFinite(level) ? level : 0, id })
+  }
+  const counts = new Map()
+  const tipRe = /<tool-tip\b[^>]*for="([^"]+)"[^>]*>([\s\S]*?)<\/tool-tip>/g
+  while ((match = tipRe.exec(text)) !== null) {
+    const body = match[2].replace(/<[^>]+>/g, ' ').trim()
+    const parsed = body.match(/([\d,]+)\s+contributions?/i)
+    counts.set(match[1], parsed ? Number(parsed[1].replace(/,/g, '')) : 0)
+  }
+  const days = cells.map((cell) => ({ date: cell.date, level: cell.level, count: counts.get(cell.id) ?? 0 }))
+  days.sort((left, right) => (left.date < right.date ? -1 : left.date > right.date ? 1 : 0))
+  const total = days.reduce((sum, day) => sum + day.count, 0)
+  const heading = text.match(/([\d,]+)\s+contributions?\s+in\s+the\s+last\s+year/i)
+  return { total: heading ? Number(heading[1].replace(/,/g, '')) : total, days }
+}
+
+const contributionsCache = { at: 0, login: '', value: null }
+
+/** Last year of public contributions for the signed-in login. */
+async function githubContributions(ctx) {
+  const access = await githubAccessToken(ctx)
+  if (!access.token) return { ok: false, reason: access.reason ?? 'not-signed-in', detail: access.detail ?? '' }
+  const grant = access.grant ?? (await readGithubGrant(ctx))
+  const login = grant && grant.account && typeof grant.account.login === 'string' ? grant.account.login : ''
+  if (login === '') return { ok: false, reason: 'not-signed-in' }
+  if (contributionsCache.value && contributionsCache.login === login && Date.now() - contributionsCache.at < 5 * 60_000) {
+    return contributionsCache.value
+  }
+  let response
+  try {
+    response = await githubFetch(`https://github.com/users/${encodeURIComponent(login)}/contributions`, {
+      headers: { 'user-agent': GITHUB_USER_AGENT, accept: 'text/html' },
+      signal: AbortSignal.timeout(15_000),
+    })
+  } catch (error) {
+    return { ok: false, reason: 'network', detail: clipText(error && error.message ? error.message : error) }
+  }
+  if (response.status >= 400) return { ok: false, reason: 'fetch-failed', detail: `HTTP ${response.status}` }
+  const html = await response.text().catch(() => '')
+  const parsed = parseContributionsHtml(html)
+  if (parsed.days.length === 0) return { ok: false, reason: 'parse-failed' }
+  const value = { ok: true, login, total: parsed.total, days: parsed.days, source: 'html' }
+  contributionsCache.at = Date.now()
+  contributionsCache.login = login
+  contributionsCache.value = value
+  return value
 }
 
 /**
@@ -2776,7 +2854,7 @@ async function handle(ctx, req, res) {
         send(200, await githubStatus(ctx))
         return
       }
-      if (req.method !== 'POST' && step !== 'repos' && step !== 'profile' && step !== 'activity' && step !== 'clone/status' && step !== 'network' && step !== 'client-log') {
+      if (req.method !== 'POST' && step !== 'repos' && step !== 'profile' && step !== 'activity' && step !== 'contributions' && step !== 'clone/status' && step !== 'network' && step !== 'client-log') {
         send(405, { ok: false, reason: 'method-not-allowed' })
         return
       }
@@ -2828,6 +2906,10 @@ async function handle(ctx, req, res) {
       }
       if (step === 'network') {
         send(200, await githubNetwork(ctx, url))
+        return
+      }
+      if (step === 'contributions') {
+        send(200, await githubContributions(ctx))
         return
       }
       if (step === 'activity') {

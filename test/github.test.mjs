@@ -21,6 +21,7 @@ import {
   gitTransportAttempts,
   isTransportFailure,
   openExternalUrl,
+  parseContributionsHtml,
   parseGithubRepo,
   parseProxyResult,
   resolveDeviceClientId,
@@ -260,6 +261,28 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
       activity.counts.PushEvent === 2 &&
       activity.counts.CreateEvent === 1,
     JSON.stringify({ total: activity.total, counts: activity.counts }),
+  )
+
+  // Contribution calendar: GitHub's profile HTML is parsed into day cells.
+  const calendarHtml = [
+    '<h2>150 contributions in the last year</h2>',
+    '<td tabindex="0" data-date="2026-01-01" id="contribution-day-component-0-0" data-level="0" class="ContributionCalendar-day"></td>',
+    '<tool-tip for="contribution-day-component-0-0" popover="manual">No contributions on January 1st.</tool-tip>',
+    '<td tabindex="0" data-date="2026-01-02" id="contribution-day-component-0-1" data-level="3" class="ContributionCalendar-day"></td>',
+    '<tool-tip for="contribution-day-component-0-1" popover="manual">7 contributions on January 2nd.</tool-tip>',
+  ].join('\n')
+  const parsedCalendar = parseContributionsHtml(calendarHtml)
+  check(
+    'contributions: html parses into day cells',
+    parsedCalendar.total === 150 && parsedCalendar.days.length === 2 && parsedCalendar.days[1].count === 7 && parsedCalendar.days[1].level === 3,
+    JSON.stringify(parsedCalendar.days),
+  )
+  queued(() => respond(calendarHtml, { headers: { 'content-type': 'text/html' } }))
+  const contributions = await ask(repo, '/dsh-git-bar/github/contributions')
+  check(
+    'contributions: route reports the year',
+    contributions.ok === true && contributions.total === 150 && contributions.days.length === 2 && contributions.login === 'octo',
+    JSON.stringify({ ok: contributions.ok, total: contributions.total, days: contributions.days && contributions.days.length }),
   )
 }
 
