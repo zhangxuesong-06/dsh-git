@@ -141,6 +141,11 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   check('status: signed out', status.ok === true && status.signedIn === false && status.account === null, JSON.stringify(status))
   check('status: default clone root', /dsh-workspaces$/.test(status.config.cloneRoot), status.config.cloneRoot)
   check('status: identity defaults on', status.config.useGithubIdentity === true, String(status.config.useGithubIdentity))
+  check(
+    'status: mcp reports its source',
+    status.mcp && status.mcp.envName === 'DSH_GIT_BAR_GITHUB_TOKEN' && status.mcp.source === 'none' && status.mcp.configured === false,
+    JSON.stringify(status.mcp),
+  )
 }
 
 // ── 3. login with a personal access token ────────────────────────────────

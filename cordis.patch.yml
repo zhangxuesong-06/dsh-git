@@ -2,11 +2,11 @@
 - insert:
     - id: dsh-git-bar
       name: 'dsh-git-bar'
-    # GitHub's hosted MCP server (tools appear as mcp__github__*). The row stays
-    # disabled until the user signs in: the Host half then writes
-    # DSH_GIT_BAR_GITHUB_TOKEN into the Harness-home `.env`, which DSH loads at
-    # boot. Restart DSH after signing in to mount it; signing out clears the
-    # variable again. The token never appears in this file.
+    # GitHub's hosted MCP server (tools appear as mcp__github__*). This row is the
+    # optional environment-variable path: it mounts only when the operator puts
+    # DSH_GIT_BAR_GITHUB_TOKEN in the process environment. Without it the Host half
+    # mounts the same server at runtime with the token from the credential store,
+    # so an ordinary install needs no setup. The token never appears in this file.
     - id: dsh-git-bar/github-mcp
       name: '@deepseek-ai/dsh-mcp-client'
       disabled: '!!js !process.env.DSH_GIT_BAR_GITHUB_TOKEN'

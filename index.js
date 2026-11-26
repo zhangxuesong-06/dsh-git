@@ -1744,6 +1744,8 @@ async function githubRefreshGrant(ctx, grant) {
   }
   await writeGithubGrant(ctx, next)
   await cleanupGithubEnvToken()
+  // A rotated token invalidates the mounted MCP Authorization header.
+  githubMcpRuntime.token = ''
   return { ok: true, grant: next }
 }
 
@@ -1766,6 +1768,39 @@ async function githubAccessToken(ctx) {
  * until the variable exists, so a signed-out profile never tries to connect.
  */
 const GITHUB_MCP_ENV = 'DSH_GIT_BAR_GITHUB_TOKEN'
+
+/** GitHub's remote MCP endpoint (Streamable HTTP). */
+const GITHUB_MCP_URL = 'https://api.githubcopilot.com/mcp/'
+
+/**
+ * The MCP client mounted by this plugin at runtime. Its presence — not an
+ * environment variable — is what the panel reports, so a freshly installed
+ * profile gets GitHub tools without any manual setup.
+ */
+const githubMcpRuntime = { fiber: null, token: '' }
+
+/** What the browser half may know about MCP availability. */
+function githubMcpStatus() {
+  const fromEnv = Boolean(process.env[GITHUB_MCP_ENV])
+  return {
+    configured: githubMcpRuntime.fiber !== null || fromEnv,
+    source: githubMcpRuntime.fiber !== null ? 'runtime' : fromEnv ? 'env' : 'none',
+    envName: GITHUB_MCP_ENV,
+  }
+}
+
+/** Tear the runtime MCP client down; safe to call when nothing is mounted. */
+function disposeGithubMcp() {
+  const fiber = githubMcpRuntime.fiber
+  githubMcpRuntime.fiber = null
+  githubMcpRuntime.token = ''
+  if (!fiber) return
+  try {
+    if (typeof fiber.dispose === 'function') fiber.dispose()
+  } catch {
+    /* disposal is best effort */
+  }
+}
 
 /** Harness home, where the boot-time `.env` layer lives. */
 function dshHome() {
@@ -2016,7 +2051,7 @@ async function githubStatus(ctx) {
     expiresAt: grant && typeof grant.expiresAt === 'number' ? grant.expiresAt : null,
     expired: Boolean(grant && typeof grant.expiresAt === 'number' && grant.expiresAt <= Date.now()),
     refreshable: Boolean(grant && typeof grant.refreshToken === 'string' && grant.refreshToken !== ''),
-    mcp: { configured: Boolean(process.env[GITHUB_MCP_ENV]), envName: GITHUB_MCP_ENV },
+    mcp: githubMcpStatus(),
     device: {
       ready: effectiveDeviceClientId(config) !== '',
       custom: config.deviceClientId !== '',
@@ -2348,6 +2383,8 @@ async function githubDevicePoll(ctx, id) {
   })
   await cleanupGithubEnvToken()
   deviceFlows.delete(id)
+  // A completed device flow changes the token, so the MCP client re-registers.
+  configureGithubMcp(ctx).catch(() => {})
   // Hand the caller the complete fresh status so the panel never has to merge a
   // partial response and render a stale scope set.
   return { ok: true, state: 'done', account, scopes: grantedScopes, status: await githubStatus(ctx) }
@@ -2884,12 +2921,15 @@ async function handle(ctx, req, res) {
           send(200, { ok: false, reason: 'missing-token' })
           return
         }
-        send(200, await githubLogin(ctx, token))
+        const result = await githubLogin(ctx, token)
+        if (result.ok === true) configureGithubMcp(ctx).catch(() => {})
+        send(200, result)
         return
       }
       if (step === 'logout') {
         await clearGithubGrant(ctx)
         await cleanupGithubEnvToken()
+        disposeGithubMcp()
         send(200, { ok: true })
         return
       }
@@ -3193,12 +3233,78 @@ async function handle(ctx, req, res) {
  */
 export const inject = ['webServer']
 
+/**
+ * Mount GitHub's remote MCP server at runtime with the stored token, so an
+ * installed profile gets MCP without any environment variable. The row in
+ * `cordis.patch.yml` stays as the environment-variable path for people who set
+ * `DSH_GIT_BAR_GITHUB_TOKEN` themselves.
+ */
+async function configureGithubMcp(ctx, attempts = 3) {
+  if (process.env.DSH_GIT_BAR_MCP === 'off') return
+  // An operator-provided token already mounts the declarative row; mounting a
+  // second server under the same name would only collide.
+  if (process.env[GITHUB_MCP_ENV]) {
+    disposeGithubMcp()
+    return
+  }
+  let token = ''
+  let access = null
+  try {
+    access = await githubAccessToken(ctx)
+    token = access && typeof access.token === 'string' ? access.token : ''
+  } catch {
+    token = ''
+  }
+  if (token === '') {
+    disposeGithubMcp()
+    return
+  }
+  if (githubMcpRuntime.fiber && githubMcpRuntime.token === token) return
+  const loader = ctx.get('loader')
+  if (!loader || typeof loader.import !== 'function' || typeof ctx.plugin !== 'function') {
+    if (attempts > 1) setTimeout(() => configureGithubMcp(ctx, attempts - 1).catch(() => {}), 4000)
+    return
+  }
+  let plugin = null
+  try {
+    const namespace = await loader.import('@deepseek-ai/dsh-mcp-client', () => [])
+    plugin = typeof loader.unwrapExports === 'function' ? loader.unwrapExports(namespace) : namespace
+  } catch (error) {
+    ctx.logger?.warn?.(`dsh-git-bar: GitHub MCP client is unavailable (${String(error && error.message ? error.message : error)})`)
+    return
+  }
+  if (!plugin) return
+  disposeGithubMcp()
+  try {
+    const fiber = ctx.plugin(plugin, {
+      serverName: 'github',
+      transport: 'streamable-http',
+      url: GITHUB_MCP_URL,
+      headers: { Authorization: `Bearer ${token}`, 'User-Agent': GITHUB_USER_AGENT },
+      failOnStartupError: false,
+    })
+    githubMcpRuntime.fiber = (fiber && fiber.ctx && fiber.ctx.fiber) || fiber || null
+    githubMcpRuntime.token = token
+    ctx.logger?.info?.('dsh-git-bar: GitHub MCP server registered (runtime)')
+  } catch (error) {
+    disposeGithubMcp()
+    ctx.logger?.warn?.(`dsh-git-bar: GitHub MCP registration failed (${String(error && error.message ? error.message : error)})`)
+  }
+}
+
 /** Register the route family; without a Web carrier the plugin stays UI-only. */
 export function apply(ctx) {
   // Older versions wrote the token into the Harness-home `.env`; that file is
   // boot-critical and must never carry this field. Strip a leftover line once
   // per load so an upgraded profile starts cleanly.
   cleanupGithubEnvToken().catch(() => {})
+  // MCP needs the credential store and the loader, both of which may mount after
+  // this plugin, so the first attempt waits for the boot to settle.
+  const bootTimer = setTimeout(() => configureGithubMcp(ctx).catch(() => {}), 2500)
+  ctx.effect(() => () => {
+    clearTimeout(bootTimer)
+    disposeGithubMcp()
+  })
   const webServer = ctx.get('webServer')
   if (!webServer) {
     ctx.logger?.info?.('dsh-git-bar: no webServer in this composition; host routes are unavailable')

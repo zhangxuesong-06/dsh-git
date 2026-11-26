@@ -3,6 +3,17 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.38] - 2026-11-26
+
+### 功能
+
+- **安装后自动配置 GitHub MCP**：Host 半在启动后（以及登录 / 重新授权 / 退出时）用**凭据库里的 token**
+  在进程内挂载 GitHub 官方远程 MCP 服务器（`https://api.githubcopilot.com/mcp/`），工具以 `mcp__github__*` 出现。
+  用户**不需要**设置任何环境变量，也不需要重启后手动配置；退出登录会自动卸载。
+  仍然支持环境变量方式（设置 `DSH_GIT_BAR_GITHUB_TOKEN` 时以声明式行为准，避免重复注册）；
+  需要关闭自动挂载可设 `DSH_GIT_BAR_MCP=off`。
+- 面板的 MCP 状态改为读取真实挂载情况：`configured` / `source`（`runtime` / `env` / `none`）。
+
 ## [1.4.37] - 2026-11-26
 
 ### 界面
