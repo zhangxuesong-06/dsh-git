@@ -45,7 +45,12 @@ check(
   `${classLiterals.length} literals, offenders: ${unprefixed.slice(0, 5).join(' | ')}`,
 )
 
-const hexColors = [...client.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((match) => match[0])
+// GitHub's language colours are brand data, not theme colours: the single map
+// that carries them is allowed to use hex literals, everything else must use
+// theme tokens.
+const languageColorMap = client.match(/var GITHUB_LANGUAGE_COLORS = \{[\s\S]*?\n {4}\}/)
+const clientWithoutLanguageColors = languageColorMap === null ? client : client.replace(languageColorMap[0], '')
+const hexColors = [...clientWithoutLanguageColors.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((match) => match[0])
 check('client: colours come from theme tokens', hexColors.length <= 8, `${hexColors.length} hex literals: ${[...new Set(hexColors)].join(', ')}`)
 check('client: uses dsw theme tokens', (client.match(/--dsw-alias-/g) || []).length > 100, 'too few token references')
 
