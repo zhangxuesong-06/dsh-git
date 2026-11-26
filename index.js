@@ -2394,6 +2394,34 @@ async function githubProfile(ctx) {
   }
 }
 
+/**
+ * The account's recent public activity, for the account page timeline. Uses the
+ * public events feed of the signed-in login, so no extra scopes are needed.
+ */
+async function githubActivity(ctx) {
+  const access = await githubAccessToken(ctx)
+  if (!access.token) return { ok: false, reason: access.reason ?? 'not-signed-in', detail: access.detail ?? '' }
+  const grant = access.grant ?? (await readGithubGrant(ctx))
+  const login = grant && grant.account && typeof grant.account.login === 'string' ? grant.account.login : ''
+  if (login === '') return { ok: false, reason: 'not-signed-in' }
+  const result = await githubRequest(`/users/${encodeURIComponent(login)}/events/public?per_page=30`, { token: access.token })
+  if (!result.ok) return { ok: false, reason: result.reason, detail: result.detail ?? '' }
+  const items = (Array.isArray(result.data) ? result.data : [])
+    .map((event) => ({
+      id: asText(event.id),
+      type: asText(event.type),
+      repo: asText(event.repo && event.repo.name),
+      createdAt: asText(event.created_at),
+      action: asText(event.payload && event.payload.action),
+      ref: asText(event.payload && (event.payload.ref ?? event.payload.ref_type)),
+      commits: Number(event.payload && event.payload.size) || 0,
+    }))
+    .filter((item) => item.repo !== '')
+  const counts = {}
+  for (const item of items) counts[item.type] = (counts[item.type] || 0) + 1
+  return { ok: true, login, total: items.length, counts, items: items.slice(0, 20) }
+}
+
 async function githubRepos(ctx, query, limit) {
   const access = await githubAccessToken(ctx)
   if (!access.token) return { ok: false, reason: access.reason ?? 'not-signed-in', detail: access.detail ?? '' }
@@ -2748,7 +2776,7 @@ async function handle(ctx, req, res) {
         send(200, await githubStatus(ctx))
         return
       }
-      if (req.method !== 'POST' && step !== 'repos' && step !== 'profile' && step !== 'clone/status' && step !== 'network' && step !== 'client-log') {
+      if (req.method !== 'POST' && step !== 'repos' && step !== 'profile' && step !== 'activity' && step !== 'clone/status' && step !== 'network' && step !== 'client-log') {
         send(405, { ok: false, reason: 'method-not-allowed' })
         return
       }
@@ -2800,6 +2828,10 @@ async function handle(ctx, req, res) {
       }
       if (step === 'network') {
         send(200, await githubNetwork(ctx, url))
+        return
+      }
+      if (step === 'activity') {
+        send(200, await githubActivity(ctx))
         return
       }
       if (step === 'profile') {

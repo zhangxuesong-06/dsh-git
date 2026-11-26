@@ -240,6 +240,27 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
     row.language === 'TypeScript' && row.stars === 7 && row.forks === 2 && row.archived === true && row.fork === true && row.pushedAt.startsWith('2026-01-01') && (row.topics || []).length === 2,
     JSON.stringify(row),
   )
+
+  // Recent public activity for the account page timeline.
+  queued(() =>
+    respond([
+      { id: '1', type: 'PushEvent', repo: { name: 'octo/alpha' }, created_at: '2026-01-03T00:00:00Z', payload: { size: 2, ref: 'refs/heads/main' } },
+      { id: '2', type: 'PushEvent', repo: { name: 'octo/beta' }, created_at: '2026-01-02T00:00:00Z', payload: { size: 1, ref: 'refs/heads/main' } },
+      { id: '3', type: 'CreateEvent', repo: { name: 'octo/alpha' }, created_at: '2026-01-01T00:00:00Z', payload: { ref_type: 'branch' } },
+    ]),
+  )
+  const activity = await ask(repo, '/dsh-git-bar/github/activity')
+  check(
+    'activity: mapped items and counts',
+    activity.ok === true &&
+      activity.total === 3 &&
+      activity.items[0].repo === 'octo/alpha' &&
+      activity.items[0].commits === 2 &&
+      activity.items[2].action === '' &&
+      activity.counts.PushEvent === 2 &&
+      activity.counts.CreateEvent === 1,
+    JSON.stringify({ total: activity.total, counts: activity.counts }),
+  )
 }
 
 // ── 5. clone into a fresh folder ─────────────────────────────────────────
