@@ -2330,18 +2330,27 @@ async function githubDevicePoll(ctx, id) {
     deviceFlows.delete(id)
     return { ok: false, reason: 'bad-credentials' }
   }
+  // The token response's own `scope` field is the authoritative grant list; the
+  // /user header can lag behind right after a re-authorization, which used to
+  // show "no workflow scope" until the next refresh.
+  const grantedScopes =
+    typeof data.scope === 'string' && data.scope.trim() !== ''
+      ? data.scope.split(',').map((value) => value.trim()).filter(Boolean)
+      : verified.scopes
   await writeGithubGrant(ctx, {
     token: data.access_token,
     tokenKind: 'device',
     account,
-    scopes: verified.scopes,
+    scopes: grantedScopes,
     connectedAt: Date.now(),
     ...(typeof data.refresh_token === 'string' && data.refresh_token !== '' ? { refreshToken: data.refresh_token } : {}),
     ...(Number.isFinite(Number(data.expires_in)) ? { expiresAt: Date.now() + Number(data.expires_in) * 1000 } : {}),
   })
   await cleanupGithubEnvToken()
   deviceFlows.delete(id)
-  return { ok: true, state: 'done', account }
+  // Hand the caller the complete fresh status so the panel never has to merge a
+  // partial response and render a stale scope set.
+  return { ok: true, state: 'done', account, scopes: grantedScopes, status: await githubStatus(ctx) }
 }
 
 /** Repositories the signed-in account can push to, newest first. */

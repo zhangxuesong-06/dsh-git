@@ -348,11 +348,17 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   check('device: pending state', pending.ok === true && pending.state === 'pending', JSON.stringify(pending))
 
   await sleep(1100)
-  queued(() => respond({ access_token: 'gho_device_token' }))
+  // GitHub's token response carries the authoritative granted scopes.
+  queued(() => respond({ access_token: 'gho_device_token', scope: 'repo,read:user,workflow' }))
   queued(() => respond(USER))
   const done = await ask(repo, '/dsh-git-bar/github/device/poll', 'POST', { id: started.id })
   check('device: approved', done.ok === true && done.state === 'done' && done.account.login === 'octo', JSON.stringify(done))
   check('device: token never echoed', !JSON.stringify(done).includes('gho_device_token'), 'leak')
+  check(
+    'device: done carries the fresh status with every granted scope',
+    (done.scopes || []).includes('workflow') && done.status && done.status.signedIn === true && (done.status.scopes || []).includes('workflow'),
+    JSON.stringify(done.scopes),
+  )
 
   const status = await ask(repo, '/dsh-git-bar/github/status')
   check('device: grant stored as device token', status.tokenKind === 'device' && status.signedIn === true, JSON.stringify(status.tokenKind))
