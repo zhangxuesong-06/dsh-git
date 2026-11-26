@@ -3,6 +3,15 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.33] - 2026-11-26
+
+### 修复
+
+- **贡献热力图拿不到数据**：`github.com/users/<login>/contributions` 经 Electron 网络栈在本机代理下会失败
+  （`fetch failed`）。现在优先走自建的代理隧道拉取 HTML，失败才回落到 Electron fetch。
+- **组织列表为空但被标成「可读」**：私有组织接口返回空数组时误判为「member」。现在空列表会回落到公开组织接口
+  （`/users/<login>/orgs`），并正确设置 `orgsSource`，面板据此显示「缺少 read:org / 暂无组织」。
+
 ## [1.4.32] - 2026-11-26
 
 ### 界面

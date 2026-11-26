@@ -2371,14 +2371,15 @@ async function githubProfile(ctx) {
   let orgs = []
   let orgsSource = 'none'
   const memberOrgs = await githubRequest('/user/orgs?per_page=30', { token: access.token })
-  if (memberOrgs.ok && Array.isArray(memberOrgs.data)) {
+  if (memberOrgs.ok && Array.isArray(memberOrgs.data) && memberOrgs.data.length > 0) {
     orgs = memberOrgs.data.map((org) => asText(org && org.login)).filter(Boolean)
     orgsSource = 'member'
   } else if (login !== '') {
+    // Empty (or refused) private list: the public endpoint still answers.
     const publicOrgs = await githubRequest(`/users/${encodeURIComponent(login)}/orgs?per_page=30`, { token: access.token })
     if (publicOrgs.ok && Array.isArray(publicOrgs.data)) {
       orgs = publicOrgs.data.map((org) => asText(org && org.login)).filter(Boolean)
-      orgsSource = 'public'
+      orgsSource = orgs.length > 0 ? 'public' : 'none'
     }
   }
   return {
@@ -2452,17 +2453,35 @@ async function githubContributions(ctx) {
   if (contributionsCache.value && contributionsCache.login === login && Date.now() - contributionsCache.at < 5 * 60_000) {
     return contributionsCache.value
   }
-  let response
+  let html = ''
+  // github.com HTML is flaky on Electron's stack through this machine's proxy, so
+  // the private tunnel comes first and Electron's fetch is the fallback.
   try {
-    response = await githubFetch(`https://github.com/users/${encodeURIComponent(login)}/contributions`, {
+    const tunneled = await proxyTunnelRequest(`https://github.com/users/${encodeURIComponent(login)}/contributions`, {
+      method: 'GET',
       headers: { 'user-agent': GITHUB_USER_AGENT, accept: 'text/html' },
-      signal: AbortSignal.timeout(15_000),
+      timeoutMs: 15_000,
     })
-  } catch (error) {
-    return { ok: false, reason: 'network', detail: clipText(error && error.message ? error.message : error) }
+    if (tunneled && tunneled.status > 0) {
+      if (tunneled.status >= 400) return { ok: false, reason: 'fetch-failed', detail: `HTTP ${tunneled.status}` }
+      html = tunneled.text
+    }
+  } catch {
+    html = ''
   }
-  if (response.status >= 400) return { ok: false, reason: 'fetch-failed', detail: `HTTP ${response.status}` }
-  const html = await response.text().catch(() => '')
+  if (html === '') {
+    let response
+    try {
+      response = await githubFetch(`https://github.com/users/${encodeURIComponent(login)}/contributions`, {
+        headers: { 'user-agent': GITHUB_USER_AGENT, accept: 'text/html' },
+        signal: AbortSignal.timeout(15_000),
+      })
+    } catch (error) {
+      return { ok: false, reason: 'network', detail: clipText(error && error.message ? error.message : error) }
+    }
+    if (response.status >= 400) return { ok: false, reason: 'fetch-failed', detail: `HTTP ${response.status}` }
+    html = await response.text().catch(() => '')
+  }
   const parsed = parseContributionsHtml(html)
   if (parsed.days.length === 0) return { ok: false, reason: 'parse-failed' }
   const value = { ok: true, login, total: parsed.total, days: parsed.days, source: 'html' }
