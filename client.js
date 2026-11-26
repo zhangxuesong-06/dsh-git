@@ -242,7 +242,7 @@ window.__ModuleLoader__.load({
       githubProfileFollowers: '{n} 关注者',
       githubProfileFollowing: '{n} 正在关注',
       githubLinkCopied: '链接已复制',
-      githubPanelLabel: 'GitHub 账号',
+      githubPanelLabel: 'GitHub',
       githubPanelSubtitle: '登录状态与权限',
       githubPanelSignedOutHint: '用浏览器登录后可提交与推送',
       githubAccountPanelTitle: 'GitHub 账号',
@@ -594,7 +594,7 @@ window.__ModuleLoader__.load({
       githubProfileFollowers: '{n} followers',
       githubProfileFollowing: '{n} following',
       githubLinkCopied: 'Link copied',
-      githubPanelLabel: 'GitHub account',
+      githubPanelLabel: 'GitHub',
       githubPanelSubtitle: 'sign-in and scopes',
       githubPanelSignedOutHint: 'Sign in to commit and push',
       githubAccountPanelTitle: 'GitHub account',
@@ -2005,7 +2005,13 @@ window.__ModuleLoader__.load({
         var action = toText(item && item.action)
         var commits = item && item.commits
         var commitCount = Array.isArray(commits) ? commits.length : (toNumber(commits) || 0)
-        if (type === 'PushEvent') return toText(t('githubEventPush')).replace('{n}', String(commitCount)).replace('{repo}', repo)
+        if (type === 'PushEvent') {
+          // GitHub's public event feed no longer ships the commit count, so fall
+          // back to the branch rather than claiming "0 commits".
+          if (commitCount > 0) return toText(t('githubEventPush')).replace('{n}', String(commitCount)).replace('{repo}', repo)
+          var branch = ref.replace(/^refs\/heads\//, '')
+          return toText(t('githubEventBranchPush')).replace('{ref}', branch || 'main').replace('{repo}', repo)
+        }
         if (type === 'CreateEvent') {
           var what = action === 'branch' ? '分支' : action === 'tag' ? '标签' : '仓库'
           return toText(t('githubEventCreate')).replace('{what}', what).replace('{ref}', ref).replace('{repo}', repo)
@@ -2110,8 +2116,8 @@ window.__ModuleLoader__.load({
             h('div', { className: 'gitbar-contrib-grid' },
               h('div', { className: 'gitbar-contrib-daylabels' }, dayLabels),
               h('div', { className: 'gitbar-contrib-weeks' },
-                h('div', { className: 'gitbar-contrib-months' }, monthRow),
-                h('div', { style: { display: 'flex', gap: '3px' } }, weekCols)
+                h('div', { className: 'gitbar-contrib-monthrow' }, monthRow),
+                h('div', { className: 'gitbar-contrib-weekcols' }, weekCols)
               )
             )
           )
@@ -4076,15 +4082,17 @@ window.__ModuleLoader__.load({
       '.gitbar-contrib-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
       '.gitbar-contrib-title{font-size:11.5px;font-weight:600}',
       '.gitbar-contrib-legend{display:flex;align-items:center;gap:3px;margin-left:auto;font-size:10px;color:var(--dsw-alias-label-secondary)}',
-      '.gitbar-contrib-scroll{overflow-x:auto;padding-bottom:2px}',
-      '.gitbar-contrib-grid{display:flex;gap:3px;width:max-content}',
-      '.gitbar-contrib-daylabels{display:flex;flex-direction:column;gap:3px;padding-top:14px;margin-right:2px}',
-      '.gitbar-contrib-daylabel{height:11px;font-size:9px;line-height:11px;color:var(--dsw-alias-label-secondary);width:22px;text-align:right}',
-      '.gitbar-contrib-weeks{display:flex;flex-direction:column;gap:3px}',
-      '.gitbar-contrib-months{display:flex;gap:3px;height:11px}',
-      '.gitbar-contrib-month{font-size:9px;line-height:11px;color:var(--dsw-alias-label-secondary);overflow:visible;white-space:nowrap}',
-      '.gitbar-contrib-week{display:flex;flex-direction:column;gap:3px}',
-      '.gitbar-contrib-cell{width:11px;height:11px;border-radius:2px;background:var(--dsw-alias-bg-layer-2);box-sizing:border-box}',
+      '.gitbar-contrib-scroll{width:100%;overflow-x:hidden;padding-bottom:2px}',
+      '.gitbar-contrib-grid{display:flex;gap:3px;width:100%;min-width:0}',
+      '.gitbar-contrib-daylabels{display:flex;flex-direction:column;gap:3px;padding-top:14px;margin-right:2px;align-self:stretch}',
+      '.gitbar-contrib-daylabel{flex:1 1 auto;display:flex;align-items:center;justify-content:flex-end;font-size:9px;line-height:1;color:var(--dsw-alias-label-secondary);width:22px}',
+      '.gitbar-contrib-weeks{display:flex;flex-direction:column;gap:3px;flex:1 1 auto;min-width:0;width:100%}',
+      '.gitbar-contrib-monthrow{display:grid;grid-template-columns:repeat(53,minmax(0,1fr));gap:3px;height:12px}',
+      '.gitbar-contrib-weekcols{display:grid;grid-template-columns:repeat(53,minmax(0,1fr));gap:3px;width:100%}',
+      '.gitbar-contrib-month{font-size:9px;line-height:12px;color:var(--dsw-alias-label-secondary);overflow:visible;white-space:nowrap}',
+      '.gitbar-contrib-week{display:flex;flex-direction:column;gap:3px;min-width:0}',
+      '.gitbar-contrib-cell{width:100%;height:auto;aspect-ratio:1;border-radius:2px;background:var(--dsw-alias-bg-layer-2);box-sizing:border-box}',
+      '.gitbar-contrib-legend .gitbar-contrib-cell{width:11px;height:11px;aspect-ratio:auto;flex:0 0 auto}',
       '.gitbar-contrib-cell-l0{background:var(--dsw-alias-bg-layer-2)}',
       '.gitbar-contrib-cell-l1{background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 25%, var(--dsw-alias-bg-layer-2))}',
       '.gitbar-contrib-cell-l2{background:color-mix(in srgb, var(--dsw-alias-state-success-primary) 45%, var(--dsw-alias-bg-layer-2))}',
@@ -4155,7 +4163,7 @@ window.__ModuleLoader__.load({
       '.gitbar-github-repos-stats{font-size:10.5px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}',
       '.gitbar-github-repos-search{display:flex}',
       '.gitbar-github-repos-search .gitbar-github-input{width:100%}',
-      '.gitbar-github-repos-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:6px;max-height:min(64vh,640px);overflow:auto;overscroll-behavior:contain}',
+      '.gitbar-github-repos-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:6px;max-height:none;overflow:visible}',
       '.gitbar-github-repo-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;min-width:0}',
       '.gitbar-github-repo-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}',
       '.gitbar-github-repo-name{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -4178,7 +4186,7 @@ window.__ModuleLoader__.load({
       '.gitbar-avatar-dialog-account{display:flex;align-items:center;gap:6px;min-width:0}',
       '.gitbar-avatar-dialog-summary{display:flex;flex-direction:column;gap:6px}',
       '.gitbar-avatar-dialog-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;padding-top:4px}',
-      '.gitbar-github-page{max-width:none;width:100%;box-sizing:border-box;margin:0;padding:18px clamp(16px,2.5vw,40px);font:inherit;font-size:12.5px;line-height:1.45;color:var(--dsw-alias-label-primary)}',
+      '.gitbar-github-page{max-width:none;width:100%;height:100%;max-height:100%;overflow-y:auto;overflow-x:hidden;box-sizing:border-box;margin:0;padding:18px clamp(16px,2.5vw,40px) 40px;font:inherit;font-size:12.5px;line-height:1.45;color:var(--dsw-alias-label-primary);overscroll-behavior:contain}',
       '.gitbar-github-page .gitbar-github-panel{width:100%}',
       '.gitbar-github-page .gitbar-github{border:none;background:transparent;box-shadow:none;padding:0}',
       '.gitbar-github-page .gitbar-github-head{height:auto;padding:0 0 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
@@ -9681,34 +9689,17 @@ window.__ModuleLoader__.load({
                 })
                 if (orgs.length > 8) orgRows.push(h('span', { className: 'gitbar-github-profile-org', key: 'org-more' }, '+' + String(orgs.length - 8)))
                 orgChildren.push(h('div', { className: 'gitbar-github-orgs-list', key: 'orgs-list' }, orgRows))
-              } else if (canReadOrgs) {
-                // The token can read memberships and GitHub still reports none, which
-                // usually means the membership is private and the org has not approved
-                // this OAuth App yet.
-                orgChildren.push(
-                  h('div', { className: 'gitbar-github-orgs-scope', key: 'orgs-empty' },
-                    h('span', { className: 'gitbar-github-hint' }, t('githubOrgsEmptyHint')),
-                    h('button', {
-                      type: 'button',
-                      className: 'gitbar-btn gitbar-github-btn',
-                      onClick: function () {
-                        openExternal('https://github.com/settings/connections/applications/Ov23liMkw1wzdh9gZdHU')
-                      }
-                    }, t('githubOrgsApproval'))
+              }
+              // Empty organisation lists stay silent: GitHub reports private
+              // memberships only after the organisation approves this app.
+              if (orgs.length > 0) {
+                profileLines.push(
+                  h('div', { className: 'gitbar-github-profile-orgs', key: 'orgs-row' },
+                    h('span', { className: 'gitbar-github-meta-label' }, t('githubOrgsTitle')),
+                    h('div', { className: 'gitbar-github-orgs-list' }, orgChildren)
                   )
                 )
-              } else {
-                orgChildren.push(h('div', { className: 'gitbar-github-orgs-scope', key: 'orgs-scope' },
-                  h('span', { className: 'gitbar-github-hint' }, t('githubOrgsMissingScope')),
-                  h('button', { type: 'button', className: 'gitbar-btn gitbar-github-btn', onClick: function () { startDevice() } }, t('githubReloginShort'))
-                ))
               }
-              profileLines.push(
-                h('div', { className: 'gitbar-github-profile-orgs', key: 'orgs-row' },
-                  h('span', { className: 'gitbar-github-meta-label' }, t('githubOrgsTitle')),
-                  h('div', { className: 'gitbar-github-orgs-list' }, orgChildren)
-                )
-              )
               if (panelProfile.hireable === true) {
                 profileLines.push(h('div', { className: 'gitbar-github-profile-hireable', key: 'hireable' }, h('span', { className: 'gitbar-github-chip gitbar-github-chip-ok' }, t('githubHireable'))))
               }
