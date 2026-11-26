@@ -1542,7 +1542,7 @@ window.__ModuleLoader__.load({
             setNetwork(result)
             publish(undefined, result)
           }
-          if (typeof done === 'function') done()
+          if (typeof done === 'function') done(result)
         })
       }
 
@@ -1558,9 +1558,17 @@ window.__ModuleLoader__.load({
           function (result) {
             if (!alive.current) return
             profileAbort.current = null
-            if (result && result.ok === true && result.profile && typeof result.profile === 'object') setProfile(result.profile)
-            else if (!result || result.ok !== true) setProfile(null)
-            if (typeof done === 'function') done()
+            if (result && result.ok === true && result.profile && typeof result.profile === 'object') {
+              // The scope verdict travels beside `profile`; keep it so the organisation
+              // block can tell "no organisations" from "cannot read organisations".
+              setProfile(
+                Object.assign({}, result.profile, {
+                  canReadOrgs: result.canReadOrgs === true,
+                  orgsSource: toText(result.orgsSource)
+                })
+              )
+            } else if (!result || result.ok !== true) setProfile(null)
+            if (typeof done === 'function') done(result)
           }
         )
       }
@@ -2206,6 +2214,9 @@ window.__ModuleLoader__.load({
                 if (result && typeof result === 'object' && result.ok === true && Array.isArray(result.scopes) && typeof result.signedIn === 'boolean') {
                   setStatus(result)
                   publish(result, undefined)
+                  // A fresh grant (re-authorisation) changes scopes, so the profile's
+                  // `canReadOrgs` and the organisation list have to be re-read.
+                  loadProfile()
                   return
                 }
                 refreshAll()
@@ -2535,7 +2546,7 @@ window.__ModuleLoader__.load({
           if (!alive.current) return
           setClosing(false)
           setOpen(false)
-        }, 120)
+        }, 140)
       }
 
       function togglePanel() {
@@ -4068,9 +4079,9 @@ window.__ModuleLoader__.load({
       '.gitbar-contrib-empty{font-size:11px;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-contrib-skeleton{height:11px;width:100%;border-radius:2px;background:var(--dsw-alias-bg-layer-2);animation:gitbar-pulse 1.2s ease-in-out infinite}',
       '.gitbar-github-orgs-scope{display:flex;flex-direction:column;gap:4px;align-items:flex-start}',
-      '.gitbar-github-page-cols{display:flex;gap:16px;align-items:flex-start}',
-      '.gitbar-github-left{flex:0 0 320px;max-width:320px;min-width:0}',
-      '.gitbar-github-right{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:8px;padding-left:16px;border-left:1px solid var(--dsw-alias-border-l1)}',
+      '.gitbar-github-page-cols{display:flex;flex-direction:column;gap:14px;align-items:stretch;width:100%}',
+      '.gitbar-github-left{flex:1 1 auto;max-width:none;min-width:0;width:100%}',
+      '.gitbar-github-right{flex:1 1 auto;min-width:0;width:100%;display:flex;flex-direction:column;gap:10px;padding-left:0;border-left:none}',
       '@media (max-width: 900px){.gitbar-github-page-cols{flex-direction:column}.gitbar-github-left{flex:1 1 auto;max-width:none;width:100%}.gitbar-github-right{border-left:none;padding-left:0;width:100%}}',
       '.gitbar-github-profile{display:flex;flex-direction:column;gap:3px;padding:4px 0 2px}',
       '.gitbar-github-profile-bio{font-size:11.5px;color:var(--dsw-alias-label-primary)}',
@@ -4079,7 +4090,8 @@ window.__ModuleLoader__.load({
       '@keyframes gitbar-section-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}',
       '@keyframes gitbar-row-in{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}',
       '@keyframes gitbar-spin{to{transform:rotate(360deg)}}',
-      '.gitbar-avatar-panel{display:flex;flex-direction:column;overflow:hidden;animation:gitbar-avatar-panel-in 150ms cubic-bezier(.2,0,0,1) both}',
+      '.gitbar-avatar-panel:not(.gitbar-avatar-panel-closing){display:flex;flex-direction:column;overflow:hidden;animation:gitbar-avatar-panel-in 150ms cubic-bezier(.2,0,0,1) both}',
+      '.gitbar-panel.gitbar-avatar-panel-closing{display:flex;flex-direction:column;overflow:hidden;animation:gitbar-panel-out 140ms cubic-bezier(.4,0,1,1) both}',
       '.gitbar-github-page-cols > *{animation:gitbar-section-in 120ms cubic-bezier(.2,0,0,1) both}',
       '.gitbar-github-page-cols > *:nth-child(2){animation-delay:40ms}',
       '.gitbar-github-repo-row,.gitbar-github-activity-row{animation:gitbar-row-in 140ms cubic-bezier(.2,0,0,1) both}',
@@ -4150,7 +4162,8 @@ window.__ModuleLoader__.load({
       '.gitbar-avatar-dialog-account{display:flex;align-items:center;gap:6px;min-width:0}',
       '.gitbar-avatar-dialog-summary{display:flex;flex-direction:column;gap:6px}',
       '.gitbar-avatar-dialog-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;padding-top:4px}',
-      '.gitbar-github-page{max-width:760px;box-sizing:border-box;margin:0 auto;padding:24px 16px;font:inherit;font-size:12.5px;line-height:1.45;color:var(--dsw-alias-label-primary)}',
+      '.gitbar-github-page{max-width:1180px;box-sizing:border-box;margin:0 auto;padding:24px 28px;font:inherit;font-size:12.5px;line-height:1.45;color:var(--dsw-alias-label-primary)}',
+      '.gitbar-github-page .gitbar-github-panel{width:100%}',
       '.gitbar-github-page .gitbar-github{border:none;background:transparent;box-shadow:none;padding:0}',
       '.gitbar-github-page .gitbar-github-head{height:auto;padding:0 0 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
       '.gitbar-github-page .gitbar-github-panel{max-height:none;overflow:visible}',
