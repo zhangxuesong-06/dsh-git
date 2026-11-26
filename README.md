@@ -215,6 +215,12 @@ npm run sync-mirror                      # 发布后同步国内镜像（见下�
   延迟期间镜像用户会解析到旧版本。`npm run sync-mirror` 会触发镜像同步并轮询到 `latest` 指到本版本、
   且校验和与官方一致（实测镜像同步后 tarball 的 `integrity` 与官方完全相同）。
 
+## 安全边界
+
+- **绝不写 ~/.dsh/.env**：Harness 的启动环境只从进程环境接收 DSH_GIT_BAR_GITHUB_TOKEN，把该字段写进 .env
+  会让 DSH 直接启动失败（1.4.24 及更早版本踩过，详见 CHANGELOG.md 与 docs/WORKLOG.md）。插件只负责清理遗留行。
+- 想启用 GitHub MCP：把 DSH_GIT_BAR_GITHUB_TOKEN 设为**用户/进程环境变量**后重启 DSH。
+
 ## 常见问题
 
 **在别的机器上搜 `dsh-git-bar`，显示/装到的是旧版本？**

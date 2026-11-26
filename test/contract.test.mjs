@@ -1,3 +1,9 @@
+// Strip a half-populated GIT_CONFIG_* environment (the desktop process can export GIT_CONFIG_COUNT
+// without the matching keys, which breaks every git child).
+for (const key of Object.keys(process.env)) {
+  if (key === 'GIT_CONFIG_COUNT' || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(key)) delete process.env[key]
+}
+
 // Contract checks for the two plugin halves: the DSH client-loader shape, the
 // "no persistence of secrets" rule, the route prefix rule and the manifest.
 // These are static assertions over the shipped files; they catch the mistakes
@@ -73,6 +79,18 @@ check(
 )
 check('host: token reaches git through the askpass env', /GIT_ASKPASS: helper\.path/.test(host) && /SSH_ASKPASS_REQUIRE: 'force'/.test(host), 'env delivery missing')
 check('host: grant prefers the credential store', /kind: 'grant', payload/.test(host) && /readRecord\(GITHUB_TOKEN_KEY\)/.test(host), 'credential seam unused')
+// Writing the token into the Harness-home `.env` aborts Harness startup (it only
+// accepts that field from the process environment), so the plugin may only
+// remove a leftover line, never add one.
+check(
+  'host: never writes the boot-critical Harness .env',
+  !/writeGithubEnvToken/.test(host) &&
+    !/GITHUB_MCP_ENV\}=\$\{token\}/.test(host) &&
+    !/kept\.push\(`\$\{GITHUB_MCP_ENV\}/.test(host) &&
+    /cleanupGithubEnvToken/.test(host),
+  'env writer present',
+)
+check('host: git children get a sanitised config env', /sanitizeGitEnv/.test(host), 'git env not sanitised')
 check('client: device flow is rate limited by the host', /device\/poll/.test(client) && /slow-down/.test(client), 'poll handling missing')
 check('client: PAT leaves the input after login', /setPat\(''\)/.test(client), 'token kept in state')
 check('client: clone opens a real workspace', /workspaces[\s\S]{0,200}?create\(\{ path/.test(client) && /openWorkspace\(/.test(client), 'workspace wiring missing')

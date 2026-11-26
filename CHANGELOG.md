@@ -3,6 +3,26 @@
 本文件记录面向使用者的版本变化。工程细节与踩坑记录见 [`docs/WORKLOG.md`](docs/WORKLOG.md)。
 版本遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.25] - 2026-11-26
+
+### 重要修复（会阻止 DSH 启动）
+
+- **不再把 GitHub token 写进 `~/.dsh/.env`**。Harness 0.2.1-rc.5 只允许 `DSH_GIT_BAR_GITHUB_TOKEN`
+  从**启动进程的环境变量**接收，`.env` 里出现该字段会直接中止启动；1.4.24 及更早版本在登录/刷新 token 时会写这行，
+  导致 DSH 起不来（日志里是启动中止，且卸掉插件也无法恢复，因为 `.env` 已被写脏）。
+  现在插件只做**清理**：加载时、登录后、退出时移除任何遗留的 `DSH_GIT_BAR_GITHUB_TOKEN=` 行，其余键
+  （如 `MAGPIE_GATEWAY_KEY`）原样保留；token 只存在凭据库/0600 文件里。
+- **git 子进程环境消毒**：父进程若只导出 `GIT_CONFIG_COUNT` 而缺少配套的 `GIT_CONFIG_KEY_n`
+  （本机桌面进程就是这样），任何 git 命令都会报 `missing config key GIT_CONFIG_KEY_0`。
+  插件的所有 git 调用（普通命令、push、clone）现在都会剔除 `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` /
+  `GIT_CONFIG_VALUE_n` 再执行，不再受父进程影响；测试侧同样处理。
+- 契约测试新增两条护栏：插件不得出现写 `.env` 的代码、git 调用必须经过 `sanitizeGitEnv`。
+
+### 说明
+
+- GitHub MCP 若需要启用：把 `DSH_GIT_BAR_GITHUB_TOKEN` 设成**用户环境变量**（或启动 DSH 的终端里的环境变量），
+  重启 DSH 即可；**不要再写进 `.env`**。
+
 ## [1.4.24] - 2026-11-25
 
 ### 修复

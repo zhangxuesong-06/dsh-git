@@ -1,3 +1,9 @@
+// Strip a half-populated GIT_CONFIG_* environment (the desktop process can export GIT_CONFIG_COUNT
+// without the matching keys, which breaks every git child).
+for (const key of Object.keys(process.env)) {
+  if (key === 'GIT_CONFIG_COUNT' || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(key)) delete process.env[key]
+}
+
 // Offline checks for the GitHub half of the Host routes (index.js).
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -7,6 +13,7 @@ import { EventEmitter } from 'node:events'
 import {
   apply,
   classifyPushFailure,
+  cleanupGithubEnvToken,
   dechunkBody,
   githubIdentityArgs,
   githubRewriteArgs,
@@ -17,6 +24,7 @@ import {
   parseGithubRepo,
   parseProxyResult,
   resolveDeviceClientId,
+  sanitizeGitEnv,
 } from '../index.js'
 
 const results = []
@@ -50,7 +58,9 @@ globalThis.fetch = async (url, init) => {
 
 // ── fake git repositories ────────────────────────────────────────────────
 function git(dir, args) {
-  return execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
+  // The desktop process can carry a half-populated GIT_CONFIG_COUNT; strip it
+  // so the fixtures start from a clean config.
+  return execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...sanitizeGitEnv(), GIT_TERMINAL_PROMPT: '0' } })
 }
 
 function makeRepo() {
@@ -561,6 +571,22 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   const log = await ask(repo, '/dsh-git-bar/github/client-log')
   const lastEntry = (log.entries || [])[log.entries.length - 1] || {}
   check('client-log: round-trips the payload', log.ok === true && lastEntry.tag === 'clone-panel-open' && lastEntry.mode === 'dialog', JSON.stringify(lastEntry))
+}
+
+// ── 13. the boot-critical Harness .env is never written ──────────────────
+{
+  const home = mkdtempSync(join(tmpdir(), 'dshgit-env-'))
+  const envFile = join(home, '.env')
+  writeFileSync(envFile, 'MAGPIE_GATEWAY_KEY=abc\nDSH_GIT_BAR_GITHUB_TOKEN=gho_legacy_secret\n', 'utf8')
+  process.env.DSH_HOME = home
+  const removed = await cleanupGithubEnvToken()
+  const text = readFileSync(envFile, 'utf8')
+  check('env: legacy token line is removed', removed.removed === true && !text.includes('DSH_GIT_BAR_GITHUB_TOKEN'), JSON.stringify(removed))
+  check('env: unrelated keys survive', text.includes('MAGPIE_GATEWAY_KEY=abc'), text.trim())
+  const again = await cleanupGithubEnvToken()
+  check('env: cleanup is idempotent', again.removed === false, JSON.stringify(again))
+  delete process.env.DSH_HOME
+  rmSync(home, { recursive: true, force: true })
 }
 
 globalThis.fetch = realFetch

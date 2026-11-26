@@ -65,6 +65,22 @@ async function resolveGit() {
 }
 
 /**
+ * Environment for a git child process.
+ *
+ * A parent that injects config through `GIT_CONFIG_COUNT` + `GIT_CONFIG_KEY_n`
+ * can leave the set half-populated (observed in the Harness desktop process),
+ * and git then refuses every command with "missing config key". This plugin
+ * never relies on those variables, so drop them and keep everything else.
+ */
+export function sanitizeGitEnv(base = process.env) {
+  const env = { ...base }
+  for (const key of Object.keys(env)) {
+    if (key === 'GIT_CONFIG_COUNT' || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(key)) delete env[key]
+  }
+  return env
+}
+
+/**
  * Run git without a shell and always resolve with a stable shape. `extraEnv`
  * is merged over the inherited environment; network commands use it to make
  * git fail fast instead of blocking on a credential prompt.
@@ -82,7 +98,7 @@ function git(cwd, args, timeoutMs = 20_000, extraEnv = null) {
             timeout: timeoutMs,
             windowsHide: true,
             maxBuffer: 32 * 1024 * 1024,
-            ...(extraEnv ? { env: { ...process.env, ...extraEnv } } : {}),
+            env: extraEnv ? { ...sanitizeGitEnv(), ...extraEnv } : sanitizeGitEnv(),
           },
           (error, stdout, stderr) => {
             const code = error ? (typeof error.code === 'number' ? error.code : 1) : 0
@@ -1240,6 +1256,7 @@ async function pushCommitted(root, branch, credentials = null, options = {}) {
     }
     const env = helper
       ? {
+          ...sanitizeGitEnv(),
           ...NETWORK_ENV,
           GIT_TERMINAL_PROMPT: '0',
           GIT_ASKPASS: helper.path,
@@ -1247,7 +1264,7 @@ async function pushCommitted(root, branch, credentials = null, options = {}) {
           SSH_ASKPASS: helper.path,
           SSH_ASKPASS_REQUIRE: 'force',
         }
-      : NETWORK_ENV
+      : { ...sanitizeGitEnv(), ...NETWORK_ENV }
     let pushed = null
     let lastDetail = ''
     for (const attempt of attempts) {
@@ -1726,7 +1743,7 @@ async function githubRefreshGrant(ctx, grant) {
     refreshedAt: Date.now(),
   }
   await writeGithubGrant(ctx, next)
-  await writeGithubEnvToken(next.token)
+  await cleanupGithubEnvToken()
   return { ok: true, grant: next }
 }
 
@@ -1758,30 +1775,30 @@ function dshHome() {
 }
 
 /**
- * Upsert (or remove) the GitHub token line in the Harness-home `.env`, which
- * DSH loads at boot. This is what lets the declarative MCP row authenticate
- * without the token ever appearing in a patch file or a settings document.
+ * Remove a token line this plugin wrote into the Harness-home `.env` in older
+ * versions. The Harness refuses to boot when its boot-time `.env` carries a
+ * field it only accepts from the process environment, and this plugin is never
+ * allowed to patch that file — the login token lives in the credential store
+ * alone.
  */
-async function writeGithubEnvToken(token) {
+export async function cleanupGithubEnvToken() {
   const file = join(dshHome(), '.env')
   let lines = []
   try {
     lines = (await readFile(file, 'utf8')).split('\n')
   } catch {
-    lines = []
+    return { removed: false }
   }
-  const kept = lines.filter((line) => !line.startsWith(`${GITHUB_MCP_ENV}=`))
-  if (typeof token === 'string' && token !== '') kept.push(`${GITHUB_MCP_ENV}=${token}`)
-  const text = `${kept.join('\n').replace(/\n+$/, '')}\n`
-  await mkdir(dshHome(), { recursive: true }).catch(() => {})
-  if (kept.length === 0) {
-    await rmPath(file, { force: true }).catch(() => {})
-  } else {
-    await writeFile(file, text, { encoding: 'utf8', mode: 0o600 })
+  const prefix = `${GITHUB_MCP_ENV}=`
+  if (!lines.some((line) => line.startsWith(prefix))) return { removed: false }
+  const kept = lines.filter((line) => !line.startsWith(prefix))
+  try {
+    await writeFile(file, `${kept.join('\n').replace(/\n+$/, '')}\n`, { encoding: 'utf8', mode: 0o600 })
     await chmod(file, 0o600).catch(() => {})
+    return { removed: true }
+  } catch {
+    return { removed: false }
   }
-  if (typeof token === 'string' && token !== '') process.env[GITHUB_MCP_ENV] = token
-  else delete process.env[GITHUB_MCP_ENV]
 }
 
 /**
@@ -2026,7 +2043,7 @@ async function githubLogin(ctx, token) {
     connectedAt: Date.now(),
     ...(Number.isFinite(expiresAt) ? { expiresAt } : {}),
   })
-  await writeGithubEnvToken(token)
+  await cleanupGithubEnvToken()
   return githubStatus(ctx)
 }
 
@@ -2322,7 +2339,7 @@ async function githubDevicePoll(ctx, id) {
     ...(typeof data.refresh_token === 'string' && data.refresh_token !== '' ? { refreshToken: data.refresh_token } : {}),
     ...(Number.isFinite(Number(data.expires_in)) ? { expiresAt: Date.now() + Number(data.expires_in) * 1000 } : {}),
   })
-  await writeGithubEnvToken(data.access_token)
+  await cleanupGithubEnvToken()
   deviceFlows.delete(id)
   return { ok: true, state: 'done', account }
 }
@@ -2406,7 +2423,7 @@ function runCloneWithProgress(cwd, args, extraEnv, job = null) {
         const child = spawn(executable, args, {
           cwd,
           windowsHide: true,
-          env: { ...process.env, ...extraEnv },
+          env: { ...sanitizeGitEnv(), ...extraEnv },
         })
         let stderr = ''
         const timer = setTimeout(() => {
@@ -2519,6 +2536,7 @@ async function githubClone(ctx, payload = {}, job = null) {
   try {
     if (token !== '') helper = await createAskpass({ username: 'x-access-token', password: token })
     const env = {
+      ...sanitizeGitEnv(),
       ...NETWORK_ENV,
       GIT_TERMINAL_PROMPT: '0',
       GCM_INTERACTIVE: 'never',
@@ -2685,7 +2703,7 @@ async function handle(ctx, req, res) {
       }
       if (step === 'logout') {
         await clearGithubGrant(ctx)
-        await writeGithubEnvToken('')
+        await cleanupGithubEnvToken()
         send(200, { ok: true })
         return
       }
@@ -2979,6 +2997,10 @@ export const inject = ['webServer']
 
 /** Register the route family; without a Web carrier the plugin stays UI-only. */
 export function apply(ctx) {
+  // Older versions wrote the token into the Harness-home `.env`; that file is
+  // boot-critical and must never carry this field. Strip a leftover line once
+  // per load so an upgraded profile starts cleanly.
+  cleanupGithubEnvToken().catch(() => {})
   const webServer = ctx.get('webServer')
   if (!webServer) {
     ctx.logger?.info?.('dsh-git-bar: no webServer in this composition; host routes are unavailable')

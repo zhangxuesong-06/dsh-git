@@ -1,3 +1,9 @@
+// Strip a half-populated GIT_CONFIG_* environment (the desktop process can export GIT_CONFIG_COUNT
+// without the matching keys, which breaks every git child).
+for (const key of Object.keys(process.env)) {
+  if (key === 'GIT_CONFIG_COUNT' || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(key)) delete process.env[key]
+}
+
 // Offline checks for the reworked commit panel contract:
 // custom message, commit-only, detached-HEAD branch creation and one-shot creds.
 import { execFileSync, spawnSync } from 'node:child_process'
