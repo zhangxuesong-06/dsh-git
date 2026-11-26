@@ -2354,6 +2354,35 @@ async function githubDevicePoll(ctx, id) {
 }
 
 /** Repositories the signed-in account can push to, newest first. */
+/** The signed-in account's public profile, for the account page header. */
+async function githubProfile(ctx) {
+  const access = await githubAccessToken(ctx)
+  if (!access.token) return { ok: false, reason: access.reason ?? 'not-signed-in', detail: access.detail ?? '' }
+  const result = await githubRequest('/user', { token: access.token })
+  if (!result.ok) return { ok: false, reason: result.reason, detail: result.detail ?? '' }
+  const data = result.data && typeof result.data === 'object' ? result.data : {}
+  return {
+    ok: true,
+    scopes: Array.isArray(result.scopes) ? result.scopes : [],
+    profile: {
+      login: asText(data.login),
+      name: asText(data.name),
+      email: asText(data.email),
+      bio: asText(data.bio),
+      company: asText(data.company),
+      location: asText(data.location),
+      blog: asText(data.blog),
+      followers: Number(data.followers) || 0,
+      following: Number(data.following) || 0,
+      publicRepos: Number(data.public_repos) || 0,
+      privateRepos: Number(data.total_private_repos) || 0,
+      createdAt: asText(data.created_at),
+      avatarUrl: asText(data.avatar_url),
+      htmlUrl: asText(data.html_url),
+    },
+  }
+}
+
 async function githubRepos(ctx, query, limit) {
   const access = await githubAccessToken(ctx)
   if (!access.token) return { ok: false, reason: access.reason ?? 'not-signed-in', detail: access.detail ?? '' }
@@ -2696,7 +2725,7 @@ async function handle(ctx, req, res) {
         send(200, await githubStatus(ctx))
         return
       }
-      if (req.method !== 'POST' && step !== 'repos' && step !== 'clone/status' && step !== 'network' && step !== 'client-log') {
+      if (req.method !== 'POST' && step !== 'repos' && step !== 'profile' && step !== 'clone/status' && step !== 'network' && step !== 'client-log') {
         send(405, { ok: false, reason: 'method-not-allowed' })
         return
       }
@@ -2748,6 +2777,10 @@ async function handle(ctx, req, res) {
       }
       if (step === 'network') {
         send(200, await githubNetwork(ctx, url))
+        return
+      }
+      if (step === 'profile') {
+        send(200, await githubProfile(ctx))
         return
       }
       if (step === 'repos') {

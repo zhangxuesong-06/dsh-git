@@ -170,6 +170,36 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
   queued(() => respond([{ full_name: 'octo/alpha', name: 'alpha', owner: { login: 'octo' }, private: false, default_branch: 'main', description: '', updated_at: '', clone_url: '' }]))
   const filtered = await ask(repo, '/dsh-git-bar/github/repos?q=ALPHA')
   check('repos: query filters', filtered.repos.length === 1 && filtered.repos[0].fullName === 'octo/alpha', filtered.repos.length)
+
+  // The account page header reads the public profile, not the stored grant.
+  queued(() =>
+    respond({
+      login: 'octo',
+      name: 'Octo Cat',
+      email: 'octo@example.invalid',
+      bio: 'cat',
+      company: 'GitHub',
+      location: 'Earth',
+      followers: 12,
+      following: 3,
+      public_repos: 9,
+      total_private_repos: 4,
+      created_at: '2019-01-01T00:00:00Z',
+      avatar_url: 'https://example.invalid/a.png',
+      html_url: 'https://github.com/octo',
+    }),
+  )
+  const profile = await ask(repo, '/dsh-git-bar/github/profile')
+  check(
+    'profile: mapped fields',
+    profile.ok === true &&
+      profile.profile.login === 'octo' &&
+      profile.profile.publicRepos === 9 &&
+      profile.profile.privateRepos === 4 &&
+      profile.profile.followers === 12 &&
+      profile.profile.createdAt.startsWith('2019-01-01'),
+    JSON.stringify(profile.profile),
+  )
 }
 
 // ── 5. clone into a fresh folder ─────────────────────────────────────────
