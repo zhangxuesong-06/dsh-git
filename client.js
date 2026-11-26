@@ -155,6 +155,9 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: '打开验证页',
       githubDeviceExpired: '验证码已过期，请重试',
       githubDeviceDenied: '授权被拒绝',
+      githubPanelLabel: 'GitHub 账号',
+      githubPanelSubtitle: '登录状态与权限',
+      githubPanelSignedOutHint: '用浏览器登录后可提交与推送',
       githubAccountPanelTitle: 'GitHub 账号',
       githubAccountOpen: '打开账号面板',
       githubBadgeSignedOut: '未登录',
@@ -417,6 +420,9 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: 'Open verification page',
       githubDeviceExpired: 'The code expired, please try again',
       githubDeviceDenied: 'Authorization denied',
+      githubPanelLabel: 'GitHub account',
+      githubPanelSubtitle: 'sign-in and scopes',
+      githubPanelSignedOutHint: 'Sign in to commit and push',
       githubAccountPanelTitle: 'GitHub account',
       githubAccountOpen: 'Open the account panel',
       githubBadgeSignedOut: 'Not signed in',
@@ -1134,6 +1140,219 @@ window.__ModuleLoader__.load({
       }
       return { get: get, set: set, subscribe: subscribe }
     })()
+
+    var GITHUB_PANEL_ID = 'dsh-git-bar-github'
+    var GITHUB_MARK_PATH = 'M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z'
+
+    // Signed-in state shared with the sidebar icon (module level on purpose).
+    var gitbarGithubAccountStore = (function () {
+      var state = { status: null, network: null, updatedAt: 0 }
+      var listeners = typeof Set === 'function' ? new Set() : null
+      function notify() {
+        if (!listeners) return
+        var snapshot = state
+        listeners.forEach(function (listener) {
+          try {
+            listener(snapshot)
+          } catch (error) {
+            /* ignore */
+          }
+        })
+      }
+      function get() {
+        return state
+      }
+      function set(next) {
+        state = next && typeof next === 'object' ? next : { status: null, network: null, updatedAt: 0 }
+        notify()
+      }
+      function subscribe(listener) {
+        if (!listeners || typeof listener !== 'function') return function () {}
+        listeners.add(listener)
+        return function () {
+          try {
+            listeners.delete(listener)
+          } catch (error) {
+            /* ignore */
+          }
+        }
+      }
+      return { get: get, set: set, subscribe: subscribe }
+    })()
+
+    function githubPanelDotState() {
+      var status = gitbarGithubAccountStore.get().status
+      if (!status || status.ok !== true) return 'unknown'
+      if (status.signedIn !== true) return 'out'
+      var scopes = Array.isArray(status.scopes) ? status.scopes : []
+      return scopes.indexOf('workflow') >= 0 ? 'ok' : 'warn'
+    }
+
+    // Sidebar entry icon: ownerProps carry { size, active }.
+    function GithubPanelIcon(props) {
+      var source = props && props.ownerProps && typeof props.ownerProps === 'object' ? props.ownerProps : props || {}
+      var size = toNumber(source.size)
+      if (size === null || size < 8) size = 20
+      var active = source.active === true
+      var dotHook = useState(githubPanelDotState())
+      var dot = dotHook[0]
+      var setDot = dotHook[1]
+      useEffect(function () {
+        var unsubscribe = gitbarGithubAccountStore.subscribe(function () {
+          setDot(githubPanelDotState())
+        })
+        setDot(githubPanelDotState())
+        return function () {
+          try {
+            unsubscribe()
+          } catch (error) {
+            /* ignore */
+          }
+        }
+      }, [])
+      try {
+        return h(
+          'span',
+          { className: 'gitbar-side-icon' + (active ? ' gitbar-side-icon-on' : ''), 'aria-hidden': 'true' },
+          h('style', { key: 'gitbar-side-style' }, CSS),
+          h(
+            'svg',
+            { width: size, height: size, viewBox: '0 0 16 16', fill: 'currentColor', focusable: 'false', 'aria-hidden': 'true' },
+            h('path', { d: GITHUB_MARK_PATH })
+          ),
+          h('span', { className: 'gitbar-side-dot gitbar-side-dot-' + dot, 'aria-hidden': 'true' })
+        )
+      } catch (error) {
+        return null
+      }
+    }
+
+    // main panel: the GitHub account page (full-width, own data fetching).
+    function GithubAccountPage(props) {
+      var t = props.t || translate
+      var sessionId = toText(props.sessionId) || lastCapsuleSessionId
+      var cached = gitbarGithubAccountStore.get()
+      var statusHook = useState(cached ? cached.status : null)
+      var status = statusHook[0]
+      var setStatus = statusHook[1]
+      var networkHook = useState(cached ? cached.network : null)
+      var network = networkHook[0]
+      var setNetwork = networkHook[1]
+      var alive = useRef(true)
+      var statusAbort = useRef(null)
+      var networkAbort = useRef(null)
+      var timer = useRef(null)
+
+      function publish(nextStatus, nextNetwork) {
+        var current = gitbarGithubAccountStore.get() || {}
+        gitbarGithubAccountStore.set({
+          status: nextStatus !== undefined ? nextStatus : current.status,
+          network: nextNetwork !== undefined ? nextNetwork : current.network,
+          updatedAt: Date.now()
+        })
+      }
+
+      function loadStatus() {
+        try {
+          if (statusAbort.current) statusAbort.current()
+        } catch (error) {
+          /* ignore */
+        }
+        statusAbort.current = requestJson(
+          withQuery(GITHUB_STATUS_URL, [{ key: 'session', value: sessionId }]),
+          null,
+          function (result) {
+            if (!alive.current) return
+            statusAbort.current = null
+            if (result && typeof result === 'object') {
+              setStatus(result)
+              publish(result, undefined)
+            }
+          }
+        )
+      }
+
+      function loadNetwork() {
+        try {
+          if (networkAbort.current) networkAbort.current()
+        } catch (error) {
+          /* ignore */
+        }
+        networkAbort.current = fetchGithubNetwork(sessionId, false, function (result) {
+          if (!alive.current) return
+          networkAbort.current = null
+          if (result && typeof result === 'object') {
+            setNetwork(result)
+            publish(undefined, result)
+          }
+        })
+      }
+
+      function reloadAll() {
+        loadStatus()
+        loadNetwork()
+      }
+
+      useEffect(function () {
+        alive.current = true
+        loadStatus()
+        loadNetwork()
+        try {
+          timer.current = setInterval(function () {
+            if (!alive.current) return
+            loadStatus()
+            loadNetwork()
+          }, 30000)
+        } catch (error) {
+          timer.current = null
+        }
+        return function () {
+          alive.current = false
+          try {
+            if (statusAbort.current) statusAbort.current()
+          } catch (error) {
+            /* ignore */
+          }
+          statusAbort.current = null
+          try {
+            if (networkAbort.current) networkAbort.current()
+          } catch (error) {
+            /* ignore */
+          }
+          networkAbort.current = null
+          try {
+            if (timer.current !== null) clearInterval(timer.current)
+          } catch (error) {
+            /* ignore */
+          }
+          timer.current = null
+        }
+      }, [sessionId])
+
+      return h(
+        'div',
+        { className: 'gitbar-github-page' },
+        h('style', { key: 'gitbar-page-style' }, CSS),
+        h(GitHubSection, {
+          t: t,
+          sessionId: sessionId,
+          status: status,
+          network: network,
+          pageMode: true,
+          onStatus: function (result) {
+            if (result && typeof result === 'object' && result.ok === true && Array.isArray(result.scopes) && typeof result.signedIn === 'boolean') {
+              setStatus(result)
+              publish(result, undefined)
+              return
+            }
+            reloadAll()
+          },
+          onReload: reloadAll,
+          onNetworkReload: loadNetwork,
+          onFlash: function () {}
+        })
+      )
+    }
 
     var lastCapsuleSessionId = ''
     var githubNetworkCache = { at: 0, data: null }
@@ -2095,6 +2314,19 @@ window.__ModuleLoader__.load({
       '.gitbar-github-repo-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.gitbar-github-repo-desc{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-github-tag{flex:0 0 auto;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;font-size:9.5px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-page{max-width:760px;box-sizing:border-box;margin:0 auto;padding:24px 16px;font:inherit;font-size:12.5px;line-height:1.45;color:var(--dsw-alias-label-primary)}',
+      '.gitbar-github-page .gitbar-github{border:none;background:transparent;box-shadow:none;padding:0}',
+      '.gitbar-github-page .gitbar-github-head{height:auto;padding:0 0 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
+      '.gitbar-github-page .gitbar-github-panel{max-height:none;overflow:visible}',
+      '.gitbar-github-head-titles{display:flex;flex-direction:column;gap:2px;min-width:0}',
+      '.gitbar-github-subtitle{font-size:11px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-avatar-40{width:40px;height:40px;font-size:16px}',
+      '.gitbar-side-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;color:inherit}',
+      '.gitbar-side-icon-on{color:var(--dsw-alias-brand-primary)}',
+      '.gitbar-side-dot{position:absolute;right:-1px;bottom:-1px;width:6px;height:6px;box-sizing:border-box;border-radius:50%;background:var(--dsw-alias-label-secondary)}',
+      '.gitbar-side-dot-ok{background:var(--dsw-alias-state-success-primary)}',
+      '.gitbar-side-dot-warn{background:var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary))}',
+      '.gitbar-clone-entry-row{display:flex;justify-content:flex-end;flex:0 0 auto;padding:2px 8px}',
       '.gitbar-github-compact-row{display:flex;align-items:center;justify-content:flex-end;flex:0 0 auto;padding:2px 8px 5px}',
       '.gitbar-github-compact{display:inline-flex;align-items:center;gap:4px;padding:2px;border:1px solid transparent;border-radius:999px;background:transparent;color:inherit;font:inherit;cursor:pointer}',
       '.gitbar-github-compact:hover{background:var(--dsw-alias-bg-layer-2)}',
@@ -6366,6 +6598,7 @@ window.__ModuleLoader__.load({
     function GitHubSection(props) {
       var t = props.t || translate
       var sessionId = toText(props.sessionId)
+      var pageMode = props.pageMode === true
       var status = props.status && props.status.ok === true ? props.status : null
       var signedIn = Boolean(status && status.signedIn === true)
       var account = status && status.account && typeof status.account === 'object' ? status.account : null
@@ -7024,11 +7257,16 @@ window.__ModuleLoader__.load({
         var rows = [
           h(
             'div',
-            { className: 'gitbar-github-head', key: 'head' },
-            h('span', { className: 'gitbar-github-title' }, t('github')),
+            { className: 'gitbar-github-head' + (pageMode ? ' gitbar-github-head-page' : ''), key: 'head' },
+            h(
+              'span',
+              { className: 'gitbar-github-head-titles' },
+              h('span', { className: 'gitbar-github-title' }, t('github')),
+              pageMode ? h('span', { className: 'gitbar-github-subtitle' }, t('githubPanelSubtitle')) : null
+            ),
             badge,
             h('span', { className: 'gitbar-spacer' }),
-            signedIn ? null : caret
+            signedIn || pageMode ? null : caret
           )
         ]
 
@@ -7062,7 +7300,7 @@ window.__ModuleLoader__.load({
         )
         if (!signedIn) rows.push(netRow)
         var accountBody = null
-        if (signedIn) {
+        if (signedIn && !pageMode) {
           rows.push(
             h(
               'div',
@@ -7090,7 +7328,7 @@ window.__ModuleLoader__.load({
           )
         }
 
-        if (expanded) {
+        if (expanded || pageMode) {
           var content = []
           if (error) {
             content.push(h('div', { className: 'gitbar-github-error', key: 'error', role: 'alert' }, error))
@@ -7145,7 +7383,8 @@ window.__ModuleLoader__.load({
                   },
                   pending === 'device' ? t('loading') : t('githubUseBrowser')
                 ),
-                h('div', { className: 'gitbar-github-hint' }, t('githubSignInBrowserHint'))
+                h('div', { className: 'gitbar-github-hint' }, t('githubSignInBrowserHint')),
+                pageMode ? h('div', { className: 'gitbar-github-hint' }, t('githubPanelSignedOutHint')) : null
               )
             )
             if (!deviceReady) {
@@ -7437,7 +7676,7 @@ window.__ModuleLoader__.load({
                 { className: 'gitbar-github-account', key: 'account' },
                 h(
                   'span',
-                  { className: 'gitbar-github-avatar gitbar-github-avatar-24', 'aria-hidden': 'true' },
+                  { className: 'gitbar-github-avatar ' + (pageMode ? 'gitbar-github-avatar-40' : 'gitbar-github-avatar-24'), 'aria-hidden': 'true' },
                   avatarUrl ? h('img', { src: avatarUrl, alt: '', loading: 'lazy' }) : avatarText
                 ),
                 h('span', { className: 'gitbar-github-name' }, loginName || t('github')),
@@ -7603,13 +7842,14 @@ window.__ModuleLoader__.load({
 
           if (signedIn) {
             content.unshift(netRow)
-            accountBody = content
+            if (pageMode) rows.push(h('div', { className: 'gitbar-github-panel', key: 'panel' }, content))
+            else accountBody = content
           } else {
             rows.push(h('div', { className: 'gitbar-github-panel', key: 'panel' }, content))
           }
         }
 
-        if (signedIn && accountOpen && accountBody) {
+        if (!pageMode && signedIn && accountOpen && accountBody) {
           rows.push(
             h(
               'dialog',
@@ -8547,19 +8787,28 @@ window.__ModuleLoader__.load({
           body = h('div', { className: 'gitbar-empty' }, t('loading'))
         } else {
           body = [
-            h(GitHubSection, {
-              key: 'github',
-              t: t,
-              sessionId: props.sessionId,
-              status: props.github,
-              network: props.githubNetwork,
-              onNetworkReload: props.onGithubNetworkReload,
-              cloneEntry: props.cloneEntry === true,
-              onOpenClonePanel: props.onOpenClonePanel,
-              onStatus: props.onGithubStatus,
-              onReload: props.onGithubReload,
-              onFlash: props.onFlash
-            }),
+            // Clone entry fallback when conversation.hero.options is unavailable.
+            props.cloneEntry === true && typeof props.onOpenClonePanel === 'function'
+              ? h(
+                'div',
+                { className: 'gitbar-clone-entry-row', key: 'clone-entry' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-btn',
+                    onClick: function () {
+                      try {
+                        props.onOpenClonePanel()
+                      } catch (error) {
+                        /* ignore */
+                      }
+                    }
+                  },
+                  t('githubCloneEntry')
+                )
+              )
+              : null,
             h(ChangedFileList, {
               key: 'files',
               t: t,
@@ -9784,6 +10033,50 @@ window.__ModuleLoader__.load({
           })
         } catch (error) {
           /* the hero capsule is optional */
+        }
+
+        // Left plugin rail: the account page + its sidebar entry (official keys).
+        try {
+          ctx.slots.inject('main', function () {
+            return ctx.slots.register(
+              { name: 'main', key: GITHUB_PANEL_ID },
+              function (slotProps) {
+                var pageProps = {}
+                try {
+                  if (slotProps && typeof slotProps === 'object') {
+                    for (var pageKey in slotProps) {
+                      if (Object.prototype.hasOwnProperty.call(slotProps, pageKey)) pageProps[pageKey] = slotProps[pageKey]
+                    }
+                  }
+                } catch (error) {
+                  pageProps = {}
+                }
+                pageProps.t = translate
+                pageProps.sessionId = toText(pageProps.sessionId) || lastCapsuleSessionId
+                return h(GithubAccountPage, pageProps)
+              }
+            )
+          })
+        } catch (error) {
+          /* the account page is optional */
+        }
+
+        try {
+          ctx.slots.inject('sidebar.panellist', function () {
+            return ctx.slots.register(
+              {
+                name: 'sidebar.panellist',
+                id: GITHUB_PANEL_ID,
+                order: 50,
+                label: function () {
+                  return translate('githubPanelLabel')
+                }
+              },
+              GithubPanelIcon
+            )
+          })
+        } catch (error) {
+          /* the sidebar entry is optional */
         }
 
         // Stop the background clone poller with the plugin.
