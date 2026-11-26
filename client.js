@@ -129,7 +129,8 @@ window.__ModuleLoader__.load({
       searchFailed: '搜索失败',
       github: 'GitHub',
       githubSignIn: '登录 GitHub',
-      githubSignOut: '退出',
+      githubSignOut: '退出登录',
+      githubConfirmExit: '退出',
       githubSignedIn: '已登录 GitHub',
       githubPatLabel: '访问令牌（PAT）',
       githubPatHint: '需要带 repo 权限的 Personal Access Token；令牌只提交一次，不会保存在本地。',
@@ -154,6 +155,38 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: '打开验证页',
       githubDeviceExpired: '验证码已过期，请重试',
       githubDeviceDenied: '授权被拒绝',
+      githubBadgeSignedOut: '未登录',
+      githubBadgeConnected: '已连接',
+      githubLoadingStatusShort: '读取中',
+      githubSignInBrowserHint: '会在浏览器打开 GitHub 授权页，并自动复制验证码；需要 repo 与 workflow 权限',
+      githubScopesTitle: '权限',
+      githubScopeMissingWorkflow: '无 workflow',
+      githubTokenKindDevice: '浏览器',
+      githubTokenKindPAT: '个人访问令牌',
+      githubSignedInAgo: '{when}',
+      githubAgoJustNow: '刚刚',
+      githubAgoMinutes: '{n} 分钟前',
+      githubAgoHours: '{n} 小时前',
+      githubAgoDays: '{n} 天前',
+      githubMcpOn: '已配置',
+      githubMcpOff: '未配置',
+      githubMcpHint: '需在进程环境设 DSH_GIT_BAR_GITHUB_TOKEN',
+      githubRefresh: '刷新',
+      githubRelogin: '重新授权',
+      githubLogoutConfirm: '确认退出？',
+      githubWaitingAuth: '等待你在浏览器中确认…',
+      githubCodeExpires: '剩余 {time}',
+      githubStepOpened: '已在浏览器打开授权页',
+      githubStepCode: '验证码',
+      githubLoadingStatus: '正在读取登录状态…',
+      githubMetaTokenKind: '登录方式',
+      githubMetaSignedIn: '已登录',
+      githubWorkflowWarn: '当前授权缺少 workflow 权限，推送 .github/workflows 改动会被拒绝',
+      githubPatSecondary: '使用个人访问令牌（PAT）',
+      githubPatScopeHint: '需要 repo、workflow 权限',
+      githubPatReveal: '显示/隐藏令牌',
+      githubCodeCopied: '已复制到剪贴板',
+      githubAdvanced: '高级',
       githubDeviceAutoOpened: '已打开浏览器并已复制验证码 {code}',
       githubDeviceReopen: '重新打开浏览器',
       githubDeviceNetwork: '网络暂时不稳定，正在重试…',
@@ -231,6 +264,7 @@ window.__ModuleLoader__.load({
       discardChanges: '丢弃改动',
       deleteUntracked: '删除',
       copyPath: '复制路径',
+      copy: '复制',
       copiedPath: '已复制路径',
       copyFailed: '复制失败',
       useOurs: '用我方',
@@ -356,6 +390,7 @@ window.__ModuleLoader__.load({
       github: 'GitHub',
       githubSignIn: 'Sign in to GitHub',
       githubSignOut: 'Sign out',
+      githubConfirmExit: 'Exit',
       githubSignedIn: 'Signed in',
       githubPatLabel: 'Personal access token',
       githubPatHint: 'Needs a token with repo scope. The token is sent once and never stored locally.',
@@ -380,6 +415,38 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: 'Open verification page',
       githubDeviceExpired: 'The code expired, please try again',
       githubDeviceDenied: 'Authorization denied',
+      githubBadgeSignedOut: 'Not signed in',
+      githubBadgeConnected: 'Connected',
+      githubLoadingStatusShort: 'Loading',
+      githubSignInBrowserHint: 'Opens the GitHub authorization page in your browser and copies the code automatically; requires repo and workflow scopes',
+      githubScopesTitle: 'Scopes',
+      githubScopeMissingWorkflow: 'No workflow',
+      githubTokenKindDevice: 'Browser',
+      githubTokenKindPAT: 'Personal access token',
+      githubSignedInAgo: '{when}',
+      githubAgoJustNow: 'just now',
+      githubAgoMinutes: '{n} min ago',
+      githubAgoHours: '{n} h ago',
+      githubAgoDays: '{n} d ago',
+      githubMcpOn: 'Configured',
+      githubMcpOff: 'Not configured',
+      githubMcpHint: 'Set DSH_GIT_BAR_GITHUB_TOKEN in the process environment',
+      githubRefresh: 'Refresh',
+      githubRelogin: 'Re-authorize',
+      githubLogoutConfirm: 'Sign out?',
+      githubWaitingAuth: 'Waiting for your confirmation in the browser…',
+      githubCodeExpires: '{time} left',
+      githubStepOpened: 'Authorization page opened in the browser',
+      githubStepCode: 'Code',
+      githubLoadingStatus: 'Reading sign-in status…',
+      githubMetaTokenKind: 'Sign-in method',
+      githubMetaSignedIn: 'Signed in',
+      githubWorkflowWarn: 'This grant has no workflow scope; pushes touching .github/workflows will be rejected',
+      githubPatSecondary: 'Use a personal access token (PAT)',
+      githubPatScopeHint: 'Requires repo and workflow scopes',
+      githubPatReveal: 'Show/hide token',
+      githubCodeCopied: 'Copied to the clipboard',
+      githubAdvanced: 'Advanced',
       githubDeviceAutoOpened: 'Opened the browser and copied code {code}',
       githubDeviceReopen: 'Open the browser again',
       githubDeviceNetwork: 'Network hiccup — retrying…',
@@ -457,6 +524,7 @@ window.__ModuleLoader__.load({
       discardChanges: 'Discard changes',
       deleteUntracked: 'Delete',
       copyPath: 'Copy path',
+      copy: 'Copy',
       copiedPath: 'Path copied',
       copyFailed: 'Copy failed',
       useOurs: 'Use ours',
@@ -2023,6 +2091,47 @@ window.__ModuleLoader__.load({
       '.gitbar-github-repo-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.gitbar-github-repo-desc{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-github-tag{flex:0 0 auto;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;font-size:9.5px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-head{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:4px 8px}',
+      '.gitbar-github-title{font-weight:600;font-size:12.5px}',
+      '.gitbar-github-badge{display:inline-flex;align-items:center;gap:4px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;font-size:10px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+      '.gitbar-github-badge-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-label-secondary);flex:0 0 auto}',
+      '.gitbar-github-badge-ok{color:var(--dsw-alias-state-success-primary);border-color:color-mix(in srgb, var(--dsw-alias-state-success-primary) 40%, transparent)}',
+      '.gitbar-github-badge-ok .gitbar-github-badge-dot{background:var(--dsw-alias-state-success-primary)}',
+      '.gitbar-github-badge-muted{opacity:.6}',
+      '.gitbar-github-cta{display:flex;flex-direction:column;gap:4px}',
+      '.gitbar-github-cta-btn{width:100%;justify-content:center}',
+      '.gitbar-github-sep{height:1px;flex:0 0 auto;margin:2px 0;background:var(--dsw-alias-border-l1)}',
+      '.gitbar-github-disclosure{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;padding:2px 0;border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;text-align:left;cursor:pointer}',
+      '.gitbar-github-disclosure:hover{color:var(--dsw-alias-label-primary)}',
+      '.gitbar-github-skeleton{display:flex;align-items:center;gap:6px;padding:6px 0;font-size:11px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-skeleton-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-label-secondary);animation:gitbar-github-pulse 1.4s ease-in-out infinite}',
+      '.gitbar-github-steps{display:flex;flex-direction:column;gap:6px;padding:6px 0}',
+      '.gitbar-github-step{display:flex;align-items:flex-start;gap:7px;padding:6px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1)}',
+      '.gitbar-github-step-on{border-color:var(--dsw-alias-border-l2)}',
+      '.gitbar-github-step-index{flex:0 0 auto;width:16px;height:16px;border-radius:50%;background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);font-size:10px;line-height:16px;text-align:center}',
+      '.gitbar-github-step-body{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1 1 auto}',
+      '.gitbar-github-step-title{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600}',
+      '.gitbar-github-step-wait .gitbar-github-step-index{background:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-pulse{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-brand-primary);animation:gitbar-github-pulse 1.4s ease-in-out infinite}',
+      '.gitbar-github-code-row{display:flex;align-items:center;gap:6px}',
+      '.gitbar-github-code-big{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:16px;font-weight:600;letter-spacing:.06em;color:var(--dsw-alias-label-primary);user-select:all}',
+      '.gitbar-github-actions-end{justify-content:flex-end}',
+      '.gitbar-github-account{display:flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0;padding:4px 0}',
+      '.gitbar-github-avatar-24{width:24px;height:24px;font-size:11px}',
+      '.gitbar-github-meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 10px;padding:6px 0}',
+      '.gitbar-github-meta-item{display:flex;flex-direction:column;gap:2px;min-width:0}',
+      '.gitbar-github-meta-wide{grid-column:1 / -1}',
+      '.gitbar-github-meta-label{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-meta-value{font-size:11.5px;color:var(--dsw-alias-label-primary);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.gitbar-github-meta-muted{color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-chips{display:flex;flex-wrap:wrap;gap:4px}',
+      '.gitbar-github-chip{padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;font-size:10px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+      '.gitbar-github-chip-error{border-color:color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent);color:var(--dsw-alias-state-error-primary)}',
+      '.gitbar-github-warn{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:5px 7px;margin:4px 0;border:1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);border-radius:7px;background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);font-size:11px;color:var(--dsw-alias-state-error-primary)}',
+      '.gitbar-github-warn-text{flex:1 1 auto;min-width:0}',
+      '.gitbar-github-danger-text{font-size:11px;color:var(--dsw-alias-state-error-primary);margin-right:4px}',
+      '.gitbar-github-danger{color:var(--dsw-alias-state-error-primary)!important;border-color:color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent)!important}',
+      '@keyframes gitbar-github-pulse{0%,100%{opacity:.35;transform:scale(.9)}50%{opacity:1;transform:scale(1.05)}}',
       '.gitbar-github-net{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:3px 8px 5px;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-github-net-text{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.gitbar-github-net-error{color:var(--dsw-alias-state-error-primary)}',
@@ -2080,7 +2189,7 @@ window.__ModuleLoader__.load({
       '.gitbar-gp-login{display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid var(--dsw-alias-border-l1)}',
       '@keyframes gitbar-gp-in{from{opacity:0;transform:translateY(-4px) scale(.99)}to{opacity:1;transform:none}}',
       '@keyframes gitbar-github-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}',
-      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-gp,.gitbar-gp-repo,.gitbar-hero-clone,.gitbar-github-net-btn,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
+      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-gp,.gitbar-gp-repo,.gitbar-hero-clone,.gitbar-github-net-btn,.gitbar-github-pulse,.gitbar-github-skeleton-dot,.gitbar-github-step,.gitbar-github-cta-btn,.gitbar-github-disclosure,.gitbar-github-danger,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
     // ── components ────────────────────────────────────────────────────────
@@ -6221,6 +6330,26 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function formatAgoText(t, timestamp, nowValue) {
+      var at = toNumber(timestamp)
+      if (at === null) return ''
+      var delta = Math.max(0, (toNumber(nowValue) || Date.now()) - at)
+      var minutes = Math.floor(delta / 60000)
+      if (minutes < 1) return t('githubAgoJustNow')
+      if (minutes < 60) return toText(t('githubAgoMinutes')).replace('{n}', String(minutes))
+      var hours = Math.floor(minutes / 60)
+      if (hours < 24) return toText(t('githubAgoHours')).replace('{n}', String(hours))
+      var days = Math.floor(hours / 24)
+      return toText(t('githubAgoDays')).replace('{n}', String(days))
+    }
+
+    function formatCountdownText(ms) {
+      var total = Math.max(0, Math.floor((toNumber(ms) || 0) / 1000))
+      var minutes = Math.floor(total / 60)
+      var seconds = total % 60
+      return String(minutes) + ':' + (seconds < 10 ? '0' : '') + String(seconds)
+    }
+
     function GitHubSection(props) {
       var t = props.t || translate
       var sessionId = toText(props.sessionId)
@@ -6268,6 +6397,20 @@ window.__ModuleLoader__.load({
       var configPendingHook = useState(false)
       var configPending = configPendingHook[0]
       var setConfigPending = configPendingHook[1]
+      var nowHook = useState(Date.now())
+      var now = nowHook[0]
+      var setNow = nowHook[1]
+      var patOpenHook = useState(false)
+      var patOpen = patOpenHook[0]
+      var setPatOpen = patOpenHook[1]
+      var patVisibleHook = useState(false)
+      var patVisible = patVisibleHook[0]
+      var setPatVisible = patVisibleHook[1]
+      var logoutConfirmHook = useState(false)
+      var logoutConfirm = logoutConfirmHook[0]
+      var setLogoutConfirm = logoutConfirmHook[1]
+      var logoutTimer = useRef(null)
+      var countdownTimer = useRef(null)
       var alive = useRef(true)
       var requestAbort = useRef(null)
       var deviceAbort = useRef(null)
@@ -6306,6 +6449,18 @@ window.__ModuleLoader__.load({
           deviceTimer.current = null
           deviceRef.current = null
           deviceFailures.current = 0
+          try {
+            if (logoutTimer.current !== null) clearTimeout(logoutTimer.current)
+          } catch (error2) {
+            /* ignore */
+          }
+          logoutTimer.current = null
+          try {
+            if (countdownTimer.current !== null) clearInterval(countdownTimer.current)
+          } catch (error2) {
+            /* ignore */
+          }
+          countdownTimer.current = null
         }
       }, [])
 
@@ -6639,15 +6794,78 @@ window.__ModuleLoader__.load({
         })
       }
 
+      // 1s tick while the device code is waiting (drives the countdown).
+      useEffect(function () {
+        if (!device || toNumber(device.expiresAt) === null) return undefined
+        function tick() {
+          setNow(Date.now())
+        }
+        tick()
+        try {
+          countdownTimer.current = setInterval(tick, 1000)
+        } catch (error2) {
+          countdownTimer.current = null
+        }
+        return function () {
+          try {
+            if (countdownTimer.current !== null) clearInterval(countdownTimer.current)
+          } catch (error2) {
+            /* ignore */
+          }
+          countdownTimer.current = null
+        }
+      }, [device && device.id, device && device.expiresAt])
+
+      function cancelLogoutConfirm() {
+        try {
+          if (logoutTimer.current !== null) clearTimeout(logoutTimer.current)
+        } catch (error2) {
+          /* ignore */
+        }
+        logoutTimer.current = null
+        setLogoutConfirm(false)
+      }
+
+      function armLogoutConfirm() {
+        setLogoutConfirm(true)
+        try {
+          if (logoutTimer.current !== null) clearTimeout(logoutTimer.current)
+        } catch (error2) {
+          /* ignore */
+        }
+        logoutTimer.current = setTimeout(function () {
+          logoutTimer.current = null
+          if (alive.current) setLogoutConfirm(false)
+        }, 3000)
+      }
+
       try {
-        if (!status) return null
+        var scopes = []
+        try {
+          var rawScopes = status && status.scopes !== undefined && status.scopes !== null ? status.scopes : null
+          if (Array.isArray(rawScopes)) {
+            scopes = rawScopes.map(function (entry) {
+              return toText(entry)
+            })
+          } else if (typeof rawScopes === 'string') {
+            scopes = rawScopes.split(/[\s,]+/).filter(function (entry) {
+              return entry !== ''
+            })
+          }
+        } catch (error3) {
+          scopes = []
+        }
+        var hasWorkflowScope = scopes.indexOf('workflow') >= 0
+        var tokenKind = toText(status && status.tokenKind)
+        var connectedAt = toNumber(status && status.connectedAt)
+        var mcpConfigured = Boolean(status && status.mcp && status.mcp.configured === true)
+        var nowMs = toNumber(now) || Date.now()
+        var agoText = formatAgoText(t, connectedAt, nowMs)
+        var loginName = signedIn && account ? toText(account.login) : ''
+        var loginRealName = signedIn && account ? toText(account.name) : ''
         var avatarText = signedIn && account ? (toText(account.login).slice(0, 1) || 'G').toUpperCase() : 'GH'
         var avatarUrl = signedIn && account ? toText(account.avatarUrl) : ''
-        var avatar = h(
-          'span',
-          { className: 'gitbar-github-avatar', 'aria-hidden': 'true' },
-          avatarUrl ? h('img', { src: avatarUrl, alt: '', loading: 'lazy' }) : avatarText
-        )
+
         var caret = h(
           'button',
           {
@@ -6665,62 +6883,30 @@ window.__ModuleLoader__.load({
           },
           expanded ? '▾' : '▸'
         )
-        var actions = []
-        var loginName = signedIn && account ? toText(account.login) : ''
-        var loginRealName = signedIn && account ? toText(account.name) : ''
-        if (signedIn) {
-          actions.push(
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'gitbar-btn gitbar-github-btn',
-                key: 'signout',
-                title: t('githubSignOut'),
-                disabled: pending === 'logout',
-                onClick: logout
-              },
-              t('githubSignOut')
-            )
-          )
-        } else {
-          actions.push(
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'gitbar-btn gitbar-github-primary',
-                key: 'signin',
-                title: t('githubSignIn'),
-                disabled: pending === 'login' || pending === 'device',
-                onClick: function () {
-                  setExpanded(function (value) {
-                    return !value
-                  })
-                  setError('')
-                }
-              },
-              t('githubSignIn')
-            )
-          )
-        }
 
-        var network = props.network && typeof props.network === 'object' ? props.network : null
-        var networkBad = Boolean(network && (network.ok !== true || !(network.github && network.github.reachable === true)))
+        var badge = h(
+          'span',
+          {
+            className: 'gitbar-github-badge' + (signedIn ? ' gitbar-github-badge-ok' : '') + (status ? '' : ' gitbar-github-badge-muted'),
+            key: 'badge'
+          },
+          h('span', { className: 'gitbar-github-badge-dot', 'aria-hidden': 'true' }),
+          signedIn ? t('githubBadgeConnected') : status ? t('githubBadgeSignedOut') : t('githubLoadingStatusShort')
+        )
+
         var rows = [
           h(
             'div',
-            { className: 'gitbar-github-row', key: 'row' },
-            avatar,
-            h('span', { className: 'gitbar-github-name', title: loginName || t('github') }, loginName || t('github')),
-            signedIn && loginRealName && loginRealName !== loginName
-              ? h('span', { className: 'gitbar-github-meta', title: loginRealName }, loginRealName)
-              : null,
+            { className: 'gitbar-github-head', key: 'head' },
+            h('span', { className: 'gitbar-github-title' }, t('github')),
+            badge,
             h('span', { className: 'gitbar-spacer' }),
-            actions,
             caret
           )
         ]
+
+        var network = props.network && typeof props.network === 'object' ? props.network : null
+        var networkBad = Boolean(network && (network.ok !== true || !(network.github && network.github.reachable === true)))
         rows.push(
           h(
             'div',
@@ -6740,7 +6926,7 @@ window.__ModuleLoader__.load({
                 onClick: function () {
                   try {
                     if (typeof props.onNetworkReload === 'function') props.onNetworkReload()
-                  } catch (error2) {
+                  } catch (error3) {
                     /* ignore */
                   }
                 }
@@ -6771,7 +6957,7 @@ window.__ModuleLoader__.load({
                       setCloneOpen(true)
                       try {
                         if (typeof props.onOpenClonePanel === 'function') props.onOpenClonePanel()
-                      } catch (error2) {
+                      } catch (error3) {
                         /* ignore */
                       }
                     }
@@ -6782,43 +6968,190 @@ window.__ModuleLoader__.load({
             )
           }
 
-          if (!signedIn) {
+          if (!status) {
+            content.push(
+              h('div', { className: 'gitbar-github-skeleton', key: 'loading' },
+                h('span', { className: 'gitbar-github-skeleton-dot', 'aria-hidden': 'true' }),
+                t('githubLoadingStatus')
+              )
+            )
+          } else if (!signedIn) {
+            // 1. primary CTA: browser sign-in
             content.push(
               h(
                 'div',
-                { className: 'gitbar-github-tabs', key: 'tabs' },
+                { className: 'gitbar-github-cta', key: 'cta' },
                 h(
                   'button',
                   {
                     type: 'button',
-                    className: 'gitbar-github-tab' + (mode === 'pat' ? ' gitbar-github-tab-on' : ''),
-                    onClick: function () {
-                      setMode('pat')
-                    }
+                    className: 'gitbar-btn gitbar-github-primary gitbar-github-cta-btn',
+                    disabled: pending === 'device' || !deviceReady,
+                    onClick: startDevice
                   },
-                  t('githubPatLabel')
+                  pending === 'device' ? t('loading') : t('githubUseBrowser')
                 ),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-github-tab' + (mode === 'device' ? ' gitbar-github-tab-on' : ''),
-                    onClick: function () {
-                      setMode('device')
-                    }
-                  },
-                  t('githubUseBrowser')
-                )
+                h('div', { className: 'gitbar-github-hint' }, t('githubSignInBrowserHint'))
               )
             )
-            if (mode === 'pat') {
+            if (!deviceReady) {
+              content.push(h('div', { className: 'gitbar-github-hint', key: 'dev-off' }, t('githubDeviceUnavailable')))
+            }
+            shippedHint && deviceReady ? content.push(shippedHint) : null
+
+            // 2. device flow steps
+            if (device) {
+              var expiresMs = toNumber(device.expiresAt)
+              var remainingMs = expiresMs === null ? null : Math.max(0, expiresMs - nowMs)
+              var remainingText = remainingMs === null ? '' : formatCountdownText(remainingMs)
+              content.push(
+                h(
+                  'div',
+                  { className: 'gitbar-github-steps', key: 'device' },
+                  h(
+                    'div',
+                    { className: 'gitbar-github-step gitbar-github-step-on', key: 's1' },
+                    h('span', { className: 'gitbar-github-step-index' }, '1'),
+                    h(
+                      'div',
+                      { className: 'gitbar-github-step-body' },
+                      h('div', { className: 'gitbar-github-step-title' }, t('githubStepOpened')),
+                      device.autoNotice ? h('div', { className: 'gitbar-github-hint' }, device.autoNotice) : null,
+                      device.verificationUri
+                        ? h(
+                          'div',
+                          { className: 'gitbar-github-actions' },
+                          h(
+                            'button',
+                            {
+                              type: 'button',
+                              className: 'gitbar-btn gitbar-github-btn',
+                              onClick: openDeviceAgain
+                            },
+                            t('githubDeviceReopen')
+                          ),
+                          h(
+                            'a',
+                            {
+                              className: 'gitbar-github-link',
+                              href: device.verificationUri,
+                              target: '_blank',
+                              rel: 'noreferrer noopener',
+                              title: device.verificationUri
+                            },
+                            device.verificationUri
+                          )
+                        )
+                        : h(
+                          'div',
+                          { className: 'gitbar-github-actions' },
+                          h(
+                            'button',
+                            { type: 'button', className: 'gitbar-btn gitbar-github-btn', onClick: openDeviceAgain },
+                            t('githubDeviceReopen')
+                          )
+                        )
+                    )
+                  ),
+                  h(
+                    'div',
+                    { className: 'gitbar-github-step gitbar-github-step-on', key: 's2' },
+                    h('span', { className: 'gitbar-github-step-index' }, '2'),
+                    h(
+                      'div',
+                      { className: 'gitbar-github-step-body' },
+                      h('div', { className: 'gitbar-github-step-title' }, t('githubStepCode')),
+                      h(
+                        'div',
+                        { className: 'gitbar-github-code-row' },
+                        h('code', { className: 'gitbar-github-code-big', title: device.userCode }, device.userCode),
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'gitbar-btn gitbar-github-btn',
+                            title: t('copy'),
+                            'aria-label': t('copy'),
+                            onClick: function () {
+                              if (copyDeviceCode(device.userCode)) flash(t('githubCodeCopied'))
+                            }
+                          },
+                          '⧉'
+                        )
+                      ),
+                      h('div', { className: 'gitbar-github-hint' }, t('githubCodeCopied'))
+                    )
+                  ),
+                  h(
+                    'div',
+                    { className: 'gitbar-github-step gitbar-github-step-on gitbar-github-step-wait', key: 's3' },
+                    h('span', { className: 'gitbar-github-step-index' }, '3'),
+                    h(
+                      'div',
+                      { className: 'gitbar-github-step-body' },
+                      h(
+                        'div',
+                        { className: 'gitbar-github-step-title' },
+                        h('span', { className: 'gitbar-github-pulse', 'aria-hidden': 'true' }),
+                        t('githubWaitingAuth')
+                      ),
+                      remainingText
+                        ? h(
+                          'div',
+                          { className: 'gitbar-github-hint' },
+                          toText(t('githubCodeExpires')).replace('{time}', remainingText)
+                        )
+                        : null
+                    )
+                  ),
+                  h(
+                    'div',
+                    { className: 'gitbar-github-actions gitbar-github-actions-end' },
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'gitbar-btn',
+                        onClick: function () {
+                          stopDevice()
+                          setError('')
+                        }
+                      },
+                      t('cancel')
+                    )
+                  )
+                )
+              )
+            }
+
+            // 3. secondary: PAT
+            content.push(h('div', { className: 'gitbar-github-sep', key: 'sep-pat' }))
+            content.push(
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gitbar-github-disclosure',
+                  key: 'pat-toggle',
+                  'aria-expanded': patOpen ? 'true' : 'false',
+                  onClick: function () {
+                    setPatOpen(function (value) {
+                      return !value
+                    })
+                  }
+                },
+                patOpen ? '▾' : '▸',
+                t('githubPatSecondary')
+              )
+            )
+            if (patOpen) {
               content.push(
                 h('div', { className: 'gitbar-github-hint', key: 'pat-hint' }, t('githubPatHint')),
                 h(
                   'div',
                   { className: 'gitbar-github-actions', key: 'pat-row' },
                   h('input', {
-                    type: 'password',
+                    type: patVisible ? 'text' : 'password',
                     className: 'gitbar-github-input',
                     value: pat,
                     placeholder: 'ghp_…',
@@ -6828,8 +7161,33 @@ window.__ModuleLoader__.load({
                     disabled: pending === 'login',
                     onChange: function (event) {
                       setPat(event && event.target ? event.target.value : '')
+                    },
+                    onKeyDown: function (event) {
+                      try {
+                        if (!event) return
+                        if (event.key !== 'Enter' && event.keyCode !== 13) return
+                        if (typeof event.preventDefault === 'function') event.preventDefault()
+                        loginWithPat()
+                      } catch (error3) {
+                        /* ignore */
+                      }
                     }
                   }),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-btn',
+                      title: t('githubPatReveal'),
+                      'aria-label': t('githubPatReveal'),
+                      onClick: function () {
+                        setPatVisible(function (value) {
+                          return !value
+                        })
+                      }
+                    },
+                    patVisible ? '🙈' : '👁'
+                  ),
                   h(
                     'button',
                     {
@@ -6840,142 +7198,33 @@ window.__ModuleLoader__.load({
                     },
                     t('githubPatSignIn')
                   )
-                )
-              )
-            } else if (!deviceReady) {
-              content.push(
-                h('div', { className: 'gitbar-github-hint', key: 'dev-off' }, t('githubDeviceUnavailable')),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn gitbar-github-primary',
-                    key: 'dev-off-pat',
-                    onClick: function () {
-                      setMode('pat')
-                    }
-                  },
-                  t('githubUsePat')
-                )
-              )
-            } else if (!device) {
-              content.push(
-                h('div', { className: 'gitbar-github-hint', key: 'dev-hint' }, t('githubDeviceHint')),
-                shippedHint,
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn gitbar-github-primary',
-                    key: 'dev-start',
-                    disabled: pending === 'device',
-                    onClick: startDevice
-                  },
-                  t('githubUseBrowser')
-                )
-              )
-            } else {
-              content.push(
-                h(
-                  'div',
-                  { className: 'gitbar-github-actions', key: 'dev-code' },
-                  h('span', { className: 'gitbar-github-code' }, t('githubDeviceCode') + ' ' + device.userCode),
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'gitbar-btn gitbar-github-btn',
-                      key: 'dev-copy',
-                      title: t('copy'),
-                      'aria-label': t('copy'),
-                      onClick: function () {
-                        copyDeviceCode(device.userCode)
-                      }
-                    },
-                    '⧉'
-                  ),
-                  device.verificationUri
-                    ? h(
-                      'a',
-                      {
-                        className: 'gitbar-github-link',
-                        href: device.verificationUri,
-                        target: '_blank',
-                        rel: 'noreferrer noopener',
-                        title: t('githubDeviceOpen')
-                      },
-                      device.verificationUri
-                    )
-                    : null
                 ),
-                shippedHint,
-                device.autoNotice ? h('div', { className: 'gitbar-github-hint', key: 'dev-auto' }, device.autoNotice) : null,
-                h('div', { className: 'gitbar-github-hint', key: 'dev-wait' }, t('githubDeviceWaiting')),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn gitbar-github-btn',
-                    key: 'dev-reopen',
-                    onClick: openDeviceAgain
-                  },
-                  t('githubDeviceReopen')
-                ),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn',
-                    key: 'dev-cancel',
-                    onClick: function () {
-                      stopDevice()
-                      setError('')
-                    }
-                  },
-                  t('cancel')
-                )
+                h('div', { className: 'gitbar-github-hint', key: 'pat-scope' }, t('githubPatScopeHint'))
               )
             }
 
-            // Custom OAuth app client id (only relevant for the browser flow).
+            // 4. advanced: custom OAuth client id
             content.push(
-              deviceIsCustom
-                ? h(
-                  'div',
-                  { className: 'gitbar-github-actions', key: 'dev-custom-active' },
-                  h('span', { className: 'gitbar-github-hint' }, t('githubClientIdActive')),
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'gitbar-btn gitbar-github-btn',
-                      disabled: configPending,
-                      onClick: function () {
-                        saveClientId(true)
-                      }
-                    },
-                    t('githubClientIdReset')
-                  )
-                )
-                : null,
-              deviceInfo && deviceReady && !deviceIsCustom
-                ? h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'gitbar-btn gitbar-github-btn',
-                    key: 'dev-custom-toggle',
-                    onClick: function () {
-                      setClientFormOpen(function (value) {
-                        return !value
-                      })
-                    }
-                  },
-                  t('githubClientIdCustom')
-                )
-                : null,
-              !deviceReady || deviceIsCustom || clientFormOpen
-                ? h(
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'gitbar-github-disclosure',
+                  key: 'adv-toggle',
+                  'aria-expanded': clientFormOpen ? 'true' : 'false',
+                  onClick: function () {
+                    setClientFormOpen(function (value) {
+                      return !value
+                    })
+                  }
+                },
+                clientFormOpen ? '▾' : '▸',
+                t('githubAdvanced')
+              )
+            )
+            if (clientFormOpen) {
+              content.push(
+                h(
                   'div',
                   { className: 'gitbar-github-actions', key: 'dev-client' },
                   h('input', {
@@ -6995,7 +7244,7 @@ window.__ModuleLoader__.load({
                     'button',
                     {
                       type: 'button',
-                      className: 'gitbar-btn gitbar-github-primary',
+                      className: 'gitbar-btn gitbar-github-btn',
                       disabled: configPending,
                       onClick: function () {
                         saveClientId(false)
@@ -7003,12 +7252,199 @@ window.__ModuleLoader__.load({
                     },
                     configPending ? t('githubSaving') : t('githubSave')
                   )
+                ),
+                deviceIsCustom
+                  ? h(
+                    'div',
+                    { className: 'gitbar-github-hint', key: 'dev-custom-active' },
+                    h('span', null, t('githubClientIdActive')),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'gitbar-btn gitbar-github-btn',
+                        disabled: configPending,
+                        onClick: function () {
+                          saveClientId(true)
+                        }
+                      },
+                      t('githubClientIdReset')
+                    )
+                  )
+                  : null,
+                h('div', { className: 'gitbar-github-hint', key: 'dev-client-hint' }, t('githubClientIdHint'))
+              )
+            }
+          } else {
+            // signed-in card
+            content.push(
+              h(
+                'div',
+                { className: 'gitbar-github-account', key: 'account' },
+                h(
+                  'span',
+                  { className: 'gitbar-github-avatar gitbar-github-avatar-24', 'aria-hidden': 'true' },
+                  avatarUrl ? h('img', { src: avatarUrl, alt: '', loading: 'lazy' }) : avatarText
+                ),
+                h('span', { className: 'gitbar-github-name' }, loginName || t('github')),
+                loginRealName && loginRealName !== loginName
+                  ? h('span', { className: 'gitbar-github-meta', title: loginRealName }, loginRealName)
+                  : null,
+                h('span', { className: 'gitbar-spacer' }),
+                h(
+                  'span',
+                  { className: 'gitbar-github-badge gitbar-github-badge-ok' },
+                  h('span', { className: 'gitbar-github-badge-dot', 'aria-hidden': 'true' }),
+                  t('githubBadgeConnected')
                 )
-                : null,
-              !deviceReady || deviceIsCustom || clientFormOpen
-                ? h('div', { className: 'gitbar-github-hint', key: 'dev-client-hint' }, t('githubClientIdHint'))
-                : null
+              )
             )
+
+            var meta = []
+            meta.push(
+              h(
+                'div',
+                { className: 'gitbar-github-meta-item', key: 'kind' },
+                h('div', { className: 'gitbar-github-meta-label' }, t('githubMetaTokenKind')),
+                h('div', { className: 'gitbar-github-meta-value' }, tokenKind === 'device' ? t('githubTokenKindDevice') : t('githubTokenKindPAT'))
+              )
+            )
+            meta.push(
+              h(
+                'div',
+                { className: 'gitbar-github-meta-item', key: 'since' },
+                h('div', { className: 'gitbar-github-meta-label' }, t('githubMetaSignedIn')),
+                h(
+                  'div',
+                  { className: 'gitbar-github-meta-value', title: agoText ? toText(t('githubSignedInAgo')).replace('{when}', agoText) : '' },
+                  agoText || '-'
+                )
+              )
+            )
+            meta.push(
+              h(
+                'div',
+                { className: 'gitbar-github-meta-item gitbar-github-meta-wide', key: 'scopes' },
+                h('div', { className: 'gitbar-github-meta-label' }, t('githubScopesTitle')),
+                h(
+                  'div',
+                  { className: 'gitbar-github-chips' },
+                  h('span', { className: 'gitbar-github-chip' }, 'repo'),
+                  h('span', { className: 'gitbar-github-chip' }, 'read:user'),
+                  hasWorkflowScope
+                    ? h('span', { className: 'gitbar-github-chip' }, 'workflow')
+                    : h('span', { className: 'gitbar-github-chip gitbar-github-chip-error', title: t('githubWorkflowWarn') }, t('githubScopeMissingWorkflow'))
+                )
+              )
+            )
+            meta.push(
+              h(
+                'div',
+                { className: 'gitbar-github-meta-item', key: 'mcp' },
+                h('div', { className: 'gitbar-github-meta-label' }, 'MCP'),
+                h(
+                  'div',
+                  { className: 'gitbar-github-meta-value' + (mcpConfigured ? '' : ' gitbar-github-meta-muted'), title: mcpConfigured ? '' : t('githubMcpHint') },
+                  mcpConfigured ? t('githubMcpOn') : t('githubMcpOff')
+                ),
+                mcpConfigured ? null : h('div', { className: 'gitbar-github-hint' }, t('githubMcpHint'))
+              )
+            )
+            content.push(h('div', { className: 'gitbar-github-meta-grid', key: 'meta' }, meta))
+
+            if (!hasWorkflowScope) {
+              content.push(
+                h(
+                  'div',
+                  { className: 'gitbar-github-warn', key: 'wf-warn', role: 'status' },
+                  h('span', { className: 'gitbar-github-warn-text' }, t('githubWorkflowWarn')),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-primary',
+                      disabled: pending === 'device' || !deviceReady,
+                      onClick: startDevice
+                    },
+                    t('githubRelogin')
+                  )
+                )
+              )
+            }
+
+            content.push(h('div', { className: 'gitbar-github-sep', key: 'sep-actions' }))
+            if (logoutConfirm) {
+              content.push(
+                h(
+                  'div',
+                  { className: 'gitbar-github-actions gitbar-github-actions-end', key: 'logout-confirm' },
+                  h('span', { className: 'gitbar-github-danger-text' }, t('githubLogoutConfirm')),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn',
+                      onClick: function () {
+                        cancelLogoutConfirm()
+                      }
+                    },
+                    t('cancel')
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-danger',
+                      disabled: pending === 'logout',
+                      onClick: function () {
+                        cancelLogoutConfirm()
+                        logout()
+                      }
+                    },
+                    t('githubConfirmExit')
+                  )
+                )
+              )
+            } else {
+              content.push(
+                h(
+                  'div',
+                  { className: 'gitbar-github-actions gitbar-github-actions-end', key: 'actions' },
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-btn',
+                      disabled: pending !== '',
+                      onClick: function () {
+                        if (typeof props.onReload === 'function') props.onReload()
+                      }
+                    },
+                    t('githubRefresh')
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-btn',
+                      disabled: pending === 'device' || !deviceReady,
+                      onClick: startDevice
+                    },
+                    t('githubRelogin')
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-danger',
+                      disabled: pending === 'logout',
+                      onClick: armLogoutConfirm
+                    },
+                    t('githubSignOut')
+                  )
+                )
+              )
+            }
           }
 
           rows.push(h('div', { className: 'gitbar-github-panel', key: 'panel' }, content))
@@ -7025,7 +7461,7 @@ window.__ModuleLoader__.load({
                 setCloneOpen(false)
                 try {
                   closeGithubClonePanel()
-                } catch (error2) {
+                } catch (error3) {
                   /* ignore */
                 }
               }
