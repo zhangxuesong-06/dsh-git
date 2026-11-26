@@ -164,6 +164,13 @@ window.__ModuleLoader__.load({
       githubRecentActivity: '最近活动',
       githubOrgsMissingScope: '授权缺少 read:org，读不到组织',
       githubOrgsEmpty: '暂无组织',
+      githubOrgsEmptyHint: 'GitHub 返回 0 个组织。若你属于私有组织，需要组织管理员批准本 OAuth App，或把成员身份设为公开。',
+      githubOrgsApproval: '打开组织访问设置',
+      githubStatFollowing: '关注',
+      githubStatFollowers: '粉丝',
+      githubStatPublicRepos: '公开仓库',
+      githubStatPrivateRepos: '私有仓库',
+      githubStatGists: 'Gists',
       githubReloginShort: '重新授权',
       githubRefreshPending: '刷新中…',
       githubRetestPending: '重测中…',
@@ -509,6 +516,13 @@ window.__ModuleLoader__.load({
       githubRecentActivity: 'Recent activity',
       githubOrgsMissingScope: 'Missing read:org scope — organizations unavailable',
       githubOrgsEmpty: 'No organizations',
+      githubOrgsEmptyHint: 'GitHub reported 0 organizations. Private memberships need the organization to approve this OAuth App, or the membership must be public.',
+      githubOrgsApproval: 'Open organization access',
+      githubStatFollowing: 'Following',
+      githubStatFollowers: 'Followers',
+      githubStatPublicRepos: 'Public repos',
+      githubStatPrivateRepos: 'Private repos',
+      githubStatGists: 'Gists',
       githubReloginShort: 'Re-authorize',
       githubRefreshPending: 'Refreshing…',
       githubRetestPending: 'Testing…',
@@ -4053,9 +4067,11 @@ window.__ModuleLoader__.load({
       '.gitbar-github-repo-desc{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-github-tag{flex:0 0 auto;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;font-size:9.5px;color:var(--dsw-alias-label-secondary)}',
       '.gitbar-github-page-cols{display:flex;flex-direction:column;gap:12px;align-items:stretch}',
-      '.gitbar-github-left,.gitbar-github-right{width:100%;min-width:0}',
-      '.gitbar-github-left .gitbar-github-profile{display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:6px 16px;align-items:start}',
-      '.gitbar-github-left .gitbar-github-profile-stats{grid-column:2;grid-row:1 / span 7;align-self:start;display:flex;flex-direction:column;gap:3px;font-size:11px}',
+      '.gitbar-github-left .gitbar-github-profile{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,360px);gap:8px 28px;align-items:start}',
+      '.gitbar-github-left .gitbar-github-profile-stats{grid-column:2;grid-row:1 / span 8;align-self:start;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 8px;font-size:11px}',
+      '.gitbar-github-stat{display:flex;flex-direction:column;gap:1px;padding:6px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1);min-width:0}',
+      '.gitbar-github-stat-value{font-size:15px;font-weight:650;line-height:1.1;color:var(--dsw-alias-label-primary)}',
+      '.gitbar-github-stat-label{font-size:10px;line-height:1.2;color:var(--dsw-alias-label-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.gitbar-contrib{display:flex;flex-direction:column;gap:6px;min-width:0}',
       '.gitbar-contrib-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
       '.gitbar-contrib-title{font-size:11.5px;font-weight:600}',
@@ -4139,8 +4155,8 @@ window.__ModuleLoader__.load({
       '.gitbar-github-repos-stats{font-size:10.5px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}',
       '.gitbar-github-repos-search{display:flex}',
       '.gitbar-github-repos-search .gitbar-github-input{width:100%}',
-      '.gitbar-github-repos-list{display:flex;flex-direction:column;gap:4px;max-height:min(58vh,520px);overflow:auto;overscroll-behavior:contain}',
-      '.gitbar-github-repo-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}',
+      '.gitbar-github-repos-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:6px;max-height:min(64vh,640px);overflow:auto;overscroll-behavior:contain}',
+      '.gitbar-github-repo-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;min-width:0}',
       '.gitbar-github-repo-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}',
       '.gitbar-github-repo-name{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.gitbar-github-repo-badge{flex:0 0 auto;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;font-size:9px;line-height:14px;color:var(--dsw-alias-label-secondary)}',
@@ -4162,7 +4178,7 @@ window.__ModuleLoader__.load({
       '.gitbar-avatar-dialog-account{display:flex;align-items:center;gap:6px;min-width:0}',
       '.gitbar-avatar-dialog-summary{display:flex;flex-direction:column;gap:6px}',
       '.gitbar-avatar-dialog-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;padding-top:4px}',
-      '.gitbar-github-page{max-width:1180px;box-sizing:border-box;margin:0 auto;padding:24px 28px;font:inherit;font-size:12.5px;line-height:1.45;color:var(--dsw-alias-label-primary)}',
+      '.gitbar-github-page{max-width:none;width:100%;box-sizing:border-box;margin:0;padding:18px clamp(16px,2.5vw,40px);font:inherit;font-size:12.5px;line-height:1.45;color:var(--dsw-alias-label-primary)}',
       '.gitbar-github-page .gitbar-github-panel{width:100%}',
       '.gitbar-github-page .gitbar-github{border:none;background:transparent;box-shadow:none;padding:0}',
       '.gitbar-github-page .gitbar-github-head{height:auto;padding:0 0 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
@@ -9594,19 +9610,29 @@ window.__ModuleLoader__.load({
               if (toText(panelProfile.company)) profileFacts.push(toText(panelProfile.company))
               if (toText(panelProfile.location)) profileFacts.push(toText(panelProfile.location))
               if (profileFacts.length) profileLines.push(h('div', { className: 'gitbar-github-profile-facts', key: 'facts', title: profileFacts.join(' · ') }, profileFacts.join(' · ')))
-              // Counters: zeros are shown on purpose.
-              var profileStats = []
-              function profileCount(key, value) {
-                var count = toNumber(value)
-                if (count === null) count = 0
-                return toText(t(key)).replace('{n}', String(count))
-              }
-              profileStats.push(profileCount('githubFollowing', panelProfile.following))
-              profileStats.push(profileCount('githubFollowers', panelProfile.followers))
-              profileStats.push(profileCount('githubPublicRepos', panelProfile.publicRepos))
-              profileStats.push(profileCount('githubPrivateRepos', panelProfile.privateRepos))
-              profileStats.push(profileCount('githubGists', panelProfile.publicGists))
-              profileLines.push(h('div', { className: 'gitbar-github-profile-stats', key: 'stats' }, profileStats.join(' · ')))
+              // Counters as tiles: zeros are shown on purpose.
+              var profileStats = [
+                { key: 'followers', label: 'githubStatFollowers', value: panelProfile.followers },
+                { key: 'following', label: 'githubStatFollowing', value: panelProfile.following },
+                { key: 'public', label: 'githubStatPublicRepos', value: panelProfile.publicRepos },
+                { key: 'private', label: 'githubStatPrivateRepos', value: panelProfile.privateRepos },
+                { key: 'gists', label: 'githubStatGists', value: panelProfile.publicGists }
+              ]
+              profileLines.push(
+                h(
+                  'div',
+                  { className: 'gitbar-github-profile-stats', key: 'stats' },
+                  profileStats.map(function (stat) {
+                    var count = toNumber(stat.value)
+                    return h(
+                      'div',
+                      { className: 'gitbar-github-stat', key: 'stat-' + stat.key },
+                      h('span', { className: 'gitbar-github-stat-value' }, String(count === null ? 0 : count)),
+                      h('span', { className: 'gitbar-github-stat-label' }, t(stat.label))
+                    )
+                  })
+                )
+              )
               // Links: blog + twitter (opened externally).
               var profileLinks = []
               var blog = toText(panelProfile.blog)
@@ -9656,7 +9682,21 @@ window.__ModuleLoader__.load({
                 if (orgs.length > 8) orgRows.push(h('span', { className: 'gitbar-github-profile-org', key: 'org-more' }, '+' + String(orgs.length - 8)))
                 orgChildren.push(h('div', { className: 'gitbar-github-orgs-list', key: 'orgs-list' }, orgRows))
               } else if (canReadOrgs) {
-                orgChildren.push(h('div', { className: 'gitbar-github-hint', key: 'orgs-empty' }, t('githubOrgsEmpty')))
+                // The token can read memberships and GitHub still reports none, which
+                // usually means the membership is private and the org has not approved
+                // this OAuth App yet.
+                orgChildren.push(
+                  h('div', { className: 'gitbar-github-orgs-scope', key: 'orgs-empty' },
+                    h('span', { className: 'gitbar-github-hint' }, t('githubOrgsEmptyHint')),
+                    h('button', {
+                      type: 'button',
+                      className: 'gitbar-btn gitbar-github-btn',
+                      onClick: function () {
+                        openExternal('https://github.com/settings/connections/applications/Ov23liMkw1wzdh9gZdHU')
+                      }
+                    }, t('githubOrgsApproval'))
+                  )
+                )
               } else {
                 orgChildren.push(h('div', { className: 'gitbar-github-orgs-scope', key: 'orgs-scope' },
                   h('span', { className: 'gitbar-github-hint' }, t('githubOrgsMissingScope')),
