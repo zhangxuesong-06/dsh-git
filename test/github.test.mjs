@@ -180,15 +180,19 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
       bio: 'cat',
       company: 'GitHub',
       location: 'Earth',
+      blog: 'https://octo.invalid',
+      twitter_username: 'octo',
       followers: 12,
       following: 3,
       public_repos: 9,
       total_private_repos: 4,
+      public_gists: 2,
       created_at: '2019-01-01T00:00:00Z',
       avatar_url: 'https://example.invalid/a.png',
       html_url: 'https://github.com/octo',
     }),
   )
+  queued(() => respond([{ login: 'dsh-labs' }, { login: 'octo-org' }]))
   const profile = await ask(repo, '/dsh-git-bar/github/profile')
   check(
     'profile: mapped fields',
@@ -197,8 +201,44 @@ check('rewrite: https remote untouched', githubRewriteArgs('https://github.com/o
       profile.profile.publicRepos === 9 &&
       profile.profile.privateRepos === 4 &&
       profile.profile.followers === 12 &&
+      profile.profile.publicGists === 2 &&
       profile.profile.createdAt.startsWith('2019-01-01'),
     JSON.stringify(profile.profile),
+  )
+  check('profile: organisations listed', Array.isArray(profile.profile.orgs) && profile.profile.orgs.join(',') === 'dsh-labs,octo-org', JSON.stringify(profile.profile.orgs))
+
+  // Repository rows carry what the account page shows: language, stars, forks…
+  queued(() =>
+    respond([
+      {
+        full_name: 'octo/alpha',
+        name: 'alpha',
+        owner: { login: 'octo' },
+        private: false,
+        default_branch: 'main',
+        description: 'first',
+        updated_at: '2026-01-02T00:00:00Z',
+        pushed_at: '2026-01-01T00:00:00Z',
+        html_url: 'https://github.com/octo/alpha',
+        clone_url: 'https://github.com/octo/alpha.git',
+        language: 'TypeScript',
+        stargazers_count: 7,
+        forks_count: 2,
+        open_issues_count: 1,
+        size: 123,
+        archived: true,
+        fork: true,
+        visibility: 'public',
+        topics: ['dsh', 'git'],
+      },
+    ]),
+  )
+  const rich = await ask(repo, '/dsh-git-bar/github/repos')
+  const row = (rich.repos || [])[0] || {}
+  check(
+    'repos: rich row fields',
+    row.language === 'TypeScript' && row.stars === 7 && row.forks === 2 && row.archived === true && row.fork === true && row.pushedAt.startsWith('2026-01-01') && (row.topics || []).length === 2,
+    JSON.stringify(row),
   )
 }
 

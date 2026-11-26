@@ -2358,9 +2358,15 @@ async function githubDevicePoll(ctx, id) {
 async function githubProfile(ctx) {
   const access = await githubAccessToken(ctx)
   if (!access.token) return { ok: false, reason: access.reason ?? 'not-signed-in', detail: access.detail ?? '' }
-  const result = await githubRequest('/user', { token: access.token })
+  const [result, orgsResult] = await Promise.all([
+    githubRequest('/user', { token: access.token }),
+    githubRequest('/user/orgs?per_page=20', { token: access.token }),
+  ])
   if (!result.ok) return { ok: false, reason: result.reason, detail: result.detail ?? '' }
   const data = result.data && typeof result.data === 'object' ? result.data : {}
+  const orgs = orgsResult.ok && Array.isArray(orgsResult.data)
+    ? orgsResult.data.map((org) => asText(org && org.login)).filter(Boolean).slice(0, 20)
+    : []
   return {
     ok: true,
     scopes: Array.isArray(result.scopes) ? result.scopes : [],
@@ -2372,13 +2378,18 @@ async function githubProfile(ctx) {
       company: asText(data.company),
       location: asText(data.location),
       blog: asText(data.blog),
+      twitter: asText(data.twitter_username),
       followers: Number(data.followers) || 0,
       following: Number(data.following) || 0,
       publicRepos: Number(data.public_repos) || 0,
       privateRepos: Number(data.total_private_repos) || 0,
+      publicGists: Number(data.public_gists) || 0,
       createdAt: asText(data.created_at),
+      updatedAt: asText(data.updated_at),
       avatarUrl: asText(data.avatar_url),
       htmlUrl: asText(data.html_url),
+      hireable: data.hireable === true,
+      orgs,
     },
   }
 }
@@ -2402,7 +2413,19 @@ async function githubRepos(ctx, query, limit) {
       defaultBranch: asText(repo.default_branch),
       description: asText(repo.description),
       updatedAt: asText(repo.updated_at),
+      pushedAt: asText(repo.pushed_at),
+      createdAt: asText(repo.created_at),
       cloneUrl: asText(repo.clone_url),
+      htmlUrl: asText(repo.html_url),
+      language: asText(repo.language),
+      stars: Number(repo.stargazers_count) || 0,
+      forks: Number(repo.forks_count) || 0,
+      openIssues: Number(repo.open_issues_count) || 0,
+      sizeKb: Number(repo.size) || 0,
+      archived: repo.archived === true,
+      fork: repo.fork === true,
+      visibility: asText(repo.visibility),
+      topics: Array.isArray(repo.topics) ? repo.topics.map((topic) => asText(topic)).filter(Boolean).slice(0, 6) : [],
     }))
     .filter((repo) => repo.fullName !== '')
     .filter(
