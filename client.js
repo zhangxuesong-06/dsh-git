@@ -155,6 +155,39 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: '打开验证页',
       githubDeviceExpired: '验证码已过期，请重试',
       githubDeviceDenied: '授权被拒绝',
+      githubRefreshPending: '刷新中…',
+      githubRetestPending: '重测中…',
+      githubRefreshed: '已刷新',
+      githubRetestOk: '{mode} · {ms}ms',
+      githubRetestFail: '重测失败：网络不可达',
+      githubLastRefresh: '上次刷新：{when}',
+      githubTabRepos: '仓库',
+      githubTabActivity: '活跃',
+      githubOrgsTitle: '组织',
+      githubActivityTotal: '最近 {n} 条活动',
+      githubActivityEmpty: '最近没有公开活动',
+      githubActivitySignIn: '登录后查看活跃度',
+      githubEventPush: '推送 {n} 个提交到 {repo}',
+      githubEventCreate: '创建{what} {ref} @ {repo}',
+      githubEventIssues: '打开 issue #{ref} @ {repo}',
+      githubEventPullRequest: 'PR #{ref} @ {repo}',
+      githubEventWatch: 'Star 了 {repo}',
+      githubEventFork: 'Fork 了 {repo}',
+      githubEventComment: '评论了 {repo}',
+      githubEventRelease: '发布 {ref} @ {repo}',
+      githubEventDelete: '删除 {ref} @ {repo}',
+      githubEventOther: '{type} @ {repo}',
+      githubEventBranchPush: '推送分支 {ref} 到 {repo}',
+      githubEventShortPush: '推送',
+      githubEventShortCreate: '创建',
+      githubEventShortIssues: 'Issue',
+      githubEventShortPullRequest: 'PR',
+      githubEventShortWatch: 'Star',
+      githubEventShortFork: 'Fork',
+      githubEventShortComment: '评论',
+      githubEventShortRelease: '发布',
+      githubEventShortDelete: '删除',
+      githubEventShortOther: '其他',
       githubFollowers: '{n} 粉丝',
       githubFollowing: '关注 {n}',
       githubPublicRepos: '公开仓库 {n}',
@@ -457,6 +490,39 @@ window.__ModuleLoader__.load({
       githubDeviceOpen: 'Open verification page',
       githubDeviceExpired: 'The code expired, please try again',
       githubDeviceDenied: 'Authorization denied',
+      githubRefreshPending: 'Refreshing…',
+      githubRetestPending: 'Testing…',
+      githubRefreshed: 'Refreshed',
+      githubRetestOk: '{mode} · {ms}ms',
+      githubRetestFail: 'Re-test failed: network unreachable',
+      githubLastRefresh: 'Last refresh: {when}',
+      githubTabRepos: 'Repositories',
+      githubTabActivity: 'Activity',
+      githubOrgsTitle: 'Organizations',
+      githubActivityTotal: 'Latest {n} events',
+      githubActivityEmpty: 'No public activity yet',
+      githubActivitySignIn: 'Sign in to see activity',
+      githubEventPush: 'Pushed {n} commits to {repo}',
+      githubEventCreate: 'Created {what} {ref} @ {repo}',
+      githubEventIssues: 'Opened issue #{ref} @ {repo}',
+      githubEventPullRequest: 'PR #{ref} @ {repo}',
+      githubEventWatch: 'Starred {repo}',
+      githubEventFork: 'Forked {repo}',
+      githubEventComment: 'Commented on {repo}',
+      githubEventRelease: 'Released {ref} @ {repo}',
+      githubEventDelete: 'Deleted {ref} @ {repo}',
+      githubEventOther: '{type} @ {repo}',
+      githubEventBranchPush: 'Pushed branch {ref} to {repo}',
+      githubEventShortPush: 'Push',
+      githubEventShortCreate: 'Create',
+      githubEventShortIssues: 'Issue',
+      githubEventShortPullRequest: 'PR',
+      githubEventShortWatch: 'Star',
+      githubEventShortFork: 'Fork',
+      githubEventShortComment: 'Comment',
+      githubEventShortRelease: 'Release',
+      githubEventShortDelete: 'Delete',
+      githubEventShortOther: 'Other',
       githubFollowers: '{n} followers',
       githubFollowing: '{n} following',
       githubPublicRepos: '{n} public repos',
@@ -1302,6 +1368,37 @@ window.__ModuleLoader__.load({
     }
 
     // main panel: the GitHub account page (full-width, own data fetching).
+    // Org row for the account card (avatar + login, opens on GitHub).
+    function GithubOrgItem(props) {
+      var login = toText(props.login)
+      var brokenHook = useState(false)
+      var broken = brokenHook[0]
+      var setBroken = brokenHook[1]
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: 'gitbar-github-org-row',
+          title: login,
+          onClick: function () {
+            try {
+              if (typeof props.onOpen === 'function') props.onOpen(login)
+            } catch (error) {
+              /* ignore */
+            }
+          }
+        },
+        h(
+          'span',
+          { className: 'gitbar-github-org-avatar', 'aria-hidden': 'true' },
+          broken || !login
+            ? login.slice(0, 1).toUpperCase()
+            : h('img', { src: 'https://github.com/' + login + '.png?size=32', alt: '', loading: 'lazy', onError: function () { setBroken(true) } })
+        ),
+        h('span', { className: 'gitbar-github-org-name' }, login)
+      )
+    }
+
     // main panel: two columns — account (left) and repositories (right).
     function GithubAccountPage(props) {
       var t = props.t || translate
@@ -1340,14 +1437,37 @@ window.__ModuleLoader__.load({
       var noticeHook = useState('')
       var notice = noticeHook[0]
       var setNotice = noticeHook[1]
+      var activityHook = useState(null)
+      var activity = activityHook[0]
+      var setActivity = activityHook[1]
+      var activityPendingHook = useState(true)
+      var activityPending = activityPendingHook[0]
+      var setActivityPending = activityPendingHook[1]
+      var activityErrorHook = useState('')
+      var activityError = activityErrorHook[0]
+      var setActivityError = activityErrorHook[1]
+      var tabHook = useState('repos')
+      var tabView = tabHook[0]
+      var setTabView = tabHook[1]
+      var refreshPendingHook = useState(false)
+      var refreshPending = refreshPendingHook[0]
+      var setRefreshPending = refreshPendingHook[1]
+      var lastRefreshHook = useState(0)
+      var lastRefresh = lastRefreshHook[0]
+      var setLastRefresh = lastRefreshHook[1]
+      var nowTickHook = useState(Date.now())
+      var nowTick = nowTickHook[0]
+      var setNowTick = nowTickHook[1]
       var alive = useRef(true)
       var statusAbort = useRef(null)
       var networkAbort = useRef(null)
       var profileAbort = useRef(null)
       var reposAbort = useRef(null)
+      var activityAbort = useRef(null)
       var timer = useRef(null)
       var searchTimer = useRef(null)
       var noticeTimer = useRef(null)
+      var refreshSafety = useRef(null)
 
       function publish(nextStatus, nextNetwork) {
         var current = gitbarGithubAccountStore.get() || {}
@@ -1358,7 +1478,7 @@ window.__ModuleLoader__.load({
         })
       }
 
-      function loadStatus() {
+      function loadStatus(done) {
         try {
           if (statusAbort.current) statusAbort.current()
         } catch (error) {
@@ -1374,27 +1494,29 @@ window.__ModuleLoader__.load({
               setStatus(result)
               publish(result, undefined)
             }
+            if (typeof done === 'function') done()
           }
         )
       }
 
-      function loadNetwork() {
+      function loadNetwork(done) {
         try {
           if (networkAbort.current) networkAbort.current()
         } catch (error) {
           /* ignore */
         }
-        networkAbort.current = fetchGithubNetwork(sessionId, false, function (result) {
+        networkAbort.current = fetchGithubNetwork(sessionId, true, function (result) {
           if (!alive.current) return
           networkAbort.current = null
           if (result && typeof result === 'object') {
             setNetwork(result)
             publish(undefined, result)
           }
+          if (typeof done === 'function') done()
         })
       }
 
-      function loadProfile() {
+      function loadProfile(done) {
         try {
           if (profileAbort.current) profileAbort.current()
         } catch (error) {
@@ -1408,11 +1530,12 @@ window.__ModuleLoader__.load({
             profileAbort.current = null
             if (result && result.ok === true && result.profile && typeof result.profile === 'object') setProfile(result.profile)
             else if (!result || result.ok !== true) setProfile(null)
+            if (typeof done === 'function') done()
           }
         )
       }
 
-      function loadRepos() {
+      function loadRepos(done) {
         try {
           if (reposAbort.current) reposAbort.current()
         } catch (error) {
@@ -1433,19 +1556,82 @@ window.__ModuleLoader__.load({
             if (result && result.ok === true && Array.isArray(result.repos)) {
               setRepos(result.repos.slice(0, 100))
               setReposError('')
+              if (typeof done === 'function') done()
               return
             }
             setRepos([])
             setReposError(toText(result && result.reason) || 'network')
+            if (typeof done === 'function') done()
           }
         )
       }
 
-      function refreshAll() {
-        loadStatus()
-        loadNetwork()
-        loadProfile()
-        loadRepos()
+      function loadActivity(done) {
+        try {
+          if (activityAbort.current) activityAbort.current()
+        } catch (error) {
+          /* ignore */
+        }
+        setActivityPending(true)
+        activityAbort.current = requestJson(
+          withQuery(GITHUB_BASE + '/activity', [{ key: 'session', value: sessionId }]),
+          null,
+          function (result) {
+            if (!alive.current) return
+            activityAbort.current = null
+            setActivityPending(false)
+            if (result && result.ok === true && Array.isArray(result.items)) {
+              setActivity(result)
+              setActivityError('')
+            } else {
+              setActivity(null)
+              setActivityError(toText(result && result.reason) || 'network')
+            }
+            if (typeof done === 'function') done()
+          }
+        )
+      }
+
+      function refreshAll(done) {
+        try {
+          if (refreshSafety.current !== null) clearTimeout(refreshSafety.current)
+        } catch (error) {
+          /* ignore */
+        }
+        refreshSafety.current = null
+        var pending = 5
+        var finish = settleOnce(function () {
+          if (refreshSafety.current !== null) {
+            try {
+              clearTimeout(refreshSafety.current)
+            } catch (error) {
+              /* ignore */
+            }
+          }
+          refreshSafety.current = null
+          if (!alive.current) return
+          setLastRefresh(Date.now())
+          setNowTick(Date.now())
+          setRefreshPending(false)
+          if (typeof done === 'function') done()
+        })
+        try {
+          refreshSafety.current = setTimeout(function () {
+            refreshSafety.current = null
+            finish()
+          }, 8000)
+        } catch (error) {
+          refreshSafety.current = null
+        }
+        function release() {
+          pending -= 1
+          if (pending === 0) finish()
+        }
+        loadStatus(withSafety(release))
+        loadNetwork(withSafety(release))
+        loadProfile(withSafety(release))
+        loadRepos(withSafety(release))
+        loadActivity(withSafety(release))
       }
 
       function showNotice(text) {
@@ -1507,6 +1693,7 @@ window.__ModuleLoader__.load({
           timer.current = setInterval(function () {
             if (!alive.current) return
             loadStatus()
+            setNowTick(Date.now())
           }, 30000)
         } catch (error) {
           timer.current = null
@@ -1543,6 +1730,12 @@ window.__ModuleLoader__.load({
           }
           reposAbort.current = null
           try {
+            if (activityAbort.current) activityAbort.current()
+          } catch (error) {
+            /* ignore */
+          }
+          activityAbort.current = null
+          try {
             if (timer.current !== null) clearInterval(timer.current)
           } catch (error) {
             /* ignore */
@@ -1560,6 +1753,12 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
           noticeTimer.current = null
+          try {
+            if (refreshSafety.current !== null) clearTimeout(refreshSafety.current)
+          } catch (error) {
+            /* ignore */
+          }
+          refreshSafety.current = null
           try {
             unsubscribe()
           } catch (error) {
@@ -1655,14 +1854,12 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { className: 'gitbar-github-repo-name', title: fullName },
-                  h('span', { className: 'gitbar-github-lang-dot', style: { background: githubLanguageColor(language) }, 'aria-hidden': 'true' }),
                   toText(repo && repo.name) || fullName,
                   repo && repo.private === true
                     ? h('span', { className: 'gitbar-github-repo-badge' }, t('githubPrivateBadge'))
                     : h('span', { className: 'gitbar-github-repo-badge gitbar-github-repo-badge-public' }, t('githubPublicBadge')),
                   repo && repo.archived === true ? h('span', { className: 'gitbar-github-repo-badge' }, t('githubArchivedBadge')) : null,
                   repo && repo.fork === true ? h('span', { className: 'gitbar-github-repo-badge' }, t('githubForkBadge')) : null,
-                  language ? h('span', { className: 'gitbar-github-repo-lang' }, language) : null
                 ),
                 toText(repo && repo.description)
                   ? h('div', { className: 'gitbar-github-repo-desc', title: toText(repo.description) }, toText(repo.description))
@@ -1702,6 +1899,120 @@ window.__ModuleLoader__.load({
         }
       }
 
+      function activityIcon(type) {
+        var kind = toText(type)
+        if (kind === 'PushEvent') return '↑'
+        if (kind === 'CreateEvent') return '+'
+        if (kind === 'IssuesEvent') return '!'
+        if (kind === 'PullRequestEvent') return '⇄'
+        if (kind === 'WatchEvent') return '★'
+        if (kind === 'ForkEvent') return '⑂'
+        if (kind === 'CommentEvent') return '…'
+        if (kind === 'ReleaseEvent') return '⤒'
+        if (kind === 'DeleteEvent') return '✕'
+        return '◎'
+      }
+
+      function activityText(item) {
+        var type = toText(item && item.type)
+        var repo = toText(item && item.repo)
+        var ref = toText(item && item.ref)
+        var action = toText(item && item.action)
+        var commits = item && item.commits
+        var commitCount = Array.isArray(commits) ? commits.length : (toNumber(commits) || 0)
+        if (type === 'PushEvent') return toText(t('githubEventPush')).replace('{n}', String(commitCount)).replace('{repo}', repo)
+        if (type === 'CreateEvent') {
+          var what = action === 'branch' ? '分支' : action === 'tag' ? '标签' : '仓库'
+          return toText(t('githubEventCreate')).replace('{what}', what).replace('{ref}', ref).replace('{repo}', repo)
+        }
+        if (type === 'IssuesEvent') return toText(t('githubEventIssues')).replace('{ref}', ref).replace('{repo}', repo)
+        if (type === 'PullRequestEvent') return toText(t('githubEventPullRequest')).replace('{ref}', ref).replace('{repo}', repo)
+        if (type === 'WatchEvent') return toText(t('githubEventWatch')).replace('{repo}', repo)
+        if (type === 'ForkEvent') return toText(t('githubEventFork')).replace('{repo}', repo)
+        if (type === 'CommentEvent') return toText(t('githubEventComment')).replace('{repo}', repo)
+        if (type === 'ReleaseEvent') return toText(t('githubEventRelease')).replace('{ref}', ref).replace('{repo}', repo)
+        if (type === 'DeleteEvent') return toText(t('githubEventDelete')).replace('{ref}', ref).replace('{repo}', repo)
+        return toText(t('githubEventOther')).replace('{type}', type).replace('{repo}', repo)
+      }
+
+      function activityShortLabel(type) {
+        var kind = toText(type)
+        if (kind === 'PushEvent') return t('githubEventShortPush')
+        if (kind === 'CreateEvent') return t('githubEventShortCreate')
+        if (kind === 'IssuesEvent') return t('githubEventShortIssues')
+        if (kind === 'PullRequestEvent') return t('githubEventShortPullRequest')
+        if (kind === 'WatchEvent') return t('githubEventShortWatch')
+        if (kind === 'ForkEvent') return t('githubEventShortFork')
+        if (kind === 'CommentEvent') return t('githubEventShortComment')
+        if (kind === 'ReleaseEvent') return t('githubEventShortRelease')
+        if (kind === 'DeleteEvent') return t('githubEventShortDelete')
+        return t('githubEventShortOther')
+      }
+
+      var activityPane = null
+      if (activityPending && !activity) {
+        activityPane = h('div', { className: 'gitbar-github-repos-state', key: 'activity-loading' }, t('loading'))
+      } else if (activityError === 'not-signed-in') {
+        activityPane = h('div', { className: 'gitbar-github-repos-state', key: 'activity-signin' }, t('githubActivitySignIn'))
+      } else if (activityError) {
+        activityPane = h(
+          'div',
+          { className: 'gitbar-github-repos-state gitbar-github-repos-error', key: 'activity-error', role: 'alert' },
+          h('span', null, t('githubNetworkFailed')),
+          h('button', { type: 'button', className: 'gitbar-btn gitbar-github-btn', onClick: function () { loadActivity() } }, t('githubRefresh'))
+        )
+      } else if (!activity || !Array.isArray(activity.items) || activity.items.length === 0) {
+        activityPane = h('div', { className: 'gitbar-github-repos-state', key: 'activity-empty' }, t('githubActivityEmpty'))
+      } else {
+        var activityCounts = activity.counts && typeof activity.counts === 'object' ? activity.counts : {}
+        var activityOrder = Object.keys(activityCounts).sort(function (a, b) { return (toNumber(activityCounts[b]) || 0) - (toNumber(activityCounts[a]) || 0) })
+        var activityChips = [
+          h('span', { className: 'gitbar-github-chip', key: 'total' }, toText(t('githubActivityTotal')).replace('{n}', String(toNumber(activity.total) || 0)))
+        ]
+        activityOrder.slice(0, 3).forEach(function (type) {
+          activityChips.push(h('span', { className: 'gitbar-github-chip', key: 'count-' + type }, activityShortLabel(type) + ' ×' + String(toNumber(activityCounts[type]) || 0)))
+        })
+        var activityRows = activity.items.slice(0, 15).map(function (item, index) {
+          var repo = toText(item && item.repo)
+          return h(
+            'div',
+            { className: 'gitbar-github-activity-row', key: 'activity-' + index + '-' + toText(item && item.id) },
+            h('span', { className: 'gitbar-github-activity-icon', 'aria-hidden': 'true' }, activityIcon(item && item.type)),
+            h(
+              'div',
+              { className: 'gitbar-github-activity-body' },
+              h('div', { className: 'gitbar-github-activity-text', title: activityText(item) }, activityText(item)),
+              h('div', { className: 'gitbar-github-activity-time' }, formatAgoText(t, item && item.createdAt, nowTick))
+            ),
+            repo ? h('button', { type: 'button', className: 'gitbar-github-link-btn', onClick: function () { openRepo({ fullName: repo }) } }, repo) : null
+          )
+        })
+        activityPane = h(
+          'div',
+          { className: 'gitbar-github-activity' },
+          h('div', { className: 'gitbar-github-activity-stats' }, activityChips),
+          h('div', { className: 'gitbar-github-activity-list' }, activityRows)
+        )
+      }
+
+      var lastRefreshText = toText(t('githubLastRefresh')).replace('{when}', lastRefresh ? formatAgoText(t, lastRefresh, nowTick) : t('githubAgoJustNow'))
+
+      function tabButton(key, label) {
+        return h(
+          'button',
+          {
+            type: 'button',
+            key: 'tab-' + key,
+            className: 'gitbar-github-tabbtn' + (tabView === key ? ' gitbar-github-tabbtn-on' : ''),
+            'aria-pressed': tabView === key ? 'true' : 'false',
+            onClick: function () {
+              setTabView(key)
+            }
+          },
+          label
+        )
+      }
+
       function filterChip(key, label) {
         return h(
           'button',
@@ -1722,6 +2033,7 @@ window.__ModuleLoader__.load({
         'div',
         { className: 'gitbar-github-page' },
         h('style', { key: 'gitbar-page-style' }, CSS),
+        h('div', { className: 'gitbar-github-lastrefresh', key: 'last-refresh' }, lastRefreshText),
         h(
           'div',
           { className: 'gitbar-github-page-cols' },
@@ -1744,8 +2056,12 @@ window.__ModuleLoader__.load({
                 }
                 refreshAll()
               },
-              onReload: refreshAll,
-              onNetworkReload: loadNetwork,
+              onReload: function (done) {
+                refreshAll(done)
+              },
+              onNetworkReload: function (done) {
+                loadNetwork(done)
+              },
               onFlash: function (text) {
                 showNotice(text)
               }
@@ -1756,62 +2072,82 @@ window.__ModuleLoader__.load({
             { className: 'gitbar-github-right' },
             h(
               'div',
-              { className: 'gitbar-github-repos-head' },
-              h('span', { className: 'gitbar-github-repos-title' }, t('githubMyRepos')),
-              h('span', { className: 'gitbar-github-repos-stats', title: statsText }, statsText),
-              h('span', { className: 'gitbar-spacer' }),
-              h(
-                'select',
-                {
-                  className: 'gitbar-github-sort',
-                  value: repoSort,
-                  'aria-label': t('githubSortPushed'),
-                  onChange: function (event) {
-                    setRepoSort(toText(event && event.target ? event.target.value : 'pushed') || 'pushed')
-                  }
-                },
-                h('option', { value: 'pushed' }, t('githubSortPushed')),
-                h('option', { value: 'name' }, t('githubSortName')),
-                h('option', { value: 'stars' }, t('githubSortStars'))
-              ),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'gitbar-btn gitbar-github-btn',
-                  disabled: reposPending,
-                  onClick: refreshAll
-                },
-                t('githubRefresh')
-              )
+              { className: 'gitbar-github-tabs' },
+              tabButton('repos', t('githubTabRepos')),
+              tabButton('activity', t('githubTabActivity'))
             ),
             h(
               'div',
-              { className: 'gitbar-github-repos-filters' },
-              filterChip('all', t('githubFilterAll')),
-              filterChip('public', t('githubFilterPublic')),
-              filterChip('private', t('githubFilterPrivate')),
-              filterChip('archived', t('githubFilterArchived'))
-            ),
-            h(
-              'div',
-              { className: 'gitbar-github-repos-search' },
-              h('input', {
-                type: 'text',
-                className: 'gitbar-github-input',
-                value: query,
-                placeholder: t('githubMyRepos'),
-                'aria-label': t('githubMyRepos'),
-                autoComplete: 'off',
-                spellCheck: false,
-                onChange: function (event) {
-                  onQueryChange(event && event.target ? event.target.value : '')
-                }
-              })
-            ),
-            topLanguagesText ? h('div', { className: 'gitbar-github-top-langs', key: 'top-langs' }, topLanguagesText) : null,
-            notice ? h('div', { className: 'gitbar-github-repos-state', key: 'notice', role: 'status' }, notice) : null,
-            h('div', { className: 'gitbar-github-repos-list' }, rows)
+              { className: 'gitbar-github-tabpane', key: 'pane-' + tabView },
+              tabView === 'repos'
+                ? [
+                  h(
+                    'div',
+                    { className: 'gitbar-github-repos-head', key: 'repos-head' },
+                    h('span', { className: 'gitbar-github-repos-title' }, t('githubMyRepos')),
+                    h('span', { className: 'gitbar-github-repos-stats', title: statsText }, statsText),
+                    h('span', { className: 'gitbar-spacer' }),
+                    h(
+                      'select',
+                      {
+                        className: 'gitbar-github-sort',
+                        value: repoSort,
+                        'aria-label': t('githubSortPushed'),
+                        onChange: function (event) {
+                          setRepoSort(toText(event && event.target ? event.target.value : 'pushed') || 'pushed')
+                        }
+                      },
+                      h('option', { value: 'pushed' }, t('githubSortPushed')),
+                      h('option', { value: 'name' }, t('githubSortName')),
+                      h('option', { value: 'stars' }, t('githubSortStars'))
+                    ),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'gitbar-btn gitbar-github-btn',
+                        disabled: refreshPending,
+                        onClick: function () {
+                          if (refreshPending) return
+                          setRefreshPending(true)
+                          refreshAll(function () {
+                            showNotice(t('githubRefreshed'))
+                          })
+                        }
+                      },
+                      refreshPending ? h('span', { className: 'gitbar-spin', 'aria-hidden': 'true' }) : null,
+                      refreshPending ? t('githubRefreshPending') : t('githubRefresh')
+                    )
+                  ),
+                  h(
+                    'div',
+                    { className: 'gitbar-github-repos-filters', key: 'repos-filters' },
+                    filterChip('all', t('githubFilterAll')),
+                    filterChip('public', t('githubFilterPublic')),
+                    filterChip('private', t('githubFilterPrivate')),
+                    filterChip('archived', t('githubFilterArchived'))
+                  ),
+                  h(
+                    'div',
+                    { className: 'gitbar-github-repos-search', key: 'repos-search' },
+                    h('input', {
+                      type: 'text',
+                      className: 'gitbar-github-input',
+                      value: query,
+                      placeholder: t('githubMyRepos'),
+                      'aria-label': t('githubMyRepos'),
+                      autoComplete: 'off',
+                      spellCheck: false,
+                      onChange: function (event) {
+                        onQueryChange(event && event.target ? event.target.value : '')
+                      }
+                    })
+                  ),
+                  notice ? h('div', { className: 'gitbar-github-repos-state', key: 'notice', role: 'status' }, notice) : null,
+                  h('div', { className: 'gitbar-github-repos-list', key: 'repos-list' }, rows)
+                ]
+                : [activityPane]
+            )
           )
         )
       )
@@ -1882,6 +2218,16 @@ window.__ModuleLoader__.load({
       var logoutConfirm = logoutConfirmHook[0]
       var setLogoutConfirm = logoutConfirmHook[1]
       var logoutTimer = useRef(null)
+      var panelNoticeHook = useState('')
+      var panelNotice = panelNoticeHook[0]
+      var setPanelNotice = panelNoticeHook[1]
+      var panelNoticeTimer = useRef(null)
+      var panelRefreshHook = useState(false)
+      var panelRefresh = panelRefreshHook[0]
+      var setPanelRefresh = panelRefreshHook[1]
+      var panelNetHook = useState(false)
+      var panelNet = panelNetHook[0]
+      var setPanelNet = panelNetHook[1]
       var resizeBound = useRef(false)
 
       function publish(nextStatus, nextNetwork) {
@@ -1893,7 +2239,22 @@ window.__ModuleLoader__.load({
         })
       }
 
-      function loadStatus() {
+      function showPanelNotice(text) {
+        var message = toText(text)
+        if (!message) return
+        setPanelNotice(message)
+        try {
+          if (panelNoticeTimer.current !== null) clearTimeout(panelNoticeTimer.current)
+        } catch (error) {
+          /* ignore */
+        }
+        panelNoticeTimer.current = setTimeout(function () {
+          panelNoticeTimer.current = null
+          if (alive.current) setPanelNotice('')
+        }, 1600)
+      }
+
+      function loadStatus(done) {
         try {
           if (statusAbort.current) statusAbort.current()
         } catch (error) {
@@ -1909,15 +2270,19 @@ window.__ModuleLoader__.load({
               setStatus(result)
               publish(result, undefined)
             }
+            if (typeof done === 'function') done()
           }
         )
       }
 
-      function loadNetwork() {
+      function loadNetwork(done) {
         fetchGithubNetwork(sessionId, false, function (result) {
-          if (!alive.current || !result) return
-          setNetwork(result)
-          publish(undefined, result)
+          if (!alive.current) return
+          if (result) {
+            setNetwork(result)
+            publish(undefined, result)
+          }
+          if (typeof done === 'function') done()
         })
       }
 
@@ -2084,6 +2449,12 @@ window.__ModuleLoader__.load({
             /* ignore */
           }
           logoutTimer.current = null
+          try {
+            if (panelNoticeTimer.current !== null) clearTimeout(panelNoticeTimer.current)
+          } catch (error) {
+            /* ignore */
+          }
+          panelNoticeTimer.current = null
           dialogRef.current = null
           try {
             unsubscribe()
@@ -2192,8 +2563,14 @@ window.__ModuleLoader__.load({
               }
               loadStatus()
             },
-            onReload: loadStatus,
-            onNetworkReload: loadNetwork,
+            onReload: function (done) {
+              loadStatus()
+              if (typeof done === 'function') done()
+            },
+            onNetworkReload: function (done) {
+              loadNetwork()
+              if (typeof done === 'function') done()
+            },
             onFlash: function () {}
           })
         )
@@ -2243,11 +2620,26 @@ window.__ModuleLoader__.load({
                   className: 'gitbar-github-net-btn',
                   title: t('githubNetworkRetest'),
                   'aria-label': t('githubNetworkRetest'),
+                  disabled: panelNet,
                   onClick: function () {
-                    loadNetwork()
+                    if (panelNet) return
+                    setPanelNet(true)
+                    loadNetwork(withSafety(function () {
+                      if (!alive.current) return
+                      setPanelNet(false)
+                      var current = gitbarGithubAccountStore.get() || {}
+                      var next = current.network || null
+                      var ok = Boolean(next && next.ok === true && next.github && next.github.reachable === true)
+                      if (ok) {
+                        showPanelNotice(toText(t('githubRetestOk')).replace('{mode}', githubNetworkText(t, next)).replace('{ms}', String((toNumber(next.github.latencyMs) || 0))))
+                      } else {
+                        showPanelNotice(t('githubRetestFail'))
+                      }
+                    }))
                   }
                 },
-                t('githubNetworkRetest')
+                panelNet ? h('span', { className: 'gitbar-spin', 'aria-hidden': 'true' }) : null,
+                panelNet ? t('githubRetestPending') : t('githubNetworkRetest')
               )
             ),
             !hasWorkflow
@@ -2283,7 +2675,32 @@ window.__ModuleLoader__.load({
                 fullPanelAvailable()
                   ? h('button', { type: 'button', className: 'gitbar-btn gitbar-github-btn', onClick: openFullPanel }, t('githubPanelOpenFull'))
                   : null,
-                h('button', { type: 'button', className: 'gitbar-btn gitbar-github-btn', onClick: loadStatus }, t('githubRefresh')),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'gitbar-btn gitbar-github-btn',
+                    disabled: panelRefresh,
+                    onClick: function () {
+                      if (panelRefresh) return
+                      setPanelRefresh(true)
+                      var pending = 2
+                      var finish = settleOnce(function () {
+                        if (!alive.current) return
+                        setPanelRefresh(false)
+                        showPanelNotice(t('githubRefreshed'))
+                      })
+                      function release() {
+                        pending -= 1
+                        if (pending === 0) finish()
+                      }
+                      loadStatus(withSafety(release))
+                      loadNetwork(withSafety(release))
+                    }
+                  },
+                  panelRefresh ? h('span', { className: 'gitbar-spin', 'aria-hidden': 'true' }) : null,
+                  panelRefresh ? t('githubRefreshPending') : t('githubRefresh')
+                ),
                 h('button', { type: 'button', className: 'gitbar-btn gitbar-github-danger', onClick: armLogoutConfirm }, t('githubSignOut'))
               )
           )
@@ -2351,7 +2768,7 @@ window.__ModuleLoader__.load({
               h('span', { className: 'gitbar-avatar-panel-title' }, t('githubAccountPanelTitle')),
               h('button', { type: 'button', className: 'gitbar-btn', title: t('close'), 'aria-label': t('close'), onClick: closePanel }, '×')
             ),
-            h('div', { className: 'gitbar-avatar-panel-body' }, body)
+            h('div', { className: 'gitbar-avatar-panel-body' }, panelNotice ? h('div', { className: 'gitbar-github-repos-state', key: 'panel-notice', role: 'status' }, panelNotice) : null, body)
           )
           : null
       )
@@ -2445,6 +2862,44 @@ window.__ModuleLoader__.load({
         return false
       }
       return false
+    }
+
+    function settleOnce(done) {
+      var called = false
+      return function () {
+        if (called) return
+        called = true
+        try {
+          if (typeof done === 'function') done()
+        } catch (error) {
+          /* ignore */
+        }
+      }
+    }
+
+    // Guarantees exactly one completion callback, even if the request never answers.
+    function withSafety(done, ms) {
+      var settle = settleOnce(done)
+      var timer = null
+      try {
+        timer = setTimeout(function () {
+          timer = null
+          settle()
+        }, toNumber(ms) || 8000)
+      } catch (error) {
+        timer = null
+      }
+      return settleOnce(function () {
+        if (timer !== null) {
+          try {
+            clearTimeout(timer)
+          } catch (error) {
+            /* ignore */
+          }
+        }
+        timer = null
+        settle()
+      })
     }
 
     function describeClientNode(element) {
@@ -3390,7 +3845,32 @@ window.__ModuleLoader__.load({
       '.gitbar-github-profile{display:flex;flex-direction:column;gap:3px;padding:4px 0 2px}',
       '.gitbar-github-profile-bio{font-size:11.5px;color:var(--dsw-alias-label-primary)}',
       '.gitbar-github-profile-facts{font-size:10.5px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.gitbar-avatar-panel{display:flex;flex-direction:column;overflow:hidden}',
+      '@keyframes gitbar-avatar-panel-in{from{opacity:0;transform:translateY(4px) scale(.98)}to{opacity:1;transform:none}}',
+      '@keyframes gitbar-section-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}',
+      '@keyframes gitbar-row-in{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}',
+      '@keyframes gitbar-spin{to{transform:rotate(360deg)}}',
+      '.gitbar-avatar-panel{display:flex;flex-direction:column;overflow:hidden;animation:gitbar-avatar-panel-in 150ms cubic-bezier(.2,0,0,1) both}',
+      '.gitbar-github-page-cols > *{animation:gitbar-section-in 120ms cubic-bezier(.2,0,0,1) both}',
+      '.gitbar-github-page-cols > *:nth-child(2){animation-delay:40ms}',
+      '.gitbar-github-repo-row,.gitbar-github-activity-row{animation:gitbar-row-in 140ms cubic-bezier(.2,0,0,1) both}',
+      '.gitbar-github-tabpane{animation:gitbar-section-in 120ms cubic-bezier(.2,0,0,1) both}',
+      '.gitbar-spin{display:inline-block;width:10px;height:10px;border:1.5px solid currentColor;border-top-color:transparent;border-radius:50%;animation:gitbar-spin 800ms linear infinite;vertical-align:middle}',
+      '.gitbar-btn,.gitbar-github-chip,.gitbar-github-filter,.gitbar-github-repo-row,.gitbar-github-activity-row,.gitbar-avatar-entry,.gitbar-github-sort,.gitbar-github-org-row,.gitbar-github-tabbtn{transition:background-color 120ms ease,color 120ms ease,border-color 120ms ease}',
+      '.gitbar-github-orgs-list{display:flex;flex-direction:column;gap:1px}',
+      '.gitbar-github-org-row{display:flex;align-items:center;gap:6px;padding:2px 0;border:none;background:transparent;color:inherit;font:inherit;font-size:11px;text-align:left;cursor:pointer}',
+      '.gitbar-github-org-row:hover{color:var(--dsw-alias-brand-primary)}',
+      '.gitbar-github-org-avatar{flex:0 0 auto;width:20px;height:20px;border-radius:50%;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;background:var(--dsw-alias-bg-layer-2);font-size:9px}',
+      '.gitbar-github-org-avatar img{width:100%;height:100%;object-fit:cover;display:block}',
+      '.gitbar-github-tabs{display:flex;gap:4px;border-bottom:1px solid var(--dsw-alias-border-l1);padding-bottom:4px}',
+      '.gitbar-github-tabbtn{padding:2px 8px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer}',
+      '.gitbar-github-tabbtn-on{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2)}',
+      '.gitbar-github-activity-stats{display:flex;flex-wrap:wrap;gap:4px}',
+      '.gitbar-github-activity-row{display:flex;align-items:flex-start;gap:6px;padding:5px 2px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
+      '.gitbar-github-activity-icon{flex:0 0 auto;width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--dsw-alias-border-l2);font-size:9px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-activity-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}',
+      '.gitbar-github-activity-text{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.gitbar-github-activity-time{font-size:10px;color:var(--dsw-alias-label-secondary)}',
+      '.gitbar-github-lastrefresh{font-size:10.5px;color:var(--dsw-alias-label-secondary);padding:0 0 6px}',
       '.gitbar-avatar-panel-head{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
       '.gitbar-avatar-panel-title{flex:1 1 auto;min-width:0;font-weight:600;font-size:12.5px}',
       '.gitbar-avatar-panel-body{display:flex;flex-direction:column;gap:6px;padding:8px;overflow:auto;min-height:0}',
@@ -3560,7 +4040,7 @@ window.__ModuleLoader__.load({
       '.gitbar-gp-login{display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid var(--dsw-alias-border-l1)}',
       '@keyframes gitbar-gp-in{from{opacity:0;transform:translateY(-4px) scale(.99)}to{opacity:1;transform:none}}',
       '@keyframes gitbar-github-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}',
-      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-gp,.gitbar-gp-repo,.gitbar-hero-clone,.gitbar-github-net-btn,.gitbar-github-pulse,.gitbar-github-skeleton-dot,.gitbar-github-compact,.gitbar-github-account-dot,.gitbar-github-step,.gitbar-github-cta-btn,.gitbar-github-disclosure,.gitbar-github-danger,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
+      '@media (prefers-reduced-motion: reduce){.gitbar-panel-anim,.gitbar-panel-closing,.gitbar-pulse,.gitbar-picker,.gitbar-picker-row,.gitbar-commit-detail,.gitbar-body-back,.gitbar-body-forward,.gitbar-commits-shell,.gitbar-commitpanel,.gitbar-graph-commitbtn,.gitbar-commitpanel-primary,.gitbar-rowactions,.gitbar-rowact,.gitbar-groupstage,.gitbar-commitpanel-undo,.gitbar-graph-result,.gitbar-graph-more,.gitbar-github-panel,.gitbar-github-repo,.gitbar-github-tab,.gitbar-github-caret,.gitbar-clone-fill,.gitbar-clone,.gitbar-gp,.gitbar-gp-repo,.gitbar-hero-clone,.gitbar-github-net-btn,.gitbar-github-pulse,.gitbar-github-skeleton-dot,.gitbar-github-compact,.gitbar-github-account-dot,.gitbar-avatar-panel,.gitbar-github-page-cols > *,.gitbar-github-repo-row,.gitbar-github-activity-row,.gitbar-github-tabpane,.gitbar-spin,.gitbar-github-org-row,.gitbar-github-tabbtn,.gitbar-github-step,.gitbar-github-cta-btn,.gitbar-github-disclosure,.gitbar-github-danger,.gitbar-flash,.gitbar-busy,.gitbar-row,.gitbar-branchrow,.gitbar-commit,.gitbar-filelink,.gitbar-pill,.gitbar-btn,.gitbar-branchbtn,.gitbar-commitstoggle,.gitbar-caret,.gitbar-commitschev,.gitbar-graph,.gitbar-graph-row,.gitbar-graph-status,.gitbar-confirm,.gitbar-graph-status-ok,.gitbar-graph-skeleton,.gitbar-graph-chip,.gitbar-graph-escape{animation:none !important;transition:none !important}}'
     ].join('')
 
     // ── components ────────────────────────────────────────────────────────
@@ -7790,6 +8270,12 @@ window.__ModuleLoader__.load({
       var patVisibleHook = useState(false)
       var patVisible = patVisibleHook[0]
       var setPatVisible = patVisibleHook[1]
+      var netPendingHook = useState(false)
+      var netPending = netPendingHook[0]
+      var setNetPending = netPendingHook[1]
+      var refreshPendingHook = useState(false)
+      var refreshPending = refreshPendingHook[0]
+      var setRefreshPending = refreshPendingHook[1]
       var logoutConfirmHook = useState(false)
       var logoutConfirm = logoutConfirmHook[0]
       var setLogoutConfirm = logoutConfirmHook[1]
@@ -8440,15 +8926,33 @@ window.__ModuleLoader__.load({
               className: 'gitbar-github-net-btn',
               title: t('githubNetworkRetest'),
               'aria-label': t('githubNetworkRetest'),
+              disabled: netPending,
               onClick: function () {
+                if (netPending) return
+                setNetPending(true)
+                var finished = false
+                function finish(result) {
+                  if (finished || !alive.current) return
+                  finished = true
+                  setNetPending(false)
+                  var ok = Boolean(result && result.ok === true && result.github && result.github.reachable === true)
+                  if (ok) {
+                    var ms = toNumber(result.github.latencyMs)
+                    flash(toText(t('githubRetestOk')).replace('{mode}', githubNetworkText(t, result)).replace('{ms}', String(ms === null ? 0 : ms)))
+                  } else {
+                    flash(t('githubRetestFail'))
+                  }
+                }
                 try {
-                  if (typeof props.onNetworkReload === 'function') props.onNetworkReload()
+                  if (typeof props.onNetworkReload === 'function') props.onNetworkReload(finish)
+                  else finish(null)
                 } catch (error3) {
-                  /* ignore */
+                  finish(null)
                 }
               }
             },
-            t('githubNetworkRetest')
+            netPending ? h('span', { className: 'gitbar-spin', 'aria-hidden': 'true' }) : null,
+            netPending ? t('githubRetestPending') : t('githubNetworkRetest')
           )
         )
         if (!signedIn) rows.push(netRow)
@@ -8901,14 +9405,20 @@ window.__ModuleLoader__.load({
               // Organisations (max 8 chips + overflow).
               var orgs = Array.isArray(panelProfile.orgs) ? panelProfile.orgs : []
               if (orgs.length > 0) {
-                var orgChips = orgs.slice(0, 8).map(function (org) {
-                  return h('span', { className: 'gitbar-github-profile-org', key: 'org-' + toText(org) }, toText(org))
+                var orgRows = orgs.slice(0, 8).map(function (org, orgIndex) {
+                  return h(GithubOrgItem, {
+                    key: 'org-' + orgIndex + '-' + toText(org),
+                    login: toText(org),
+                    onOpen: function (login) {
+                      openExternal('https://github.com/' + login)
+                    }
+                  })
                 })
-                if (orgs.length > 8) orgChips.push(h('span', { className: 'gitbar-github-profile-org', key: 'org-more' }, '+' + String(orgs.length - 8)))
+                if (orgs.length > 8) orgRows.push(h('span', { className: 'gitbar-github-profile-org', key: 'org-more' }, '+' + String(orgs.length - 8)))
                 profileLines.push(
                   h('div', { className: 'gitbar-github-profile-orgs', key: 'orgs-row' },
-                    h('span', { className: 'gitbar-github-meta-label' }, t('githubOrgs')),
-                    h('div', { className: 'gitbar-github-chips' }, orgChips)
+                    h('span', { className: 'gitbar-github-meta-label' }, t('githubOrgsTitle')),
+                    h('div', { className: 'gitbar-github-orgs-list' }, orgRows)
                   )
                 )
               }
@@ -9061,12 +9571,27 @@ window.__ModuleLoader__.load({
                     {
                       type: 'button',
                       className: 'gitbar-btn gitbar-github-btn',
-                      disabled: pending !== '',
+                      disabled: pending !== '' || refreshPending,
                       onClick: function () {
-                        if (typeof props.onReload === 'function') props.onReload()
+                        if (refreshPending) return
+                        setRefreshPending(true)
+                        var finished = false
+                        function finish() {
+                          if (finished || !alive.current) return
+                          finished = true
+                          setRefreshPending(false)
+                          flash(t('githubRefreshed'))
+                        }
+                        try {
+                          if (typeof props.onReload === 'function') props.onReload(finish)
+                          else finish()
+                        } catch (error3) {
+                          finish()
+                        }
                       }
                     },
-                    t('githubRefresh')
+                    refreshPending ? h('span', { className: 'gitbar-spin', 'aria-hidden': 'true' }) : null,
+                    refreshPending ? t('githubRefreshPending') : t('githubRefresh')
                   ),
                   h(
                     'button',
